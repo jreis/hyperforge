@@ -31,6 +31,6 @@
     <key>NSAppleEventsUsageDescription</key>
     <string>HyperForge sends keystrokes and controls apps to power your Hyper Key automations.</string>
     <key>NSHumanReadableCopyright</key>
-    <string>Copyright © 2026 HyperForge. Local-first &amp; private by default.</string>
+    <string>Copyright © 2026 Jason Reis. Local-first &amp; private by default.</string>
 </dict>
 </plist>

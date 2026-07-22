@@ -248,4 +248,4 @@ HyperForge wraps and extends the battle-tested Hyper Key daemon (`hyperkey.swift
 
 ## License
 
-[MIT](LICENSE) · local-first · portfolio-ready
+[MIT](LICENSE) · © Jason Reis · local-first · portfolio-ready
