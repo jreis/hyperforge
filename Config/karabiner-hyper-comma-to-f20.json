@@ -1,0 +1,48 @@
+{
+  "title": "HyperForge — Hyper + , opens Dashboard (F20)",
+  "rules": [
+    {
+      "description": "Hyper (⌘⌃⌥⇧) + , → F20 (HyperForge dashboard)",
+      "manipulators": [
+        {
+          "type": "basic",
+          "from": {
+            "key_code": "comma",
+            "modifiers": {
+              "mandatory": [
+                "command",
+                "control",
+                "option",
+                "shift"
+              ]
+            }
+          },
+          "to": [
+            {
+              "key_code": "f20"
+            }
+          ]
+        },
+        {
+          "type": "basic",
+          "from": {
+            "key_code": "comma",
+            "modifiers": {
+              "mandatory": [
+                "left_command",
+                "left_control",
+                "left_option",
+                "left_shift"
+              ]
+            }
+          },
+          "to": [
+            {
+              "key_code": "f20"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

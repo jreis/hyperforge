@@ -1,0 +1,48 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# SwiftPM / Xcode
+.build/
+.swiftpm/
+Packages/
+Package.resolved
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+DerivedData/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# App packaging / local install artifacts
+*.app/
+dist/
+release/
+
+# Logs & debug
+*.log
+/tmp/hyperforge*
+hyperforge-events.log
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*~
+.nova/
+
+# Secrets / local machine (never commit)
+.env
+.env.*
+*.pem
+*.p12
+*.mobileprovision
+
+# User Karabiner / personal config copies
+**/karabiner.json.bak*
+**/.config/

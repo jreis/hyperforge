@@ -1,0 +1,68 @@
+{
+  "title": "HyperForge — Hyper + / opens Keybindings (F19)",
+  "rules": [
+    {
+      "description": "Hyper (⌘⌃⌥⇧) + / → F19 (HyperForge cheat sheet)",
+      "manipulators": [
+        {
+          "type": "basic",
+          "from": {
+            "key_code": "slash",
+            "modifiers": {
+              "mandatory": [
+                "command",
+                "control",
+                "option",
+                "shift"
+              ]
+            }
+          },
+          "to": [
+            {
+              "key_code": "f19"
+            }
+          ]
+        },
+        {
+          "type": "basic",
+          "from": {
+            "key_code": "slash",
+            "modifiers": {
+              "mandatory": [
+                "left_command",
+                "left_control",
+                "left_option",
+                "left_shift"
+              ]
+            }
+          },
+          "to": [
+            {
+              "key_code": "f19"
+            }
+          ]
+        },
+        {
+          "type": "basic",
+          "comment": "Also map Hyper + ` (grave) → F19 as a backup help key",
+          "from": {
+            "key_code": "grave_accent_and_tilde",
+            "modifiers": {
+              "mandatory": [
+                "command",
+                "control",
+                "option",
+                "shift"
+              ]
+            }
+          },
+          "to": [
+            {
+              "key_code": "f19"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
