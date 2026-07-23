@@ -381,24 +381,25 @@ final class TerminalPreference: ObservableObject {
     /// Open terminal with working directory (Finder “terminal here”).
     func openInDirectory(_ path: String) {
         let id = bundleID
-        let escaped = path.replacingOccurrences(of: "\"", with: "\\\"")
-        let shellPath = "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let folderName = URL(fileURLWithPath: path).lastPathComponent
+        // Single-quoted path for shell (handles spaces; escape embedded ')
+        let shellQuoted = "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
 
         switch id {
         case "com.apple.Terminal":
-            runAppleScript(
+            // Terminal accepts a folder via `open -a` and cds there.
+            if openFolderWithApp(path: path) || runAppleScript(
                 """
                 tell application "Terminal"
                     activate
-                    do script "cd \(shellPath)"
+                    do script "cd \(shellQuoted)"
                 end tell
                 """
-            )
-            Banner.show(
-                "Terminal → \(URL(fileURLWithPath: path).lastPathComponent)",
-                style: .success,
-                symbol: "folder"
-            )
+            ) {
+                Banner.show("Terminal → \(folderName)", style: .success, symbol: "folder")
+            } else {
+                openAndTypeCD(path: path, alreadyRunningDelay: 0.25, launchDelay: 0.8)
+            }
             return
 
         case "com.googlecode.iterm2":
@@ -407,85 +408,107 @@ final class TerminalPreference: ObservableObject {
                 tell application "iTerm2"
                     activate
                     try
+                        create window with default profile command "cd \(shellQuoted) && exec $SHELL -l"
+                    on error
                         create window with default profile
+                        tell current session of current window
+                            write text "cd \(shellQuoted)"
+                        end tell
                     end try
-                    tell current session of current window
-                        write text "cd \(shellPath)"
-                    end tell
                 end tell
                 """
             )
-            if !ok {
-                openAndTypeCD(path: escaped, alreadyRunningDelay: 0.3, launchDelay: 0.8)
-                return
+            if ok {
+                Banner.show("\(current.name) → \(folderName)", style: .success, symbol: "folder")
+            } else {
+                openAndTypeCD(path: path, alreadyRunningDelay: 0.3, launchDelay: 0.8)
             }
-            Banner.show(
-                "\(current.name) → \(URL(fileURLWithPath: path).lastPathComponent)",
-                style: .success,
-                symbol: "folder"
-            )
             return
 
         case "com.mitchellh.ghostty":
-            // Never use `ghostty` CLI when already running — it spawns a new instance.
-            if findRunning() != nil {
-                openAndTypeCD(path: escaped, alreadyRunningDelay: 0.2, launchDelay: 0.2)
+            // Prefer CLI with working-directory when cold; if running, new tab + cd
+            // (CLI while running can spawn a second Ghostty instance).
+            if findRunning() == nil,
+               openViaCLI(["ghostty"], args: ["--working-directory=\(path)"])
+            {
+                Banner.show("Ghostty → \(folderName)", style: .success, symbol: "folder")
                 return
             }
-            if openViaCLI(["ghostty"], args: ["--working-directory=\(path)"]) {
-                Banner.show(
-                    "Ghostty → \(URL(fileURLWithPath: path).lastPathComponent)",
-                    style: .success,
-                    symbol: "folder"
-                )
+            // Also try: open -na Ghostty --args --working-directory=…
+            if findRunning() == nil, openGhosttyWorkingDirectory(path) {
+                Banner.show("Ghostty → \(folderName)", style: .success, symbol: "folder")
                 return
             }
-            openAndTypeCD(path: escaped, alreadyRunningDelay: 0.35, launchDelay: 0.9)
+            openAndTypeCD(path: path, alreadyRunningDelay: 0.25, launchDelay: 0.85)
             return
 
         case "dev.warp.Warp-Stable", "dev.warp.Warp":
-            // Warp: open app and cd
-            openAndTypeCD(path: escaped, alreadyRunningDelay: 0.4, launchDelay: 1.0)
+            openAndTypeCD(path: path, alreadyRunningDelay: 0.4, launchDelay: 1.0)
             return
 
         case "net.kovidgoyal.kitty":
             if openViaCLI(["kitty"], args: ["--directory", path]) {
-                Banner.show(
-                    "Kitty → \(URL(fileURLWithPath: path).lastPathComponent)",
-                    style: .success,
-                    symbol: "folder"
-                )
+                Banner.show("Kitty → \(folderName)", style: .success, symbol: "folder")
                 return
             }
-            openAndTypeCD(path: escaped, alreadyRunningDelay: 0.35, launchDelay: 0.9)
+            openAndTypeCD(path: path, alreadyRunningDelay: 0.35, launchDelay: 0.9)
             return
 
         case "com.github.wez.wezterm":
             if openViaCLI(["wezterm"], args: ["start", "--cwd", path]) {
-                Banner.show(
-                    "WezTerm → \(URL(fileURLWithPath: path).lastPathComponent)",
-                    style: .success,
-                    symbol: "folder"
-                )
+                Banner.show("WezTerm → \(folderName)", style: .success, symbol: "folder")
                 return
             }
-            openAndTypeCD(path: escaped, alreadyRunningDelay: 0.35, launchDelay: 0.9)
+            openAndTypeCD(path: path, alreadyRunningDelay: 0.35, launchDelay: 0.9)
             return
 
         case "org.alacritty":
             if openViaCLI(["alacritty"], args: ["--working-directory", path]) {
-                Banner.show(
-                    "Alacritty → \(URL(fileURLWithPath: path).lastPathComponent)",
-                    style: .success,
-                    symbol: "folder"
-                )
+                Banner.show("Alacritty → \(folderName)", style: .success, symbol: "folder")
                 return
             }
-            openAndTypeCD(path: escaped, alreadyRunningDelay: 0.35, launchDelay: 0.9)
+            openAndTypeCD(path: path, alreadyRunningDelay: 0.35, launchDelay: 0.9)
             return
 
         default:
-            openAndTypeCD(path: escaped, alreadyRunningDelay: 0.35, launchDelay: 0.9)
+            openAndTypeCD(path: path, alreadyRunningDelay: 0.35, launchDelay: 0.9)
+        }
+    }
+
+    /// `open -a Terminal /path` style handoff (works well for Terminal.app).
+    @discardableResult
+    private func openFolderWithApp(path: String) -> Bool {
+        guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+        else { return false }
+        let dir = URL(fileURLWithPath: path, isDirectory: true)
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = true
+        NSWorkspace.shared.open([dir], withApplicationAt: appURL, configuration: config) { _, err in
+            if let err {
+                HyperLog.event("openFolderWithApp error: \(err.localizedDescription)")
+            }
+        }
+        return true
+    }
+
+    @discardableResult
+    private func openGhosttyWorkingDirectory(_ path: String) -> Bool {
+        guard let appURL = NSWorkspace.shared.urlForApplication(
+            withBundleIdentifier: "com.mitchellh.ghostty"
+        ) else { return false }
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        proc.arguments = [
+            "-na", appURL.path,
+            "--args", "--working-directory=\(path)",
+        ]
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        do {
+            try proc.run()
+            return true
+        } catch {
+            return false
         }
     }
 
@@ -551,39 +574,64 @@ final class TerminalPreference: ObservableObject {
 
     // MARK: - Helpers
 
+    /// Types `cd 'path'` into a new tab/window. `path` must be a raw filesystem path (not pre-escaped).
     private func openAndTypeCD(path: String, alreadyRunningDelay: TimeInterval, launchDelay: TimeInterval) {
+        // Prefer single quotes for shell safety (spaces, $, etc.)
+        let typed = "cd " + "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let folderName = URL(fileURLWithPath: path).lastPathComponent
+
         if let app = findRunning() {
             activateOnly(app)
             let processName = app.localizedName ?? current.name
             let bid = app.bundleIdentifier ?? bundleID
+            let useNewTab = reuseMode == .newTab
             DispatchQueue.main.asyncAfter(deadline: .now() + alreadyRunningDelay) {
-                _ = self.keystrokeToProcess(
-                    processName: processName,
-                    bundleID: bid,
-                    key: "t",
-                    command: true
-                )
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    EventSynthesizer.typeString("cd \"\(path)\"")
+                if useNewTab {
+                    _ = self.keystrokeToProcess(
+                        processName: processName,
+                        bundleID: bid,
+                        key: "t",
+                        command: true
+                    )
+                } else if self.reuseMode == .newWindow {
+                    _ = self.keystrokeToProcess(
+                        processName: processName,
+                        bundleID: bid,
+                        key: "n",
+                        command: true
+                    )
+                }
+                let typeDelay: TimeInterval = useNewTab || self.reuseMode == .newWindow ? 0.28 : 0.12
+                DispatchQueue.main.asyncAfter(deadline: .now() + typeDelay) {
+                    // Ensure terminal is frontmost before typing
+                    if let running = self.findRunning() {
+                        running.activate(options: [.activateAllWindows])
+                    }
+                    EventSynthesizer.typeString(typed)
                     EventSynthesizer.postKey(KeyCode.return)
                     Banner.show(
-                        "\(self.current.name) → folder",
+                        "\(self.current.name) → \(folderName)",
                         style: .success,
                         symbol: "folder"
                     )
+                    HyperLog.event("openAndTypeCD typed into \(bid)")
                 }
             }
             return
         }
         coldLaunch()
         DispatchQueue.main.asyncAfter(deadline: .now() + launchDelay) {
-            EventSynthesizer.typeString("cd \"\(path)\"")
+            if let running = self.findRunning() {
+                running.activate(options: [.activateAllWindows])
+            }
+            EventSynthesizer.typeString(typed)
             EventSynthesizer.postKey(KeyCode.return)
             Banner.show(
-                "\(self.current.name) → folder",
+                "\(self.current.name) → \(folderName)",
                 style: .success,
                 symbol: "folder"
             )
+            HyperLog.event("openAndTypeCD after cold launch")
         }
     }
 

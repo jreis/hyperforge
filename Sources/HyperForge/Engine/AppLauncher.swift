@@ -82,9 +82,10 @@ final class AppLauncher {
         TerminalPreference.shared.openSmart()
     }
 
-    /// Hyper+T: smart tab/window · Hyper+⇧T: terminal in Finder folder.
+    /// Hyper+T: smart tab/window · Hyper+⇧T (or Finder frontmost): terminal in Finder folder.
+    /// When Finder is focused, plain Hyper+T also opens “here” so 4-mod Hyper (no extra Shift) works.
     func openTerminalSmart(inFinderFolder: Bool) {
-        if inFinderFolder {
+        if inFinderFolder || FinderActions.isFinderFrontmost() {
             FinderActions.terminalInFrontFolder()
         } else {
             TerminalPreference.shared.openSmart()

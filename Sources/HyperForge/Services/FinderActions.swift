@@ -20,21 +20,115 @@ enum FinderActions {
         return runOSAscriptList(script)
     }
 
-    /// Target folder of frontmost Finder window (or desktop).
+    /// Whether Finder is the frontmost app (for Hyper+T “here if Finder”).
+    static func isFinderFrontmost() -> Bool {
+        guard let bid = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else {
+            return false
+        }
+        return bid == "com.apple.finder"
+    }
+
+    /// Target folder of frontmost Finder window (or desktop / selection parent).
+    /// Tries several AppleScript strategies — modern Finder views often break `target of`.
     static func frontFolderPath() -> String? {
+        // 1) Primary: front window target → insertion location → desktop
         let script = """
             tell application "Finder"
-                if (count of windows) is 0 then
-                    return POSIX path of (desktop as alias)
-                end if
                 try
-                    return POSIX path of (target of front window as alias)
-                on error
-                    return POSIX path of (desktop as alias)
+                    if (count of Finder windows) is 0 then
+                        return POSIX path of (path to desktop folder as alias)
+                    end if
+                    set w to front Finder window
+                    try
+                        return POSIX path of (target of w as alias)
+                    end try
+                    try
+                        return POSIX path of (insertion location as alias)
+                    end try
+                    return POSIX path of (path to desktop folder as alias)
+                on error errMsg
+                    return "ERROR:" & errMsg
                 end try
             end tell
             """
-        return runOSAscriptString(script)
+        if let raw = runOSAscriptString(script, captureError: true) {
+            if raw.hasPrefix("ERROR:") {
+                HyperLog.event("Finder folder script: \(raw)")
+            } else if isUsableDirectory(raw) {
+                return normalizeDirectory(raw)
+            }
+        }
+
+        // 2) Simpler fallback (older systems / stricter Automation)
+        let simple = """
+            tell application "Finder"
+                try
+                    return POSIX path of (target of front window as text)
+                on error
+                    try
+                        return POSIX path of (desktop as alias)
+                    on error
+                        return ""
+                    end try
+                end try
+            end tell
+            """
+        if let raw = runOSAscriptString(simple, captureError: true), isUsableDirectory(raw) {
+            return normalizeDirectory(raw)
+        }
+
+        // 3) If a folder is selected, use it; if a file, use its parent (no AppleScript)
+        if let fromSel = directoryFromSelectionViaScript(), isUsableDirectory(fromSel) {
+            return normalizeDirectory(fromSel)
+        }
+
+        return nil
+    }
+
+    /// Folder from selection: selected folder, or parent of selected file.
+    private static func directoryFromSelectionViaScript() -> String? {
+        let script = """
+            tell application "Finder"
+                try
+                    set sel to selection as alias list
+                    if (count of sel) is 0 then return ""
+                    set p to item 1 of sel
+                    set posixP to POSIX path of p
+                    return posixP
+                on error
+                    return ""
+                end try
+            end tell
+            """
+        guard let path = runOSAscriptString(script), !path.isEmpty else { return nil }
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: path, isDirectory: &isDir) {
+            if isDir.boolValue { return path }
+            return URL(fileURLWithPath: path).deletingLastPathComponent().path
+        }
+        // Trailing slash folders sometimes reported without existing check edge cases
+        if path.hasSuffix("/") { return path }
+        return URL(fileURLWithPath: path).deletingLastPathComponent().path
+    }
+
+    private static func isUsableDirectory(_ path: String) -> Bool {
+        let p = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !p.isEmpty, !p.hasPrefix("ERROR:") else { return false }
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: p, isDirectory: &isDir) {
+            return isDir.boolValue
+        }
+        // Desktop / volumes sometimes lag; accept POSIX-looking paths
+        return p.hasPrefix("/")
+    }
+
+    private static func normalizeDirectory(_ path: String) -> String {
+        var p = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        // POSIX path of folder usually ends with /
+        if p.hasSuffix("/") && p.count > 1 {
+            p = String(p.dropLast())
+        }
+        return p
     }
 
     @MainActor
@@ -42,11 +136,14 @@ enum FinderActions {
         guard let folder = frontFolderPath() else {
             Banner.show(
                 "No Finder folder",
+                subtitle: "Open a Finder window · allow Automation if prompted",
                 style: .warning,
                 symbol: "folder.badge.questionmark"
             )
+            HyperLog.event("terminalInFrontFolder: path resolution failed")
             return
         }
+        HyperLog.event("terminalInFrontFolder → \(folder)")
         TerminalPreference.shared.openInDirectory(folder)
     }
 
@@ -121,22 +218,37 @@ enum FinderActions {
         }
     }
 
-    private static func runOSAscriptString(_ source: String) -> String? {
+    private static func runOSAscriptString(_ source: String, captureError: Bool = false) -> String? {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        task.arguments = ["-e", source]
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = FileHandle.nullDevice
+        // -e can break on complex scripts; use stdin
+        task.arguments = []
+        let inPipe = Pipe()
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        task.standardInput = inPipe
+        task.standardOutput = outPipe
+        task.standardError = errPipe
         do {
             try task.run()
+            if let data = source.data(using: .utf8) {
+                inPipe.fileHandleForWriting.write(data)
+            }
+            try? inPipe.fileHandleForWriting.close()
             task.waitUntilExit()
         } catch {
             return nil
         }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let data = outPipe.fileHandleForReading.readDataToEndOfFile()
         let str = String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        if captureError, task.terminationStatus != 0 {
+            let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if let str, !str.isEmpty { return str }
+            if !err.isEmpty { return "ERROR:\(err)" }
+            return nil
+        }
         return (str?.isEmpty == false) ? str : nil
     }
 

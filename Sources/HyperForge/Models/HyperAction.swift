@@ -148,7 +148,7 @@ enum ActionCatalog {
         HyperAction(id: "app-vscode", title: "VS Code", detail: "Launch → focus → minimize cycle", keyCode: KeyCode.four, mode: .hyper, category: .apps, isEnabled: true, symbol: "chevron.left.forwardslash.chevron.right"),
         HyperAction(id: "app-zoom", title: "Zoom", detail: "Launch → focus → minimize cycle", keyCode: KeyCode.five, mode: .hyper, category: .apps, isEnabled: true, symbol: "video"),
         HyperAction(id: "app-iterm", title: "Terminal (smart)", detail: "New tab if running, else launch — Settings → Apps", keyCode: KeyCode.t, mode: .hyper, category: .apps, isEnabled: true, symbol: "terminal"),
-        HyperAction(id: "app-terminal-here", title: "Terminal in Finder Folder", detail: "Preferred terminal → cd Finder path", keyCode: KeyCode.t, mode: .hyper, category: .apps, isEnabled: true, symbol: "folder.badge.gearshape"),
+        HyperAction(id: "app-terminal-here", title: "Terminal in Finder Folder", detail: "Hyper+⇧T · or Hyper+T while Finder is frontmost", keyCode: KeyCode.t, mode: .hyper, category: .apps, isEnabled: true, symbol: "folder.badge.gearshape"),
         HyperAction(id: "app-finder", title: "New Finder Window", detail: "Open Finder", keyCode: KeyCode.f, mode: .hyper, category: .apps, isEnabled: true, symbol: "folder"),
         HyperAction(id: "finder-open-editor", title: "Open Selection in Editor", detail: "Finder selection → Zed/VS Code", keyCode: KeyCode.f, mode: .hyper, category: .apps, isEnabled: true, symbol: "doc.badge.gearshape"),
         HyperAction(id: "finder-copy-text", title: "Copy Finder File Text", detail: "Selected file contents → clipboard", keyCode: KeyCode.c, mode: .hyper, category: .apps, isEnabled: true, symbol: "doc.text"),
