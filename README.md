@@ -39,7 +39,7 @@ When **Hammerspoon**, browser extensions, and heavy automation stacks are blocke
 ## Quick start
 
 ```bash
-git clone https://github.com/<you>/hyperforge.git
+git clone https://github.com/jreis/hyperforge.git
 cd hyperforge
 chmod +x Scripts/install.sh
 ./Scripts/install.sh
