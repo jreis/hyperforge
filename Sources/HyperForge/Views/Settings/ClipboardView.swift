@@ -1,6 +1,7 @@
 // ClipboardView.swift
-// Multi-clipboard history browser.
+// Multi-clipboard history browser — snapshots pasteboard on open / refresh only.
 
+import AppKit
 import SwiftUI
 
 struct ClipboardView: View {
@@ -9,16 +10,38 @@ struct ClipboardView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Text("Clipboard")
-                    .font(.system(size: 26, weight: .bold, design: .rounded))
-                    .foregroundStyle(HFTheme.textPrimary)
-                Text("Local history of recent plain-text copies. Nothing leaves this Mac.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(HFTheme.textSecondary)
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Clipboard")
+                            .font(.system(size: 26, weight: .bold, design: .rounded))
+                            .foregroundStyle(HFTheme.textPrimary)
+                        Text("Local plain-text history. Snapshots when you open this panel or tap Refresh — no background polling.")
+                            .font(.system(size: 13))
+                            .foregroundStyle(HFTheme.textSecondary)
+                    }
+                    Spacer()
+                    Button {
+                        let added = clipboard.poll()
+                        if added {
+                            Banner.show("History updated", style: .success, symbol: "doc.on.clipboard")
+                        } else {
+                            Banner.show(
+                                "No new text",
+                                subtitle: "Copy something, then refresh",
+                                style: .info,
+                                symbol: "doc.on.clipboard"
+                            )
+                        }
+                    } label: {
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
 
                 if clipboard.history.isEmpty {
                     GlassCard {
-                        Text("Copy something to start building history.")
+                        Text("Copy text, then open this panel or tap Refresh to capture it.")
                             .foregroundStyle(HFTheme.textTertiary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -47,6 +70,14 @@ struct ClipboardView: View {
                             }
                         }
                     }
+
+                    Button(role: .destructive) {
+                        clipboard.clearHistory()
+                    } label: {
+                        Label("Clear history", systemImage: "trash")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
 
                 Button {
@@ -58,7 +89,8 @@ struct ClipboardView: View {
             }
             .padding(24)
         }
+        .onAppear {
+            _ = clipboard.poll()
+        }
     }
 }
-
-import AppKit

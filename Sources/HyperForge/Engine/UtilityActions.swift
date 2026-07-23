@@ -146,21 +146,27 @@ final class ClipboardService: ObservableObject {
 
     private init() {}
 
-    func poll() {
+    /// Snapshot current plain-text pasteboard into history if it changed.
+    /// Called from the Clipboard panel (on appear / refresh) — not a background timer.
+    @discardableResult
+    func poll() -> Bool {
         let current = NSPasteboard.general.changeCount
-        guard current != lastChangeCount else { return }
+        guard current != lastChangeCount else { return false }
         lastChangeCount = current
 
-        ClipboardImagePreview.shared.checkClipboard()
-
         guard let content = NSPasteboard.general.string(forType: .string), !content.isEmpty else {
-            return
+            return false
         }
         history.removeAll { $0 == content }
         history.insert(content, at: 0)
         if history.count > maxItems {
             history.removeLast()
         }
+        return true
+    }
+
+    func clearHistory() {
+        history.removeAll()
     }
 
     func pasteAsPlainText() {

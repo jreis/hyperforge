@@ -169,7 +169,7 @@ enum ActionCatalog {
         HyperAction(id: "clip-nvim", title: "Clipboard → nvim", detail: "Edit pasteboard in preferred terminal", keyCode: KeyCode.v, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "doc.text"),
         HyperAction(id: "clip-paste-menu", title: "Paste Transform Menu", detail: "CSV, Base64, URL, timestamps…", keyCode: KeyCode.v, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "arrow.triangle.2.circlepath"),
         HyperAction(id: "clip-region-pin", title: "Pin Screen Region", detail: "Drag-select region → stay-on-top window", keyCode: KeyCode.p, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "crop"),
-        HyperAction(id: "clip-image", title: "Clipboard Image", detail: "Floating preview of pasteboard image (Hyper+⇧P)", keyCode: KeyCode.p, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "photo"),
+        HyperAction(id: "clip-image", title: "Clipboard Image", detail: "Manual pin of pasteboard image (Hyper+⇧P) · not auto", keyCode: KeyCode.p, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "photo"),
 
         // System
         HyperAction(id: "sys-net", title: "Network Info", detail: "Wi-Fi + IP + hostname", keyCode: KeyCode.i, mode: .hyper, category: .system, isEnabled: true, symbol: "wifi"),

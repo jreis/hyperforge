@@ -45,7 +45,6 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var retryTimer: Timer?
-    private var clipboardTimer: Timer?
     private var appTrackTimer: Timer?
     private var didRequestAccessibility = false
 
@@ -70,8 +69,6 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
     func stop() {
         retryTimer?.invalidate()
         retryTimer = nil
-        clipboardTimer?.invalidate()
-        clipboardTimer = nil
         appTrackTimer?.invalidate()
         appTrackTimer = nil
 
@@ -99,9 +96,7 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
     }
 
     private func startAuxTimers() {
-        clipboardTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
-            Task { @MainActor in ClipboardService.shared.poll() }
-        }
+        // Clipboard history is on-demand (Clipboard panel) — no background pasteboard poll.
         appTrackTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             Task { @MainActor in AppLauncher.shared.trackAppSwitch() }
         }

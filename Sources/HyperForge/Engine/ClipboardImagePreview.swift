@@ -1,5 +1,6 @@
 // ClipboardImagePreview.swift
-// Draggable floating preview when an image lands on the pasteboard.
+// Manual floating preview of the pasteboard image (Hyper+⇧P / Quick Menu).
+// Does not poll — region pin (Hyper+P) covers intentional on-screen capture.
 
 import AppKit
 import Foundation
@@ -131,36 +132,20 @@ final class ClipboardImagePreview {
         guard let image = NSImage(pasteboard: NSPasteboard.general) else {
             Banner.show(
                 "No image in clipboard",
-                subtitle: "Copy a screenshot first · Hyper+P pins a region",
+                subtitle: "Copy a screenshot first · or Hyper+P to pin a region",
                 style: .warning,
                 symbol: "photo"
             )
             return
         }
         show(image: image)
+        lastImageSignature = Self.imageSignature()
+        lastShownChangeCount = NSPasteboard.general.changeCount
         Banner.show(
             "Clipboard image",
             subtitle: "Drag to move · Esc closes",
             style: .success,
             symbol: "photo"
         )
-    }
-
-    func checkClipboard() {
-        let currentChange = NSPasteboard.general.changeCount
-        let sig = Self.imageSignature()
-        if let sig {
-            if sig == lastImageSignature { return }
-            guard let image = NSImage(pasteboard: NSPasteboard.general) else { return }
-            lastImageSignature = sig
-            lastShownChangeCount = currentChange
-            show(image: image)
-        } else {
-            guard let image = NSImage(pasteboard: NSPasteboard.general), image.size.width > 0
-            else { return }
-            if currentChange == lastShownChangeCount { return }
-            lastShownChangeCount = currentChange
-            show(image: image)
-        }
     }
 }
