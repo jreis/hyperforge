@@ -50,3 +50,9 @@ hyperforge-events.log
 # User Karabiner / personal config copies
 **/karabiner.json.bak*
 **/.config/
+
+# HyperForge Windows — local secrets / original personal AHK dump
+hyperforge-win/config.ini
+hyperforge-win/work/work.ahk
+hyperforge-win/legacy/**
+

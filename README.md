@@ -106,7 +106,7 @@ HyperForge supports **either** style (with short sticky grace for Karabiner flag
 | **Hyper + Space** | Command bar (not stolen by Space layer) |
 | Menu bar flame | Dashboard, engine, cheat sheet |
 
-Hold threshold and blocked apps: **Settings → Engine → Space navigation**.
+Hold-before-layer (~160 ms default) and blocked apps: **Settings → Engine → Space navigation**. Keys during the hold window type a normal space + letter so fast typing isn’t stolen.
 
 ---
 
@@ -214,9 +214,18 @@ A full CGEvent-tap engine fits **direct download / open source** better than the
 
 ---
 
+## Windows (AutoHotkey)
+
+A companion **AHK v2** toolkit lives in [`hyperforge-win/`](hyperforge-win/): Caps → Hyper, snaps, paste menu, Explorer helpers. **Space-layer nav stays with TouchCursor** on Windows.
+
+```text
+hyperforge-win/HyperForge.ahk   # run with AutoHotkey v2
+hyperforge-win/README.md        # setup + chords
+```
+
 ## Origin
 
-HyperForge grew out of a personal Hyper Key CGEvent daemon: same Caps/F18 muscle memory, rebuilt as a local-first SwiftUI companion with Doctor, profiles, Space navigation, and a richer surface area.
+HyperForge grew out of a personal Hyper Key CGEvent daemon: same Caps/F18 muscle memory, rebuilt as a local-first SwiftUI companion with Doctor, profiles, Space navigation, and a richer surface area. The Windows kit polishes a long-running AHK script in the same spirit.
 
 ---
 

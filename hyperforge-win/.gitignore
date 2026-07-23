@@ -1,0 +1,10 @@
+# Machine-local / private
+config.ini
+work/work.ahk
+work/*.ini
+legacy/**
+*.ico
+
+# OS
+Thumbs.db
+Desktop.ini
