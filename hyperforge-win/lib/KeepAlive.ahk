@@ -3,6 +3,7 @@
 global HF_KeepAliveOn := false
 
 RegisterKeepAlive() {
+    ; Win+J — not full Hyper (avoids fighting game binds); still listed in README
     Hotkey "#j", ToggleKeepAlive
 }
 

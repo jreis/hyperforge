@@ -5,8 +5,16 @@ InitTray() {
     A_IconTip := "HyperForge for Windows"
     tray := A_TrayMenu
     tray.Delete()
+    tray.Add("Doctor — health check", ShowDoctor)
+    tray.Add("Pause Hyper (toggle)", ToggleHyperPause)
+    tray.Add()
     tray.Add("Reload HyperForge", (*) => Reload())
-    tray.Add("Edit config.ini", (*) => Run('notepad.exe "' A_ScriptDir '\config.ini"'))
+    tray.Add("Edit config.ini", (*) => {
+        cfg := A_ScriptDir "\config.ini"
+        if !FileExist(cfg)
+            cfg := A_ScriptDir "\config.example.ini"
+        Run 'notepad.exe "' cfg '"'
+    })
     tray.Add("Open script folder", (*) => Run('explorer.exe "' A_ScriptDir '"'))
     tray.Add()
     tray.Add("About", (*) => MsgBox(
@@ -17,7 +25,6 @@ InitTray() {
         "HyperForge"
     ))
     tray.Add("Exit", (*) => ExitApp())
-    ; Reload when saving this script in an editor with the script name in the title
     Hotkey "~^s", (*) => {
         if WinActive(A_ScriptName) {
             ShowMsg("Reloading…")

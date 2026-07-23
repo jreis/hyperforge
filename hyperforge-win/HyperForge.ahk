@@ -17,6 +17,7 @@ SetTitleMatchMode 2
 ; --- Core libraries (order matters) ---
 #Include "%A_ScriptDir%\lib\Config.ahk"
 #Include "%A_ScriptDir%\lib\Utils.ahk"
+#Include "%A_ScriptDir%\lib\Mute.ahk"
 #Include "%A_ScriptDir%\lib\CapsHyper.ahk"
 #Include "%A_ScriptDir%\lib\Apps.ahk"
 #Include "%A_ScriptDir%\lib\Explorer.ahk"
@@ -27,9 +28,11 @@ SetTitleMatchMode 2
 #Include "%A_ScriptDir%\lib\Snippets.ahk"
 #Include "%A_ScriptDir%\lib\QuickMenu.ahk"
 #Include "%A_ScriptDir%\lib\KeepAlive.ahk"
+#Include "%A_ScriptDir%\lib\Doctor.ahk"
 #Include "%A_ScriptDir%\lib\Tray.ahk"
 
 HFConfig.Init(A_ScriptDir)
+InitHyperMute()
 InitTray()
 InitCapsHyper()
 RegisterAppHotkeys()
@@ -37,6 +40,7 @@ RegisterExplorerHotkeys()
 RegisterClipboardHotkeys()
 RegisterNetworkHotkeys()
 RegisterWindowHotkeys()
+RegisterMuteHotkeys()
 InitScrollAccel()
 RegisterSnippets()
 RegisterQuickMenu()

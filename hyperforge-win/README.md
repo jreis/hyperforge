@@ -37,11 +37,20 @@ Caps is held as **Ctrl+Alt+Shift+Win** (same chord family as 4-mod Hyper on macO
 | Hyper + M | Copy hostname |
 | Hyper + W | ARIN whois on clipboard |
 | Hyper + ←/→/↑/↓ / Enter | Snap half / maximize |
-| Hyper + J *(Win+J)* | Keep-alive toggle |
+| Hyper + 7 / 8 / 9 / 0 | Quarters (TL / TR / BL / BR) |
+| Hyper + . | Center window (keep size) |
+| Hyper + Z | Undo last snap for this window |
+| Hyper + ] / [ | Move window to next / previous monitor |
+| Win + J | Keep-alive toggle |
+| Win + Esc | Pause / resume Hyper (default 30s) |
 | Ctrl+Shift+Space | Always on top |
 | Ctrl+Alt+Shift+V | Paste transform menu |
 | XButton2 | Quick menu (windows + favorites) |
 | XButton1 | Minimize |
+
+**Per-app mute:** Hyper is off in RDP and processes listed under `[mute]` in `config.ini` (games-friendly). Caps→Hyper is muted there too when `mute.caps_too=1`.
+
+**Doctor:** tray → **Doctor — health check** (AHK version, config, TouchCursor process, mute list).
 
 Snippets: configure under `[snippets]` in `config.ini` (`@@`, `tj`, `,v`, …).
 

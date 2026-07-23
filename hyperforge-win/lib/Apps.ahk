@@ -1,7 +1,6 @@
 ; Apps.ahk — Hyper app launch / focus / minimize cycle
 
 RunOrActivateOrMinimizeProgram(Program) {
-    ; Allow args after .exe (e.g. chrome --flags)
     exeOnly := Program
     if RegExMatch(Program, 'i)^("[^"]+"|[^ ]+\.exe)', &m)
         exeOnly := Trim(m[1], '"')
@@ -34,7 +33,6 @@ _defaultPath(name) {
         case "outlook":
             return "C:\Program Files\Microsoft Office\root\Office16\OUTLOOK.EXE"
         case "teams":
-            ; Store / classic install vary — user should set paths.teams
             return EnvGet("LOCALAPPDATA") "\Microsoft\Teams\current\Teams.exe"
         default:
             return ""
@@ -56,30 +54,24 @@ ChromeCmd() {
 }
 
 RegisterAppHotkeys() {
-    ; Hyper + N / V / C / T / E / 4 — config-driven with defaults
+    HotIf HyperAllowed
     Hotkey "#^!+n", (*) => RunOrActivateOrMinimizeProgram(AppPath("notepad") || "notepad.exe")
     Hotkey "#^!+v", (*) => RunOrActivateOrMinimizeProgram(AppPath("vscode") || _defaultPath("vscode"))
     Hotkey "#^!+c", (*) => RunOrActivateOrMinimizeProgram(ChromeCmd())
     Hotkey "#^!+t", (*) => {
         t := AppPath("teams")
-        if FileExist(t) || InStr(t, "ms-teams:") || t != ""
+        if (t != "")
             RunOrActivateOrMinimizeProgram(t)
         else
             ShowMsg("Set paths.teams in config.ini")
     }
     Hotkey "#^!+e", (*) => Run("explorer.exe")
     Hotkey "#^!+4", (*) => RunOrActivateOrMinimizeProgram(AppPath("outlook") || _defaultPath("outlook"))
-
-    ; Hyper + G — Google selection / clipboard
     Hotkey "#^!+g", (*) => {
         q := UrlEncode(A_Clipboard)
         Run ChromeCmd() ' "https://www.google.com/search?q=' q '"'
     }
-
-    ; Hyper + D — close active window
     Hotkey "#^!+d", (*) => WinClose("A")
-
-    ; Hyper + X — Windows Terminal in Explorer folder
     Hotkey "#^!+x", (*) => {
         folder := GetFolder()
         term := HFConfig.Path("terminal", "wt")
@@ -88,8 +80,6 @@ RegisterAppHotkeys() {
         else
             Run term
     }
-
-    ; Hyper + R — optional search tool in folder
     Hotkey "#^!+r", (*) => {
         folder := GetFolder()
         search := HFConfig.Path("search", "")
@@ -102,8 +92,6 @@ RegisterAppHotkeys() {
         else
             Run search
     }
-
-    ; Hyper + H — edit config / script target
     Hotkey "#^!+h", (*) => {
         target := HFConfig.Path("edit_target", A_ScriptFullPath)
         code := AppPath("vscode") || _defaultPath("vscode")
@@ -112,8 +100,6 @@ RegisterAppHotkeys() {
         else
             Run 'notepad.exe "' target '"'
     }
-
-    ; Hyper + S — optional URL (generic; override in work module)
     Hotkey "#^!+s", (*) => {
         url := HFConfig.Get("apps.hyper_s_url", "")
         if (url = "") {
@@ -122,4 +108,5 @@ RegisterAppHotkeys() {
         }
         Run ChromeCmd() " " url
     }
+    HotIf
 }

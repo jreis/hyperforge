@@ -1,29 +1,12 @@
 ; Network.ahk — IP, hostname, reverse DNS, ARIN-style whois paste
 
 RegisterNetworkHotkeys() {
+    HotIf HyperAllowed
     Hotkey "#^!+m", (*) => {
         A_Clipboard := A_ComputerName
         ShowMsg("Copied " A_ComputerName)
     }
-    Hotkey "#i", (*) => {
-        addrs := SysGetIPAddresses()
-        if addrs.Length {
-            A_Clipboard := addrs[1]
-            ShowMsg("Copied " addrs[1])
-        }
-    }
-    Hotkey "#^i", (*) => {
-        ip := Trim(A_Clipboard)
-        try {
-            results := ReverseLookup(ip)
-            A_Clipboard := results
-            MsgBox results, "Reverse DNS"
-        } catch as e {
-            MsgBox "Lookup failed: " e.Message
-        }
-    }
     Hotkey "#^!+w", (*) => {
-        ; ARIN whois POST (public whois service)
         url := HFConfig.Get("network.arin_whois", "https://whois.arin.net/ui/query.do")
         post := "queryinput=" A_Clipboard
         try {
@@ -41,8 +24,28 @@ RegisterNetworkHotkeys() {
             } catch {
                 ShowMsg("Whois response on clipboard")
             }
-        } catch as e {
+        } catch {
             ShowMsg("Whois failed")
+        }
+    }
+    HotIf
+
+    ; Non-Hyper (Win+I variants) — always on
+    Hotkey "#i", (*) => {
+        addrs := SysGetIPAddresses()
+        if addrs.Length {
+            A_Clipboard := addrs[1]
+            ShowMsg("Copied " addrs[1])
+        }
+    }
+    Hotkey "#^i", (*) => {
+        ip := Trim(A_Clipboard)
+        try {
+            results := ReverseLookup(ip)
+            A_Clipboard := results
+            MsgBox results, "Reverse DNS"
+        } catch as e {
+            MsgBox "Lookup failed: " e.Message
         }
     }
 }

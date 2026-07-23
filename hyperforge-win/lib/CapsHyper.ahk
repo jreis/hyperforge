@@ -5,8 +5,13 @@ InitCapsHyper() {
         return
     SetCapsLockState "AlwaysOff"
 
+    ; Optionally suspend Caps→Hyper in muted apps (games-friendly)
+    if HFConfig.GetBool("mute.caps_too", true)
+        HotIf HyperAllowed
     Hotkey "*CapsLock", CapsHyperDown
     Hotkey "*CapsLock up", CapsHyperUp
+    if HFConfig.GetBool("mute.caps_too", true)
+        HotIf
 }
 
 CapsHyperDown(*) {
