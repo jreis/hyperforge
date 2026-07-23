@@ -217,10 +217,10 @@ struct SettingsView: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text("Hold threshold")
+                        Text("Hold before layer")
                         Spacer()
                         Text(spaceNav.holdMilliseconds == 0
-                             ? "Immediate"
+                             ? "Immediate (power)"
                              : "\(spaceNav.holdMilliseconds) ms")
                             .foregroundStyle(HFTheme.textTertiary)
                             .monospacedDigit()
@@ -230,10 +230,18 @@ struct SettingsView: View {
                             get: { Double(spaceNav.holdMilliseconds) },
                             set: { spaceNav.holdMilliseconds = Int($0) }
                         ),
-                        in: 0...250,
+                        in: 0...300,
                         step: 10
                     )
-                    Text("Higher values feel safer while typing; Space+HJKL chords still arm immediately.")
+                    HStack(spacing: 8) {
+                        Button("Typing-safe 160") { spaceNav.holdMilliseconds = 160 }
+                            .controlSize(.mini)
+                        Button("Relaxed 200") { spaceNav.holdMilliseconds = 200 }
+                            .controlSize(.mini)
+                        Button("Instant 0") { spaceNav.holdMilliseconds = 0 }
+                            .controlSize(.mini)
+                    }
+                    Text("Space must be held this long before HJKL (etc.) act as navigation. Keys pressed sooner type a normal space + letter — better for fast typists. Instant (0) arms the layer on key-down (old behavior).")
                         .font(.system(size: 11))
                         .foregroundStyle(HFTheme.textTertiary)
                 }

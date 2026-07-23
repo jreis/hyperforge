@@ -74,6 +74,10 @@ final class SpaceNavStore: ObservableObject {
     static let seededKey = "hf.spaceNavDefaultsSeeded"
     /// One-time: allow Space nav in Ghostty (removed from defaults after seed).
     static let ghosttyUnblockMigrationKey = "hf.spaceNavUnblockGhostty"
+    /// One-time: typing-safe hold default (was 0 = instant arm, bad for fast typists).
+    static let typistHoldMigrationKey = "hf.spaceNavTypistHoldV1"
+    /// Default hold before Space becomes a nav layer (ms).
+    static let defaultHoldMilliseconds = 160
 
     /// Sensible defaults — terminals & modal Vim UIs where Space must type.
     /// Ghostty is intentionally **not** blocked so Space+HJKL works for shell navigation.
@@ -105,8 +109,9 @@ final class SpaceNavStore: ObservableObject {
         }
     }
 
-    /// 0 = arm layer immediately (classic). 80–150 ms feels more “typing safe”.
-    @Published var holdMilliseconds: Int = 0 {
+    /// Hold duration before Space arms as nav layer. 0 = arm immediately (power mode).
+    /// ~160ms is typing-safe: keys during the window type space + letter, not chords.
+    @Published var holdMilliseconds: Int = SpaceNavStore.defaultHoldMilliseconds {
         didSet {
             guard !isBootstrapping else { return }
             let clamped = max(0, min(holdMilliseconds, 400))
@@ -136,7 +141,11 @@ final class SpaceNavStore: ObservableObject {
         if d.object(forKey: Self.enabledKey) != nil {
             isEnabled = d.bool(forKey: Self.enabledKey)
         }
-        holdMilliseconds = d.object(forKey: Self.holdMsKey) as? Int ?? 0
+        if let stored = d.object(forKey: Self.holdMsKey) as? Int {
+            holdMilliseconds = stored
+        } else {
+            holdMilliseconds = Self.defaultHoldMilliseconds
+        }
         loadBlocked()
         if !d.bool(forKey: Self.seededKey) {
             seedDefaultsIfEmpty()
@@ -148,6 +157,15 @@ final class SpaceNavStore: ObservableObject {
             blockedApps.removeAll { $0.bundleID == Self.ghosttyBundleID }
             d.set(true, forKey: Self.ghosttyUnblockMigrationKey)
             persistBlocked()
+        }
+        // Instant arm (0ms) makes Space+next-key fire chords while typing quickly.
+        // One-time bump to typing-safe default; user can set 0 again in Settings.
+        if !d.bool(forKey: Self.typistHoldMigrationKey) {
+            if (d.object(forKey: Self.holdMsKey) as? Int) == 0 {
+                holdMilliseconds = Self.defaultHoldMilliseconds
+            }
+            d.set(true, forKey: Self.typistHoldMigrationKey)
+            d.set(holdMilliseconds, forKey: Self.holdMsKey)
         }
         isBootstrapping = false
         VimNavigation.shared.setEnabled(isEnabled, persist: false)
