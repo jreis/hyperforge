@@ -1,6 +1,6 @@
 // HyperKeyEngine.swift
 // Global CGEvent tap — the heart of HyperForge.
-// F18 (Karabiner Caps→F18) is the Hyper trigger; Right ⌘ enables Vim mode.
+// F18 (Karabiner Caps→F18) is the Hyper trigger; Space hold enables TouchCursor-style nav.
 
 import AppKit
 import ApplicationServices
@@ -35,10 +35,11 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
     private var lastF18KeyDownTime = Date.distantPast
     private var lastHyperTriggerTime = Date.distantPast
     /// Last time we observed Hyper-like modifier flags or F18.
-    /// Used as a grace window: Karabiner 4-mod Caps often emits a brief
-    /// “all modifiers up” flagsChanged before the actual keyDown arrives.
+    /// Short grace only: Karabiner 4-mod Caps can emit a brief “all modifiers up”
+    /// flagsChanged before the chord’s keyDown. Must stay tight — a long grace
+    /// made bare keys after Hyper+← (e.g. 7 / Num7) fire as Hyper+7 → top-left.
     private var lastHyperSeenTime = Date.distantPast
-    private let hyperGraceSeconds: TimeInterval = 0.85
+    private let hyperGraceSeconds: TimeInterval = 0.18
     private var enabledIDsCopy: Set<String>?
 
     private var eventTap: CFMachPort?
@@ -58,6 +59,11 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         statusMessage = "Starting…"
         startEventTap()
         startAuxTimers()
+        // Keep Space-nav per-app gate in sync with the frontmost app.
+        Task { @MainActor in
+            _ = SpaceNavStore.shared
+            SpaceNavStore.shared.refreshFrontmost()
+        }
     }
 
     @MainActor
@@ -79,6 +85,7 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         runLoopSource = nil
         isRunning = false
         setHyperActive(false)
+        VimNavigation.shared.cancelSpaceLayer()
         statusMessage = "Stopped"
     }
 
@@ -143,7 +150,7 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
         isRunning = true
-        statusMessage = "Engine live · F18 / 4-mod Hyper · Right ⌘ Vim"
+        statusMessage = "Engine live · F18 / 4-mod Hyper · Space nav"
         HyperLog.event("Event tap started")
     }
 
@@ -180,58 +187,24 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         // swallowed because F18 is still held and unbound Hyper keys are blocked.
         if type == .keyDown || type == .keyUp {
             if EventSynthesizer.consumePassThroughIfNeeded() {
-                HyperLog.event("pass-through synthetic key=\(keyCode) type=\(type.rawValue)")
                 return Unmanaged.passUnretained(event)
             }
         }
 
-        if type == .keyDown || type == .flagsChanged {
-            HyperLog.event(
-                "type=\(type.rawValue) key=\(keyCode) flags=\(flags.rawValue) hyper=\(isHyperActive)"
-            )
-        }
-
-        // ── Dedicated keys from Karabiner (bypass sticky-Hyper) ─────────
-        // F19 = Hyper+/ cheat sheet · F20 = Hyper+, show dashboard
-        if type == .keyDown {
-            if keyCode == KeyCode.f19 || keyCode == 0x50 {
-                HyperLog.event("F19 → cheat sheet")
-                CheatSheetCommands.show()
-                return nil
-            }
-            if keyCode == KeyCode.f20 || keyCode == 0x5A {
-                HyperLog.event("F20 → open dashboard")
-                AppCommands.openMainWindow()
-                return nil
-            }
-        }
-
         let now = Date()
-        let looksLikeQuadHyper =
-            flags.contains(.maskCommand)
-            && flags.contains(.maskAlternate)
-            && flags.contains(.maskControl)
-            && flags.contains(.maskShift)
-        let looksLikeTripleHyper =
-            flags.contains(.maskControl)
-            && flags.contains(.maskCommand)
-            && flags.contains(.maskAlternate)
 
-        // ── F18 / raw Caps as Hyper ──────────────────────────────────────
+        // ── F18 / raw Caps as Hyper (keyUp must clear held state) ────────
         if keyCode == KeyCode.f18 || keyCode == KeyCode.hidF18 || keyCode == KeyCode.capsLock {
             if useF18AsHyper {
                 if type == .keyDown {
                     f18Held = true
                     markHyperSeen(now)
                     setHyperActive(true)
-                    HyperLog.event("F18 down → hyper ON")
                 } else if type == .keyUp {
                     f18Held = false
                     setHyperActive(false)
                     lastHyperTriggerTime = now
-                    HyperLog.event("F18 up → hyper OFF")
                 } else if type == .flagsChanged {
-                    // Some stacks emit F18 only as flagsChanged
                     f18Held.toggle()
                     if f18Held {
                         markHyperSeen(now)
@@ -244,15 +217,47 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             return nil
         }
 
-        if keyCode == KeyCode.rightCommand {
-            if type == .keyDown || (type == .flagsChanged && flags.contains(.maskCommand)) {
-                VimNavigation.shared.setActive(true)
-            } else if type == .keyUp
-                || (type == .flagsChanged && !flags.contains(.maskCommand))
-            {
-                VimNavigation.shared.setActive(false)
+        // TouchCursor layer: Space is swallowed on keyDown; plain Space types on keyUp.
+        if keyCode == KeyCode.space {
+            let looksLikeQuad =
+                flags.contains(.maskCommand)
+                && flags.contains(.maskAlternate)
+                && flags.contains(.maskControl)
+                && flags.contains(.maskShift)
+            let looksLikeTriple =
+                flags.contains(.maskControl)
+                && flags.contains(.maskCommand)
+                && flags.contains(.maskAlternate)
+            // Don't steal Hyper+Space (command bar) or Cmd/Ctrl/Opt+Space (Spotlight…).
+            let hyperNow =
+                isHyperActive
+                || f18Held
+                || looksLikeQuad
+                || looksLikeTriple
+                || flags.contains(hyperFlags)
+            let shiftOnlyOrNone =
+                !flags.contains(.maskCommand)
+                && !flags.contains(.maskControl)
+                && !flags.contains(.maskAlternate)
+            if type == .keyDown {
+                // Ignore key-repeat while holding Space for the layer.
+                if event.getIntegerValueField(.keyboardEventAutorepeat) != 0,
+                   VimNavigation.shared.isActive
+                {
+                    return nil
+                }
+                if VimNavigation.shared.handleSpaceKeyDown(
+                    shiftOnlyOrNone: shiftOnlyOrNone,
+                    hyperActive: hyperNow
+                ) {
+                    return nil
+                }
+            } else if type == .keyUp {
+                if VimNavigation.shared.handleSpaceKeyUp() {
+                    return nil
+                }
             }
-            return nil
+            // Cmd/Ctrl/Opt+Space or Hyper+Space fall through to normal/Hyper handling.
         }
 
         if keyCode == KeyCode.rightControl {
@@ -268,77 +273,101 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             return nil
         }
 
+        // Most keyUps: pass through immediately (no snippet / Hyper work).
+        // (Space keyUp is handled above for the nav layer.)
+        if type == .keyUp {
+            return Unmanaged.passUnretained(event)
+        }
+
+        // ── Dedicated keys from Karabiner (bypass sticky-Hyper) ─────────
+        if type == .keyDown {
+            if keyCode == KeyCode.f19 || keyCode == 0x50 {
+                HyperLog.event("F19 → cheat sheet")
+                CheatSheetCommands.show()
+                return nil
+            }
+            if keyCode == KeyCode.f20 || keyCode == 0x5A {
+                HyperLog.event("F20 → open dashboard")
+                AppCommands.openMainWindow()
+                return nil
+            }
+        }
+
+        let looksLikeQuadHyper =
+            flags.contains(.maskCommand)
+            && flags.contains(.maskAlternate)
+            && flags.contains(.maskControl)
+            && flags.contains(.maskShift)
+        let looksLikeTripleHyper =
+            flags.contains(.maskControl)
+            && flags.contains(.maskCommand)
+            && flags.contains(.maskAlternate)
+
         // ── 4-mod / 3-mod Hyper via flagsChanged (Karabiner Caps→mods) ──
-        // IMPORTANT: do NOT clear hyper on the intermediate “flags=256” blip
-        // that Karabiner emits before the actual keyDown. Use grace period.
         if type == .flagsChanged {
             if looksLikeQuadHyper || looksLikeTripleHyper {
                 markHyperSeen(now)
                 setHyperActive(true)
-                HyperLog.event(
-                    "mod-hyper ON quad=\(looksLikeQuadHyper) triple=\(looksLikeTripleHyper)"
-                )
                 return nil
             }
-            // Mods released — schedule sticky clear via grace, don't kill instantly
-            if isHyperActive && !f18Held {
-                let noHyperMods =
-                    !flags.contains(.maskControl)
-                    && !flags.contains(.maskCommand)
-                    && !flags.contains(.maskAlternate)
-                    && !flags.contains(.maskShift)
-                if noHyperMods {
-                    // Leave sticky true until grace expires (checked on keyDown)
-                    HyperLog.event("mod-hyper soft-release (grace \(hyperGraceSeconds)s)")
-                }
-            }
+            // Soft release via grace (checked on keyDown) — no logging on every blip.
+            return Unmanaged.passUnretained(event)
         }
 
         guard type == .keyDown else {
             return Unmanaged.passUnretained(event)
         }
 
-        // Sticky hyper if: F18 held, mods look like hyper, or within grace after last hyper sighting
-        let withinGrace =
-            Date().timeIntervalSince(lastHyperSeenTime) < hyperGraceSeconds
-        let shouldTreatAsHyper =
+        // Physical Hyper still held? (not merely sticky/grace)
+        let physicallyHeld =
             f18Held
             || looksLikeQuadHyper
             || looksLikeTripleHyper
-            || (isHyperActive && withinGrace)
             || flags.contains(hyperFlags)
             || (useF18AsHyper && flags.contains(.maskAlphaShift))
 
-        if !shouldTreatAsHyper, isHyperActive, !f18Held, !withinGrace {
+        // Sticky hyper if: physically held, or brief grace after last physical Hyper sighting
+        let withinGrace =
+            now.timeIntervalSince(lastHyperSeenTime) < hyperGraceSeconds
+        let shouldTreatAsHyper =
+            physicallyHeld
+            || (isHyperActive && withinGrace)
+
+        if !shouldTreatAsHyper, isHyperActive, !physicallyHeld, !withinGrace {
             setHyperActive(false)
         }
 
         if shouldTreatAsHyper {
-            markHyperSeen(now)
+            // Only extend grace from real Hyper hold — not from every chord keyDown.
+            // Extending on each key made a following bare “7” into Hyper+7 (top-left).
+            if physicallyHeld {
+                markHyperSeen(now)
+            }
             setHyperActive(true)
 
-            HyperLog.event(
-                "HYPER keyDown key=\(keyCode) f18=\(f18Held) quad=\(looksLikeQuadHyper) grace=\(withinGrace) flags=\(flags.rawValue)"
-            )
+            // Ignore key-repeat while Hyper is held (avoids double snaps / odd overrides).
+            if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
+                return nil
+            }
 
-            // Help / cheat sheet — always show() (not toggle) so a partial open still works
+            // Help keys by keycode first (avoid NSEvent conversion on every Hyper key).
             let isHelpKey =
                 keyCode == KeyCode.slash
                 || keyCode == KeyCode.grave
-                || keyCode == 0x2C  // slash
-                || keyCode == 0x32  // grave
-                || helpCharacter(from: event) != nil
+                || keyCode == 0x2C
+                || keyCode == 0x32
             if isHelpKey {
-                let ch = helpCharacter(from: event) ?? "key\(keyCode)"
-                HyperLog.event("HYPER help SHOW char=\(ch) key=\(keyCode)")
-                CheatSheetCommands.show()  // always show, never toggle-off by accident
-                DispatchQueue.main.async { SnippetStore.shared.resetBuffer() }
+                HyperLog.event("HYPER help SHOW key=\(keyCode)")
+                CheatSheetCommands.show()
+                SnippetEngine.shared.resetBuffer()
+                if !physicallyHeld { endStickyHyper() }
                 return nil
             }
 
             let ids = enabledIDsSnapshot()
             let shiftDown = flags.contains(.maskShift)
-            let hyperConsumesShift = looksLikeQuadHyper || (isHyperActive && withinGrace)
+            // Shift is only “part of Hyper” while 4-mod is physically held (not grace-only).
+            let hyperConsumesShift = looksLikeQuadHyper || flags.contains(hyperFlags)
             if HyperKeyActions.handle(
                 keyCode,
                 enabledIDs: ids,
@@ -346,12 +375,20 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                 hyperConsumesShift: hyperConsumesShift
             ) {
                 HyperLog.event(
-                    "HYPER handled key=\(keyCode) shift=\(shiftDown) quad=\(hyperConsumesShift)"
+                    "HYPER handled key=\(keyCode) physical=\(physicallyHeld) grace=\(withinGrace)"
                 )
-                DispatchQueue.main.async { SnippetStore.shared.resetBuffer() }
+                SnippetEngine.shared.resetBuffer()
+                // Chord done and Caps/F18 not held → drop sticky immediately so the
+                // next normal key (often near-num pad or top-row 7) is not Hyper+key.
+                if !physicallyHeld {
+                    endStickyHyper()
+                }
                 return nil
             }
             // Swallow unbound hyper keys so they don't leak into apps
+            if !physicallyHeld {
+                endStickyHyper()
+            }
             return nil
         }
 
@@ -363,30 +400,28 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                 shiftDown: shiftDown,
                 ctrlDown: ctrlDown
             ) {
-                DispatchQueue.main.async { SnippetStore.shared.resetBuffer() }
+                SnippetEngine.shared.resetBuffer()
                 return nil
             }
+            // Unmapped key while Space held: cancel pending space (already markLayerUsed)
+            // and let the key through so typing still works mid-hold.
         }
 
-        // Text expansions (hotstrings) — only when not in Hyper/Vim.
-        // Always hop via main queue (never MainActor.assumeIsolated — crashes under MenuBarExtra / Swift 6).
+        // Text expansions — lock-based matcher, never block the tap waiting for MainActor.
+        // (Previously: main.async + semaphore.wait up to 150ms *per keystroke* → system-wide lag.)
         if !flags.contains(.maskCommand)
             && !flags.contains(.maskControl)
             && !flags.contains(.maskAlternate)
+            && !VimNavigation.shared.isActive
         {
             let chars = event.keyboardGetUnicodeString()
-            var expanded = false
-            let sem = DispatchSemaphore(value: 0)
-            DispatchQueue.main.async {
-                expanded = SnippetStore.shared.handleTypedKey(
-                    character: chars,
-                    keyCode: keyCode
-                )
-                sem.signal()
-            }
-            _ = sem.wait(timeout: .now() + 0.15)
-            if expanded {
-                return nil  // swallow trigger key; expansion already deleted trigger + typed
+            if SnippetEngine.shared.handleTypedKey(
+                character: chars,
+                keyCode: keyCode,
+                hyperActive: false,
+                vimActive: false
+            ) {
+                return nil
             }
         }
 
@@ -400,8 +435,10 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
 
     private func setHyperActive(_ value: Bool) {
         lock.lock()
+        let changed = _hyperActive != value
         _hyperActive = value
         lock.unlock()
+        guard changed else { return }
         DispatchQueue.main.async { [weak self] in
             self?.hyperKeyActive = value
         }
@@ -411,6 +448,13 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         lastHyperSeenTime = date
         lastHyperTriggerTime = date
         lastF18KeyDownTime = date
+    }
+
+    /// Drop sticky Hyper without waiting for grace (after a finished chord).
+    private func endStickyHyper() {
+        f18Held = false
+        setHyperActive(false)
+        lastHyperSeenTime = .distantPast
     }
 
     private func enabledIDsSnapshot() -> Set<String>? {

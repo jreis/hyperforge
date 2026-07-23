@@ -11,24 +11,27 @@ public enum CatalogPolicy {
         "scroll-left", "scroll-down", "scroll-right",
         "app-chrome", "app-iterm", "prod-keepalive", "prod-shell", "prod-note",
         "sys-command-bar", "sys-dashboard", "sys-cheatsheet", "sys-link-hints",
-        "sys-lock", "clip-url", "clip-plain",
+        "sys-lock", "clip-url", "clip-plain", "clip-region-pin",
         "vim-h", "vim-j", "vim-k", "vim-l",
     ]
 
-    /// Substrings that must never appear in default catalog text (PII / work-specific).
+    /// Substrings that must never appear in default catalog text.
+    /// Generic only — no real names, employers, or personal domains.
     public static let forbiddenSubstrings: [String] = [
-        "jason@",
-        "jasonreis",
-        "OptumServe",
-        "osit-azure",
-        "prod-azure",
+        "TODO-PERSONAL",
+        "FIXME-PII",
+        // Free-mail domains in catalog text usually mean a real address leaked in.
         "@gmail.com",
-        "Thanks,\nJason",
+        "@icloud.com",
+        "@yahoo.com",
+        "@hotmail.com",
+        "@outlook.com",
     ]
 
-    /// Actions that were personal and must not ship as default IDs.
+    /// Action IDs reserved as “do not ship” placeholders (never real catalog entries).
     public static let retiredActionIDs: Set<String> = [
-        "prod-azure",
+        "retired-personal-cloud",
+        "retired-personal-vpn",
     ]
 
     public static func validate(
@@ -50,6 +53,15 @@ public enum CatalogPolicy {
         let retired = retiredActionIDs.intersection(idSet).sorted()
         if !retired.isEmpty {
             errors.append("Retired personal IDs still present: \(retired.joined(separator: ", "))")
+        }
+
+        let leaked = actionIDs.filter {
+            $0.hasPrefix("retired-personal-") || $0.hasPrefix("prod-personal-")
+        }
+        if !leaked.isEmpty {
+            errors.append(
+                "Personal-style action IDs present: \(leaked.sorted().joined(separator: ", "))"
+            )
         }
 
         let lower = searchableBlob.lowercased()

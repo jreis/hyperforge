@@ -12,7 +12,7 @@ struct KeyRemap: Identifiable, Codable, Equatable, Hashable {
     var note: String = ""
 }
 
-struct AppOverride: Identifiable, Codable, Equatable {
+struct AppOverride: Identifiable, Equatable {
     var id: UUID = UUID()
     var bundleID: String
     var appName: String
@@ -21,9 +21,39 @@ struct AppOverride: Identifiable, Codable, Equatable {
     /// Optional remaps: this key → run actionID (takes precedence over default).
     var remaps: [KeyRemap] = []
     var isEnabled: Bool = true
+    /// When true, Space-layer (TouchCursor) nav is off while this app is frontmost.
+    var disableSpaceNav: Bool = false
 
     var displayTitle: String {
         appName.isEmpty ? bundleID : appName
+    }
+}
+
+extension AppOverride: Codable {
+    enum CodingKeys: String, CodingKey {
+        case id, bundleID, appName, disabledActionIDs, remaps, isEnabled, disableSpaceNav
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        bundleID = try c.decode(String.self, forKey: .bundleID)
+        appName = try c.decodeIfPresent(String.self, forKey: .appName) ?? bundleID
+        disabledActionIDs = try c.decodeIfPresent(Set<String>.self, forKey: .disabledActionIDs) ?? []
+        remaps = try c.decodeIfPresent([KeyRemap].self, forKey: .remaps) ?? []
+        isEnabled = try c.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        disableSpaceNav = try c.decodeIfPresent(Bool.self, forKey: .disableSpaceNav) ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(bundleID, forKey: .bundleID)
+        try c.encode(appName, forKey: .appName)
+        try c.encode(disabledActionIDs, forKey: .disabledActionIDs)
+        try c.encode(remaps, forKey: .remaps)
+        try c.encode(isEnabled, forKey: .isEnabled)
+        try c.encode(disableSpaceNav, forKey: .disableSpaceNav)
     }
 }
 

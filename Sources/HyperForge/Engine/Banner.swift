@@ -33,18 +33,20 @@ enum BannerStyle {
 }
 
 enum Banner {
-    /// Simple one-line toast (back-compat).
+    /// Simple one-line toast (back-compat) — still uses the same glass pill HUD.
     static func show(_ message: String, duration: TimeInterval = 2.0) {
-        show(message, subtitle: nil, style: .neutral, symbol: nil, duration: duration)
+        show(message, subtitle: nil, style: .neutral, symbol: nil, duration: duration, screen: nil)
     }
 
     /// Rich HUD: title + optional subtitle, tinted status, SF Symbol.
+    /// - Parameter screen: Host display for the toast (defaults to main / key window’s screen).
     static func show(
         _ title: String,
         subtitle: String? = nil,
         style: BannerStyle = .neutral,
         symbol: String? = nil,
-        duration: TimeInterval = 2.2
+        duration: TimeInterval = 2.2,
+        screen: NSScreen? = nil
     ) {
         DispatchQueue.main.async {
             Self.showOnMain(
@@ -52,7 +54,8 @@ enum Banner {
                 subtitle: subtitle,
                 style: style,
                 symbol: symbol ?? style.defaultSymbol,
-                duration: duration
+                duration: duration,
+                screen: screen
             )
         }
     }
@@ -67,13 +70,19 @@ enum Banner {
         subtitle: String?,
         style: BannerStyle,
         symbol: String,
-        duration: TimeInterval
+        duration: TimeInterval,
+        screen preferredScreen: NSScreen?
     ) {
         dismissWork?.cancel()
         currentWindow?.close()
         currentWindow = nil
 
-        let screen = NSScreen.main ?? NSScreen.screens[0]
+        let screen =
+            preferredScreen
+            ?? NSApp.keyWindow?.screen
+            ?? NSApp.mainWindow?.screen
+            ?? NSScreen.main
+            ?? NSScreen.screens[0]
         let hasSubtitle = !(subtitle?.isEmpty ?? true)
         let height: CGFloat = hasSubtitle ? 56 : 44
         let maxWidth: CGFloat = 420
@@ -92,7 +101,7 @@ enum Banner {
         let width = min(maxWidth, max(minWidth, contentWidth + 8))
 
         let x = screen.frame.midX - width / 2
-        // Slightly above the dock / menu-adjacent — bottom HUD feels more native than mid-screen.
+        // Slightly above the dock — bottom HUD on the *target* screen.
         let y = screen.visibleFrame.minY + 28
 
         let window = NSWindow(

@@ -26,7 +26,8 @@ struct DashboardEscapeMonitor: NSViewRepresentable {
 
         override func keyDown(with event: NSEvent) {
             if event.keyCode == KeyCode.escape {
-                AppState.shared.handleDashboardEscape()
+                // Full stack — not dashboard-only.
+                _ = EscapeCoordinator.shared.handleEscape()
                 return
             }
             super.keyDown(with: event)

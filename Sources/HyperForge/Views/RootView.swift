@@ -39,7 +39,7 @@ struct RootView: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.86), value: appState.showOnboarding)
         .animation(.spring(response: 0.3, dampingFraction: 0.9), value: appState.commandBarVisible)
         .animation(.spring(response: 0.32, dampingFraction: 0.88), value: appState.cheatSheetVisible)
-        // Esc closes command bar first, then hides the dashboard (engine keeps running).
+        // Esc: EscapeCoordinator priority stack (pins first … dashboard last).
         .onExitCommand {
             appState.handleDashboardEscape()
         }
@@ -135,6 +135,8 @@ struct RootView: View {
             DashboardView()
         case .doctor:
             DoctorView()
+        case .checklist:
+            BindingChecklistView()
         case .profiles:
             ProfilesView()
         case .workspaces:

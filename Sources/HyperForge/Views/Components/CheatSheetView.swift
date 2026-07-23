@@ -18,7 +18,7 @@ struct CheatSheetView: View {
     private enum ModeFilter: String, CaseIterable, Identifiable {
         case all = "All"
         case hyper = "Hyper"
-        case vim = "Vim"
+        case vim = "Space"
         var id: String { rawValue }
     }
 
@@ -53,6 +53,15 @@ struct CheatSheetView: View {
         ActionCatalog.grouped(actions)
     }
 
+    /// When showing Space layer (filter or only Space Nav category), subgroup Move / Kill / …
+    private var useSpaceSubgroups: Bool {
+        modeFilter == .vim || categoryFilter == .vim
+    }
+
+    private var spaceGrouped: [(SpaceNavGroup, [HyperAction])] {
+        SpaceNavGroup.grouped(actions)
+    }
+
     var body: some View {
         Group {
             if standalone {
@@ -66,10 +75,14 @@ struct CheatSheetView: View {
                 }
             }
         }
-        .onAppear {
-            searchFocused = true
-        }
-        .onExitCommand { dismiss() }
+        .onAppear { focusSearchSoon() }
+        .onExitCommand { _ = EscapeCoordinator.shared.handleEscape() }
+    }
+
+    private func focusSearchSoon() {
+        searchFocused = true
+        DispatchQueue.main.async { searchFocused = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { searchFocused = true }
     }
 
     private var sheetCard: some View {
@@ -200,7 +213,7 @@ struct CheatSheetView: View {
 
     private var content: some View {
         ScrollView {
-            if grouped.isEmpty {
+            if actions.isEmpty {
                 VStack(spacing: 10) {
                     Image(systemName: "magnifyingglass")
                         .font(.largeTitle)
@@ -217,8 +230,35 @@ struct CheatSheetView: View {
             } else {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     legend
-                    ForEach(grouped, id: \.0) { category, items in
-                        section(category, items)
+                    if useSpaceSubgroups {
+                        ForEach(spaceGrouped, id: \.0) { group, items in
+                            spaceSection(group, items)
+                        }
+                        // If "All" modes with Space Nav category only — subgroups cover it.
+                        // If mode is Space but hyper also filtered out, we're good.
+                    } else {
+                        ForEach(grouped, id: \.0) { category, items in
+                            if category == .vim {
+                                // Nested Move / Kill / Clipboard / Mac under Space Nav
+                                VStack(alignment: .leading, spacing: 14) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: category.icon)
+                                            .foregroundStyle(category.tint)
+                                        Text(category.rawValue)
+                                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                                            .foregroundStyle(HFTheme.textSecondary)
+                                        Text("\(items.count)")
+                                            .font(.system(size: 11, design: .monospaced))
+                                            .foregroundStyle(HFTheme.textTertiary)
+                                    }
+                                    ForEach(SpaceNavGroup.grouped(items), id: \.0) { group, sub in
+                                        spaceSection(group, sub, nested: true)
+                                    }
+                                }
+                            } else {
+                                section(category, items)
+                            }
+                        }
                     }
                 }
                 .padding(18)
@@ -229,7 +269,7 @@ struct CheatSheetView: View {
     private var legend: some View {
         HStack(spacing: 16) {
             legendItem(color: HFTheme.accent, title: "Hyper", detail: "Hold Caps (F18) + key")
-            legendItem(color: HFTheme.danger.opacity(0.9), title: "Vim", detail: "Hold Right ⌘ + key")
+            legendItem(color: HFTheme.danger.opacity(0.9), title: "Space", detail: "Hold Space + key (TouchCursor)")
             Spacer()
             if appState.liveTestMode {
                 Text("Live Test on — click a row to fire")
@@ -271,17 +311,44 @@ struct CheatSheetView: View {
                     .foregroundStyle(HFTheme.textTertiary)
             }
 
-            // Two-column grid of binding rows
-            LazyVGrid(
-                columns: [
-                    GridItem(.flexible(), spacing: 8),
-                    GridItem(.flexible(), spacing: 8),
-                ],
-                spacing: 6
-            ) {
-                ForEach(items) { action in
-                    bindingRow(action)
-                }
+            bindingGrid(items)
+        }
+    }
+
+    private func spaceSection(
+        _ group: SpaceNavGroup,
+        _ items: [HyperAction],
+        nested: Bool = false
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: group.symbol)
+                    .foregroundStyle(HFTheme.danger.opacity(0.9))
+                    .font(nested ? .system(size: 11, weight: .semibold) : .body)
+                Text(nested ? group.rawValue : "Space · \(group.rawValue)")
+                    .font(.system(size: nested ? 11 : 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(HFTheme.textSecondary)
+                Text("\(items.count)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(HFTheme.textTertiary)
+            }
+            .padding(.leading, nested ? 8 : 0)
+
+            bindingGrid(items)
+                .padding(.leading, nested ? 8 : 0)
+        }
+    }
+
+    private func bindingGrid(_ items: [HyperAction]) -> some View {
+        LazyVGrid(
+            columns: [
+                GridItem(.flexible(), spacing: 8),
+                GridItem(.flexible(), spacing: 8),
+            ],
+            spacing: 6
+        ) {
+            ForEach(items) { action in
+                bindingRow(action)
             }
         }
     }
@@ -340,12 +407,12 @@ struct CheatSheetView: View {
             case .hyper:
                 KeyCap(text: "Hyper", compact: true)
             case .vim:
-                KeyCap(text: "Vim", compact: true)
+                KeyCap(text: "Space", compact: true)
             case .vimShift:
-                KeyCap(text: "Vim", compact: true)
+                KeyCap(text: "Space", compact: true)
                 KeyCap(text: "⇧", compact: true)
             case .vimCtrl:
-                KeyCap(text: "Vim", compact: true)
+                KeyCap(text: "Space", compact: true)
                 KeyCap(text: "⌃", compact: true)
             }
             KeyCap(text: action.keyLabel, compact: true)
@@ -354,7 +421,7 @@ struct CheatSheetView: View {
 
     private var footer: some View {
         HStack {
-            Text("Hold Caps for Hyper · Right ⌘ for Vim · Esc closes this sheet")
+            Text("Hold Caps for Hyper · Space for arrows · Esc closes this sheet")
                 .font(.system(size: 11))
                 .foregroundStyle(HFTheme.textTertiary)
             Spacer()

@@ -2,11 +2,13 @@
 // Self-contained cheat sheet UI with no EnvironmentObject / MainActor stores.
 // Safe to host from MenuBarExtra and CGEvent-tap paths.
 
+import AppKit
 import SwiftUI
 
 struct StandaloneCheatSheetView: View {
     @State private var query = ""
     @State private var categoryFilter: ActionCategory?
+    @FocusState private var searchFocused: Bool
 
     private var actions: [HyperAction] {
         var list = ActionCatalog.defaults
@@ -48,6 +50,20 @@ struct StandaloneCheatSheetView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .preferredColorScheme(.dark)
+        .onAppear { focusSearchSoon() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) {
+            note in
+            guard let win = note.object as? NSWindow,
+                  win.title.contains("Keybindings")
+            else { return }
+            focusSearchSoon()
+        }
+    }
+
+    private func focusSearchSoon() {
+        searchFocused = true
+        DispatchQueue.main.async { searchFocused = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { searchFocused = true }
     }
 
     private var header: some View {
@@ -88,6 +104,7 @@ struct StandaloneCheatSheetView: View {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Search…", text: $query)
                     .textFieldStyle(.plain)
+                    .focused($searchFocused)
             }
             .padding(8)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.06)))

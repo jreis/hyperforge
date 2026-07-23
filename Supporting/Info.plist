@@ -14,12 +14,14 @@
     <string>HyperForge</string>
     <key>CFBundleDisplayName</key>
     <string>HyperForge</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>0.3.0</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>3</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSUIElement</key>
@@ -30,6 +32,8 @@
     <string>NSApplication</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>HyperForge sends keystrokes and controls apps to power your Hyper Key automations.</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>HyperForge can capture an optional desktop screenshot when exporting a portfolio demo pack. Window shots of HyperForge itself do not need this.</string>
     <key>NSHumanReadableCopyright</key>
     <string>Copyright © 2026 Jason Reis. Local-first &amp; private by default.</string>
 </dict>

@@ -1,6 +1,6 @@
 // UtilityActions.swift
 // Keep-alive, notes, clipboard helpers, pomodoro, network, mic, etc.
-// Logic preserved from the original hyperkey.swift.
+// System utilities: network, lock, clipboard helpers, notes.
 
 import AppKit
 import Combine

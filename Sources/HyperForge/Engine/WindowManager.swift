@@ -1,6 +1,6 @@
 // WindowManager.swift
 // Accessibility-based window framing, snap, and undo.
-// Ported from hyperkey.swift — coordinate system is top-left origin for AX.
+// AX window geometry helpers — coordinate system is top-left origin for AX.
 
 import AppKit
 import ApplicationServices
@@ -14,8 +14,20 @@ final class WindowManager {
     private var frameHistory: [pid_t: NSRect] = [:]
     /// Full layout snapshot taken before “tile all” so Hyper+Z can restore.
     private var preTileLayout: [WindowSnapshot] = []
+    /// Prevent stacked tile jobs (each is expensive via Accessibility).
+    private var isTiling = false
+
+    /// Fail fast when an app’s AX server is hung (default can beach-ball for seconds).
+    nonisolated private static let axTimeoutSeconds: Float = 0.22
 
     private init() {}
+
+    /// True for this process / known HyperForge bundle IDs (skip tiling our own UI).
+    nonisolated private static func isHyperForgeBundle(_ bid: String?) -> Bool {
+        guard let bid, !bid.isEmpty else { return false }
+        if bid == Bundle.main.bundleIdentifier { return true }
+        return bid == "app.hyperforge.HyperForge"
+    }
 
     func frontmostWindow() -> AXUIElement? {
         guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
@@ -45,13 +57,24 @@ final class WindowManager {
     }
 
     func setFrame(_ window: AXUIElement, _ frame: NSRect) {
+        Self.applyAXFrame(window, frame)
+    }
+
+    /// Shared AX resize (usable off the main actor).
+    nonisolated private static func applyAXFrame(_ window: AXUIElement, _ frame: NSRect) {
+        AXUIElementSetMessagingTimeout(window, axTimeoutSeconds)
         var pos = CGPoint(x: frame.origin.x, y: frame.origin.y)
         var size = CGSize(width: frame.width, height: frame.height)
         guard let posVal = AXValueCreate(.cgPoint, &pos),
               let sizeVal = AXValueCreate(.cgSize, &size)
         else { return }
-        AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, posVal)
+        // Size first often avoids intermediate constraint fights; keep both calls brief.
         AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeVal)
+        AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, posVal)
+    }
+
+    nonisolated private static func configureAXTimeout(_ element: AXUIElement) {
+        AXUIElementSetMessagingTimeout(element, axTimeoutSeconds)
     }
 
     /// Visible frame in top-left AX coordinates.
@@ -107,32 +130,71 @@ final class WindowManager {
     }
 
     func moveToNextScreen() {
-        guard let win = frontmostWindow() else { return }
+        guard let win = frontmostWindow() else {
+            Banner.show(
+                "No front window",
+                subtitle: "Focus a window first",
+                style: .warning,
+                symbol: "display"
+            )
+            return
+        }
         let screens = NSScreen.screens
-        guard screens.count > 1, let current = NSScreen.main else { return }
+        guard screens.count > 1 else {
+            Banner.show(
+                "Only one display",
+                subtitle: "Connect another screen to move windows",
+                style: .info,
+                symbol: "display"
+            )
+            return
+        }
+
+        // Prefer the screen that currently contains the window (not always NSScreen.main).
+        let currentFrame = getFrame(win)
+        let current =
+            screens.first(where: { screen in
+                guard let f = currentFrame else { return false }
+                return Self.framesIntersect(f, screenFrame(for: screen), margin: 20)
+            })
+            ?? NSScreen.main
+            ?? screens[0]
+
         let idx = screens.firstIndex(of: current) ?? 0
         let next = screens[(idx + 1) % screens.count]
-        let vis = next.visibleFrame
-        let full = next.frame
-        let topLeft = NSRect(
-            x: vis.origin.x,
-            y: full.height - vis.origin.y - vis.height,
-            width: vis.width,
-            height: vis.height
+        let axDest = screenFrame(for: next)
+        saveFrame()
+        setFrame(
+            win,
+            NSRect(
+                x: axDest.origin.x,
+                y: axDest.origin.y,
+                width: axDest.width,
+                height: axDest.height
+            )
         )
-        setFrame(win, topLeft)
+
+        let name = next.localizedName
+        Banner.show(
+            "Next display",
+            subtitle: name.isEmpty ? "Moved window" : name,
+            style: .success,
+            symbol: "display.2",
+            screen: next
+        )
     }
 
     @discardableResult
     func undo() -> Bool {
         // Prefer restoring a full tile layout if one is pending.
         if !preTileLayout.isEmpty {
+            let count = preTileLayout.count
             restoreLayout(preTileLayout)
             preTileLayout = []
             Banner.show(
                 "Tile undone",
-                subtitle: "Previous layout restored",
-                style: .info,
+                subtitle: "Restored \(count) window\(count == 1 ? "" : "s")",
+                style: .success,
                 symbol: "arrow.uturn.backward"
             )
             return true
@@ -140,41 +202,141 @@ final class WindowManager {
         guard let app = NSWorkspace.shared.frontmostApplication,
               let saved = frameHistory[app.processIdentifier],
               let win = frontmostWindow()
-        else { return false }
+        else {
+            Banner.show(
+                "Nothing to undo",
+                subtitle: "Snap or tile a window first",
+                style: .warning,
+                symbol: "arrow.uturn.backward"
+            )
+            return false
+        }
         setFrame(win, saved)
         frameHistory.removeValue(forKey: app.processIdentifier)
+        let name = app.localizedName ?? "Window"
+        Banner.show(
+            "Snap undone",
+            subtitle: name,
+            style: .success,
+            symbol: "arrow.uturn.backward"
+        )
         return true
     }
 
     // MARK: - Tile all visible windows
 
-    private struct TileableWindow {
+    private struct TileableWindow: @unchecked Sendable {
         let element: AXUIElement
         let pid: pid_t
         let bundleID: String
         let title: String
         let frame: NSRect
+        /// Prefer AppKit for our own process (no AX round-trip).
+        let useAppKit: Bool
     }
 
-    /// Arrange every visible, non-minimized standard window on the main screen
-    /// into a grid that fills the screen (with small gaps).
+    private struct TilePlan: Sendable {
+        let snapshots: [WindowSnapshot]
+        let placements: [(TileableWindow, NSRect)]
+        let cols: Int
+        let rows: Int
+    }
+
+    /// Arrange visible windows into a grid. Heavy Accessibility work runs off the
+    /// main actor so a hung app AX server cannot beach-ball the UI.
     @discardableResult
     func tileAllVisible(gap: CGFloat = 8) -> Int {
+        guard !isTiling else {
+            Banner.show(
+                "Already tiling",
+                subtitle: "Wait a moment…",
+                style: .info,
+                symbol: "hourglass"
+            )
+            return 0
+        }
         let sf = screenFrame()
         guard sf.width > 0, sf.height > 0 else { return 0 }
 
-        var windows = collectTileableWindows(screenFrame: sf)
-        guard !windows.isEmpty else {
+        isTiling = true
+        Banner.show(
+            "Tiling…",
+            subtitle: "Scanning windows",
+            style: .info,
+            symbol: "rectangle.split.3x3"
+        )
+
+        // NSApp is main-thread only — snapshot ourselves here.
+        let ownWindows = snapshotOwnAppKitWindows(screenFrame: sf)
+        let myPID = ProcessInfo.processInfo.processIdentifier
+        let myBundle = Bundle.main.bundleIdentifier ?? "app.hyperforge.HyperForge"
+
+        Task.detached(priority: .userInitiated) {
+            let plan = Self.buildTilePlan(
+                screenFrame: sf,
+                gap: gap,
+                ownWindows: ownWindows,
+                myPID: myPID,
+                myBundle: myBundle
+            )
+            await MainActor.run {
+                self.applyTilePlan(plan)
+                self.isTiling = false
+            }
+        }
+        return 0
+    }
+
+    private func applyTilePlan(_ plan: TilePlan) {
+        guard !plan.placements.isEmpty else {
             Banner.show(
                 "Nothing to tile",
                 subtitle: "No visible windows on this screen",
                 style: .warning,
                 symbol: "rectangle.dashed"
             )
-            return 0
+            return
         }
 
-        // Stable order: left-to-right, top-to-bottom of current positions.
+        preTileLayout = plan.snapshots
+        let n = plan.placements.count
+        let myPID = ProcessInfo.processInfo.processIdentifier
+
+        for (win, frame) in plan.placements {
+            if win.useAppKit || win.pid == myPID {
+                if applyOwnAppKitFrame(title: win.title, axFrame: frame) {
+                    continue
+                }
+            }
+            Self.applyAXFrame(win.element, frame)
+        }
+
+        Banner.show(
+            "Tiled \(n) window\(n == 1 ? "" : "s")",
+            subtitle: "\(plan.cols)×\(plan.rows) grid · Hyper+Z to undo",
+            style: .success,
+            symbol: "rectangle.split.3x3"
+        )
+    }
+
+    /// Build plan + apply foreign-app AX frames off the main thread.
+    nonisolated private static func buildTilePlan(
+        screenFrame sf: NSRect,
+        gap: CGFloat,
+        ownWindows: [TileableWindow],
+        myPID: pid_t,
+        myBundle: String
+    ) -> TilePlan {
+        var windows = collectTileableWindowsOffMain(
+            screenFrame: sf,
+            myPID: myPID,
+            myBundle: myBundle
+        )
+        if !ownWindows.isEmpty {
+            windows.removeAll { $0.pid == myPID }
+            windows.append(contentsOf: ownWindows)
+        }
+
         windows.sort {
             if abs($0.frame.minY - $1.frame.minY) > 40 {
                 return $0.frame.minY < $1.frame.minY
@@ -182,8 +344,12 @@ final class WindowManager {
             return $0.frame.minX < $1.frame.minX
         }
 
-        // Snapshot for undo
-        preTileLayout = windows.map {
+        let maxTiles = 16
+        if windows.count > maxTiles {
+            windows = Array(windows.prefix(maxTiles))
+        }
+
+        let snapshots = windows.map {
             WindowSnapshot(
                 bundleID: $0.bundleID,
                 title: $0.title,
@@ -195,18 +361,22 @@ final class WindowManager {
         }
 
         let n = windows.count
+        guard n > 0 else {
+            return TilePlan(snapshots: [], placements: [], cols: 0, rows: 0)
+        }
+
         let cols = Int(ceil(sqrt(Double(n))))
         let rows = Int(ceil(Double(n) / Double(cols)))
-
         let cellW = (sf.width - gap * CGFloat(cols + 1)) / CGFloat(cols)
         let cellH = (sf.height - gap * CGFloat(rows + 1)) / CGFloat(rows)
 
-        let myPID = ProcessInfo.processInfo.processIdentifier
+        var placements: [(TileableWindow, NSRect)] = []
+        placements.reserveCapacity(n)
 
         for (index, win) in windows.enumerated() {
             let col = index % cols
             let row = index / cols
-            // Un-minimize if needed
+            configureAXTimeout(win.element)
             AXUIElementSetAttributeValue(win.element, "AXMinimized" as CFString, kCFBooleanFalse)
 
             let frame = NSRect(
@@ -216,27 +386,18 @@ final class WindowManager {
                 height: max(80, cellH)
             )
 
-            // Own process: prefer AppKit (AX is flaky for accessory / swift-run builds)
-            if win.pid == myPID, applyOwnAppKitFrame(title: win.title, axFrame: frame) {
-                continue
+            if !win.useAppKit {
+                applyAXFrame(win.element, frame)
             }
-            setFrame(win.element, frame)
+            placements.append((win, frame))
         }
 
-        Banner.show(
-            "Tiled \(n) window\(n == 1 ? "" : "s")",
-            subtitle: "\(cols)×\(rows) grid · Hyper+Z to undo",
-            style: .success,
-            symbol: "rectangle.split.3x3"
-        )
-        return n
+        return TilePlan(snapshots: snapshots, placements: placements, cols: cols, rows: rows)
     }
 
-    /// Resize/move one of our NSWindows. `axFrame` is top-left AX coords.
     @discardableResult
     private func applyOwnAppKitFrame(title: String, axFrame: NSRect) -> Bool {
         let screen = NSScreen.main ?? NSScreen.screens[0]
-        // AX top-left → AppKit bottom-left
         let appKitFrame = NSRect(
             x: axFrame.origin.x,
             y: screen.frame.height - axFrame.origin.y - axFrame.height,
@@ -251,13 +412,52 @@ final class WindowManager {
             ?? targets.first(where: { $0.title.localizedCaseInsensitiveContains("HyperForge") })
             ?? targets.first
         guard let win else { return false }
-        win.setFrame(appKitFrame, display: true, animate: true)
+        win.setFrame(appKitFrame, display: true, animate: false)
         return true
     }
 
-    private func collectTileableWindows(screenFrame sf: NSRect) -> [TileableWindow] {
+    private func snapshotOwnAppKitWindows(screenFrame sf: NSRect) -> [TileableWindow] {
+        var extra: [TileableWindow] = []
+        let myPID = ProcessInfo.processInfo.processIdentifier
+        let bid = Bundle.main.bundleIdentifier ?? "app.hyperforge.HyperForge"
+        let placeholder = AXUIElementCreateApplication(myPID)
+
+        for win in NSApp.windows where win.isVisible && !win.isMiniaturized {
+            let isHUD =
+                win.styleMask.contains(.borderless)
+                && (win.level == .floating || win.level.rawValue > NSWindow.Level.normal.rawValue)
+            if isHUD && win.frame.height < 80 { continue }
+            guard win.frame.width >= 400, win.frame.height >= 300 else { continue }
+
+            let screen = win.screen ?? NSScreen.main ?? NSScreen.screens[0]
+            let axFrame = NSRect(
+                x: win.frame.origin.x,
+                y: screen.frame.height - win.frame.origin.y - win.frame.height,
+                width: win.frame.width,
+                height: win.frame.height
+            )
+            guard Self.framesIntersect(axFrame, sf, margin: 40) else { continue }
+
+            extra.append(
+                TileableWindow(
+                    element: placeholder,
+                    pid: myPID,
+                    bundleID: bid,
+                    title: win.title.isEmpty ? "HyperForge" : win.title,
+                    frame: axFrame,
+                    useAppKit: true
+                )
+            )
+        }
+        return extra
+    }
+
+    nonisolated private static func collectTileableWindowsOffMain(
+        screenFrame sf: NSRect,
+        myPID: pid_t,
+        myBundle: String
+    ) -> [TileableWindow] {
         var result: [TileableWindow] = []
-        // System UI only — include HyperForge, Firefox, accessory apps (menu bar hosts).
         let skipBundles: Set<String> = [
             "com.apple.loginwindow",
             "com.apple.notificationcenterui",
@@ -269,46 +469,42 @@ final class WindowManager {
             "com.apple.WindowManager",
         ]
 
-        // .regular (normal apps) + .accessory (menu bar apps like HyperForge under LSUIElement)
         let candidates = NSWorkspace.shared.runningApplications.filter {
-            ($0.activationPolicy == .regular || $0.activationPolicy == .accessory)
+            $0.activationPolicy == .regular
                 && !$0.isHidden
                 && $0.bundleIdentifier != nil
+                && $0.processIdentifier != myPID
         }
 
+        let deadline = Date().addingTimeInterval(1.25)
+        var appsScanned = 0
+        let maxApps = 24
+
         for app in candidates {
+            if Date() > deadline || appsScanned >= maxApps { break }
+            appsScanned += 1
             guard let bid = app.bundleIdentifier, !skipBundles.contains(bid) else { continue }
 
             let axApp = AXUIElementCreateApplication(app.processIdentifier)
-            let windows = windowsForApp(axApp, pid: app.processIdentifier, bundleID: bid)
+            configureAXTimeout(axApp)
+            let windows = windowsForAppFast(axApp, bundleID: bid)
 
             for win in windows {
-                if isMinimized(win) { continue }
+                configureAXTimeout(win)
+                if isMinimizedFast(win) { continue }
 
-                // Skip pure system/sheet chrome when subrole is explicit
                 var subroleRef: AnyObject?
-                AXUIElementCopyAttributeValue(win, kAXSubroleAttribute as CFString, &subroleRef)
-                if let sub = subroleRef as? String {
-                    if sub == "AXSystemDialog" || sub == "AXPictureInPictureWindow" { continue }
-                }
-
-                guard let frame = getFrame(win) else {
-                    HyperLog.event("tile skip \(bid): no frame")
-                    continue
-                }
-                // Ignore tooltips / status chips; keep normal browser & app windows
-                guard frame.width >= 160, frame.height >= 90 else {
-                    HyperLog.event(
-                        "tile skip \(bid): tiny \(Int(frame.width))x\(Int(frame.height))"
-                    )
+                if AXUIElementCopyAttributeValue(win, kAXSubroleAttribute as CFString, &subroleRef)
+                    == .success,
+                    let sub = subroleRef as? String,
+                    sub == "AXSystemDialog" || sub == "AXPictureInPictureWindow"
+                {
                     continue
                 }
 
-                // Intersect screen (not just center) — Firefox/multi-monitor edge cases
-                guard framesIntersect(frame, sf, margin: 40) else {
-                    HyperLog.event("tile skip \(bid): off-screen frame=\(frame) sf=\(sf)")
-                    continue
-                }
+                guard let frame = getFrameFast(win) else { continue }
+                guard frame.width >= 160, frame.height >= 90 else { continue }
+                guard framesIntersect(frame, sf, margin: 40) else { continue }
 
                 var titleRef: AnyObject?
                 AXUIElementCopyAttributeValue(win, kAXTitleAttribute as CFString, &titleRef)
@@ -320,24 +516,19 @@ final class WindowManager {
                         pid: app.processIdentifier,
                         bundleID: bid,
                         title: title,
-                        frame: frame
+                        frame: frame,
+                        useAppKit: false
                     )
                 )
-                HyperLog.event("tile include \(bid) “\(title.prefix(40))” \(Int(frame.width))x\(Int(frame.height))")
             }
         }
 
-        // HyperForge under swift run / accessory: AX sometimes misses our NSWindows.
-        // Fall back to AppKit windows for this process.
-        result.append(contentsOf: collectOwnAppKitWindows(screenFrame: sf, existing: result))
-
+        _ = myBundle
         return result
     }
 
-    /// AX window list — Firefox is picky; combine windows list + focus/main + role walk.
-    private func windowsForApp(
+    nonisolated private static func windowsForAppFast(
         _ axApp: AXUIElement,
-        pid: pid_t,
         bundleID: String
     ) -> [AXUIElement] {
         var found: [AXUIElement] = []
@@ -348,15 +539,18 @@ final class WindowManager {
             }
         }
 
+        configureAXTimeout(axApp)
+
         var windowsRef: AnyObject?
         if AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsRef)
             == .success,
             let windows = windowsRef as? [AXUIElement]
         {
-            windows.forEach(appendUnique)
+            for win in windows.prefix(8) {
+                appendUnique(win)
+            }
         }
 
-        // Seed with focused / main (helps Firefox & Chrome)
         for attr in [kAXFocusedWindowAttribute as String, kAXMainWindowAttribute as String] {
             var ref: AnyObject?
             if AXUIElementCopyAttributeValue(axApp, attr as CFString, &ref) == .success,
@@ -366,23 +560,23 @@ final class WindowManager {
             }
         }
 
-        // Role walk: some builds bury windows under children instead of AXWindows
-        if found.isEmpty || bundleID.contains("firefox") || bundleID.contains("mozilla") {
-            var walked: [AXUIElement] = []
-            var visits = 0
-            collectWindowsByRole(axApp, into: &walked, visits: &visits, limit: 80)
-            walked.forEach(appendUnique)
+        if found.isEmpty {
+            let picky =
+                bundleID.contains("firefox")
+                || bundleID.contains("mozilla")
+                || bundleID.contains("chrome")
+            if picky {
+                var walked: [AXUIElement] = []
+                var visits = 0
+                collectWindowsByRoleFast(axApp, into: &walked, visits: &visits, limit: 24)
+                walked.prefix(6).forEach(appendUnique)
+            }
         }
 
-        if found.isEmpty {
-            HyperLog.event("tile: no AX windows for \(bundleID) pid=\(pid)")
-        } else {
-            HyperLog.event("tile: \(found.count) AX window(s) for \(bundleID)")
-        }
         return found
     }
 
-    private func collectWindowsByRole(
+    nonisolated private static func collectWindowsByRoleFast(
         _ el: AXUIElement,
         into out: inout [AXUIElement],
         visits: inout Int,
@@ -390,149 +584,100 @@ final class WindowManager {
     ) {
         guard visits < limit else { return }
         visits += 1
+        configureAXTimeout(el)
 
         var roleRef: AnyObject?
         AXUIElementCopyAttributeValue(el, kAXRoleAttribute as CFString, &roleRef)
         if let role = roleRef as? String, role == kAXWindowRole as String {
             out.append(el)
         }
-
         var childrenRef: AnyObject?
         guard
             AXUIElementCopyAttributeValue(el, kAXChildrenAttribute as CFString, &childrenRef)
                 == .success,
             let children = childrenRef as? [AXUIElement]
         else { return }
-        for child in children {
-            collectWindowsByRole(child, into: &out, visits: &visits, limit: limit)
+        for child in children.prefix(6) {
+            collectWindowsByRoleFast(child, into: &out, visits: &visits, limit: limit)
         }
     }
 
-    private func isMinimized(_ win: AXUIElement) -> Bool {
+    nonisolated private static func isMinimizedFast(_ win: AXUIElement) -> Bool {
         var minRef: AnyObject?
         guard
             AXUIElementCopyAttributeValue(win, "AXMinimized" as CFString, &minRef) == .success
         else { return false }
         if let b = minRef as? Bool { return b }
-        // Some apps return NSNumber
         if let n = minRef as? NSNumber { return n.boolValue }
         return false
     }
 
-    private func framesIntersect(_ a: NSRect, _ b: NSRect, margin: CGFloat) -> Bool {
-        let expanded = b.insetBy(dx: -margin, dy: -margin)
-        return a.intersects(expanded)
+    nonisolated private static func getFrameFast(_ window: AXUIElement) -> NSRect? {
+        var posValue: AnyObject?
+        var sizeValue: AnyObject?
+        guard
+            AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &posValue)
+                == .success,
+            AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeValue)
+                == .success
+        else { return nil }
+        var pos = CGPoint.zero
+        var size = CGSize.zero
+        AXValueGetValue(posValue as! AXValue, .cgPoint, &pos)
+        AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
+        return NSRect(x: pos.x, y: pos.y, width: size.width, height: size.height)
     }
 
-    /// Own process windows via AppKit when AX omits them (menu bar / swift run).
-    private func collectOwnAppKitWindows(
-        screenFrame sf: NSRect,
-        existing: [TileableWindow]
-    ) -> [TileableWindow] {
-        var extra: [TileableWindow] = []
-        let myPID = ProcessInfo.processInfo.processIdentifier
-        let bid = Bundle.main.bundleIdentifier ?? "app.hyperforge.HyperForge"
-
-        // Already have our windows from AX?
-        if existing.contains(where: { $0.pid == myPID }) { return [] }
-
-        for win in NSApp.windows where win.isVisible && !win.isMiniaturized {
-            // Skip borderless toasts / HUDs
-            let isHUD =
-                win.styleMask.contains(.borderless)
-                && (win.level == .floating || win.level.rawValue > NSWindow.Level.normal.rawValue)
-            if isHUD && win.frame.height < 80 { continue }
-            // Only real content windows (dashboard etc.)
-            guard win.frame.width >= 400, win.frame.height >= 300 else { continue }
-
-            // Convert AppKit bottom-left frame → AX top-left
-            let screen = win.screen ?? NSScreen.main ?? NSScreen.screens[0]
-            let axFrame = NSRect(
-                x: win.frame.origin.x,
-                y: screen.frame.height - win.frame.origin.y - win.frame.height,
-                width: win.frame.width,
-                height: win.frame.height
-            )
-            guard framesIntersect(axFrame, sf, margin: 40) else { continue }
-
-            // Use AX focused/main for the element so setFrame works
-            let axApp = AXUIElementCreateApplication(myPID)
-            var el: AXUIElement?
-            var focusedRef: AnyObject?
-            if AXUIElementCopyAttributeValue(
-                axApp, kAXFocusedWindowAttribute as CFString, &focusedRef
-            ) == .success {
-                el = (focusedRef as! AXUIElement)
-            } else {
-                var windowsRef: AnyObject?
-                if AXUIElementCopyAttributeValue(
-                    axApp, kAXWindowsAttribute as CFString, &windowsRef
-                ) == .success,
-                    let windows = windowsRef as? [AXUIElement],
-                    let first = windows.first
-                {
-                    el = first
-                }
-            }
-
-            if let el {
-                extra.append(
-                    TileableWindow(
-                        element: el,
-                        pid: myPID,
-                        bundleID: bid,
-                        title: win.title,
-                        frame: axFrame
-                    )
-                )
-            } else {
-                // Direct AppKit resize as last resort (own process only)
-                let visible = screen.visibleFrame
-                // Will be laid out in tileAllVisible via AppKit path — store a placeholder
-                // by applying setFrameOrigin/setContentSize after grid is computed.
-                // Handled below in tileAllVisible for own windows without AX.
-                _ = visible
-                HyperLog.event("tile: HyperForge window “\(win.title)” has no AX element; will AppKit-tile")
-                // Encode using a dummy system-wide element — tileAllVisible special-cases pid
-                extra.append(
-                    TileableWindow(
-                        element: AXUIElementCreateApplication(myPID),
-                        pid: myPID,
-                        bundleID: bid,
-                        title: win.title.isEmpty ? "HyperForge" : win.title,
-                        frame: axFrame
-                    )
-                )
-            }
-        }
-        return extra
+    nonisolated private static func framesIntersect(_ a: NSRect, _ b: NSRect, margin: CGFloat)
+        -> Bool
+    {
+        let expanded = b.insetBy(dx: -margin, dy: -margin)
+        return a.intersects(expanded)
     }
 
     /// Toggle float / focus-pin (AHK always-on-top).
     /// HyperForge windows use true floating level; other apps get raise + hide-others focus mode.
     func toggleAlwaysOnTop() {
         if let app = NSWorkspace.shared.frontmostApplication,
-           (app.bundleIdentifier == Bundle.main.bundleIdentifier
-               || app.bundleIdentifier == "app.hyperforge.HyperForge"
-               || app.bundleIdentifier == "dev.jasonreis.HyperForge"),
+           Self.isHyperForgeBundle(app.bundleIdentifier),
            let win = NSApp.keyWindow ?? NSApp.mainWindow
         {
             let wasFloating = win.level == .floating
             win.level = wasFloating ? .normal : .floating
-            Banner.show(wasFloating ? "Always on top OFF" : "Always on top ON")
+            if wasFloating {
+                Banner.show(
+                    "Always on top",
+                    subtitle: "Off",
+                    style: .neutral,
+                    symbol: "pin.slash"
+                )
+            } else {
+                Banner.show(
+                    "Always on top",
+                    subtitle: "On · this window floats",
+                    style: .success,
+                    symbol: "pin.fill"
+                )
+            }
             return
         }
 
         guard let app = NSWorkspace.shared.frontmostApplication,
               let win = frontmostWindow()
         else {
-            Banner.show("No front window")
+            Banner.show(
+                "No front window",
+                subtitle: "Focus a window first",
+                style: .warning,
+                symbol: "pin"
+            )
             return
         }
 
         let key = "hf.aot.\(app.processIdentifier)"
         let on = !UserDefaults.standard.bool(forKey: key)
         UserDefaults.standard.set(on, forKey: key)
+        let name = app.localizedName ?? "App"
 
         if on {
             app.activate(options: [.activateAllWindows])
@@ -544,24 +689,43 @@ final class WindowManager {
             {
                 other.hide()
             }
-            Banner.show("Focus pin ON (others hidden)")
+            Banner.show(
+                "Focus pin on",
+                subtitle: "\(name) · other apps hidden",
+                style: .success,
+                symbol: "pin.fill"
+            )
         } else {
             for other in NSWorkspace.shared.runningApplications
             where other.activationPolicy == .regular {
                 other.unhide()
             }
-            Banner.show("Focus pin OFF")
+            Banner.show(
+                "Focus pin off",
+                subtitle: name,
+                style: .neutral,
+                symbol: "pin.slash"
+            )
         }
     }
 
     func minimizeFront() {
         guard let win = frontmostWindow() else {
-            Banner.show("No front window")
+            Banner.show(
+                "No front window",
+                subtitle: "Focus a window first",
+                style: .warning,
+                symbol: "minus.rectangle"
+            )
             return
         }
-        // kAXMinimizeButton or set AXMinimized
         AXUIElementSetAttributeValue(win, "AXMinimized" as CFString, kCFBooleanTrue)
-        Banner.show("Minimized")
+        Banner.show(
+            "Minimized",
+            subtitle: "Front window",
+            style: .success,
+            symbol: "minus.rectangle"
+        )
     }
 
     // MARK: - Layout capture / restore (workspace feature)

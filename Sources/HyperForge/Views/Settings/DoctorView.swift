@@ -167,6 +167,46 @@ struct DoctorView: View {
                         : nil,
                     neutral: !ollama.enabled
                 )
+
+                if ollama.enabled {
+                    let fit = ollama.modelFit
+                    checkRow(
+                        ok: fit.level == .ok,
+                        title: "Model fit (\(ollama.model))",
+                        detail: fit.detail,
+                        fix: fit.isWarning
+                            ? {
+                                if let s = fit.suggestion {
+                                    ollama.model = s
+                                    ollama.persistSettings()
+                                }
+                                Task { await ollama.ping() }
+                            }
+                            : nil,
+                        neutral: fit.level == .unknown,
+                        warning: fit.level == .tight || fit.level == .notInstalled
+                    )
+                }
+
+                let space = SpaceNavStore.shared
+                let front = SpaceNavRuntime.shared.frontmostID
+                let spaceBlocked = front.map { bid in
+                    space.blockedApps.contains(where: { $0.bundleID == bid })
+                        || (AppOverrideStore.shared.overrides.contains {
+                            $0.isEnabled && $0.disableSpaceNav && $0.bundleID == bid
+                        })
+                } ?? false
+                checkRow(
+                    ok: true,
+                    title: "Space navigation",
+                    detail: space.isEnabled
+                        ? (spaceBlocked
+                            ? "On · disabled in frontmost app · hold \(space.holdMilliseconds) ms · \(space.blockedApps.count) blocked"
+                            : "On · hold \(space.holdMilliseconds == 0 ? "immediate" : "\(space.holdMilliseconds) ms") · \(space.blockedApps.count) apps blocked")
+                        : "Off — Space always types a space",
+                    fix: nil,
+                    neutral: true
+                )
             }
         }
     }
@@ -304,11 +344,24 @@ struct DoctorView: View {
         title: String,
         detail: String,
         fix: (() -> Void)?,
-        neutral: Bool = false
+        neutral: Bool = false,
+        warning: Bool = false
     ) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: neutral ? "circle.fill" : (ok ? "checkmark.circle.fill" : "xmark.circle.fill"))
-                .foregroundStyle(neutral ? HFTheme.textTertiary : (ok ? HFTheme.success : HFTheme.danger))
+        let symbol: String = {
+            if neutral { return "circle.fill" }
+            if ok { return "checkmark.circle.fill" }
+            if warning { return "exclamationmark.triangle.fill" }
+            return "xmark.circle.fill"
+        }()
+        let color: Color = {
+            if neutral { return HFTheme.textTertiary }
+            if ok { return HFTheme.success }
+            if warning { return HFTheme.warning }
+            return HFTheme.danger
+        }()
+        return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: symbol)
+                .foregroundStyle(color)
                 .font(.system(size: 14))
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 2) {
@@ -320,7 +373,7 @@ struct DoctorView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
-            if let fix, !ok {
+            if let fix, !ok || warning {
                 Button("Fix") { fix() }
                     .controlSize(.small)
                     .buttonStyle(.bordered)

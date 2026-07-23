@@ -17,6 +17,7 @@ enum QuickMenuService {
         }
 
         menu.addItem(item("Paste transforms…", "doc.on.clipboard", #selector(QuickMenuTarget.pasteTransforms)))
+        menu.addItem(item("Run Shortcut…", "sparkles.rectangle.stack", #selector(QuickMenuTarget.shortcuts)))
         menu.addItem(item("AX Recipes…", "wand.and.stars", #selector(QuickMenuTarget.recipes)))
         menu.addItem(item("Command bar", "sparkles", #selector(QuickMenuTarget.commandBar)))
         menu.addItem(item("Cheat sheet", "keyboard", #selector(QuickMenuTarget.cheatSheet)))
@@ -31,6 +32,8 @@ enum QuickMenuService {
         menu.addItem(item("Copy IP address", "network", #selector(QuickMenuTarget.copyIP)))
         menu.addItem(item("Copy hostname", "desktopcomputer", #selector(QuickMenuTarget.copyHostname)))
         menu.addItem(item("Link hints", "link.circle", #selector(QuickMenuTarget.linkHints)))
+        menu.addItem(item("Pin screen region", "crop", #selector(QuickMenuTarget.regionPin)))
+        menu.addItem(item("Clipboard image pin", "photo", #selector(QuickMenuTarget.clipboardImage)))
         menu.addItem(.separator())
         menu.addItem(item("Open dashboard", "rectangle.center.inset.filled", #selector(QuickMenuTarget.dashboard)))
 
@@ -43,6 +46,7 @@ final class QuickMenuTarget: NSObject {
     static let shared = QuickMenuTarget()
 
     @objc func pasteTransforms() { PasteTransformService.showMenu() }
+    @objc func shortcuts() { ShortcutsService.showMenu() }
     @objc func recipes() { AXRecipeStore.shared.showMenu() }
     @objc func commandBar() {
         AppState.shared.commandBarVisible = true
@@ -58,5 +62,7 @@ final class QuickMenuTarget: NSObject {
     @objc func copyIP() { SystemActions.copyPrimaryIP() }
     @objc func copyHostname() { SystemActions.copyHostname() }
     @objc func linkHints() { LinkHintService.shared.toggle() }
+    @objc func regionPin() { RegionPinService.shared.beginSelection() }
+    @objc func clipboardImage() { ClipboardImagePreview.shared.showManual() }
     @objc func dashboard() { AppState.shared.openMainWindow() }
 }

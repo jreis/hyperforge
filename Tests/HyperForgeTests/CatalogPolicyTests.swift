@@ -19,16 +19,16 @@ final class CatalogPolicyTests: XCTestCase {
     }
 
     func testDetectsRetiredPersonalID() {
-        let ids = Array(CatalogPolicy.requiredActionIDs) + ["prod-azure"]
+        let ids = Array(CatalogPolicy.requiredActionIDs) + ["retired-personal-cloud"]
         let errors = CatalogPolicy.validate(actionIDs: ids, searchableBlob: "ok")
-        XCTAssertTrue(errors.contains { $0.contains("Retired") })
+        XCTAssertTrue(errors.contains { $0.contains("Retired") || $0.contains("Personal-style") })
     }
 
-    func testDetectsPersonalEmailInBlob() {
+    func testDetectsFreeMailInCatalogBlob() {
         let ids = Array(CatalogPolicy.requiredActionIDs)
         let errors = CatalogPolicy.validate(
             actionIDs: ids,
-            searchableBlob: "contact jason@example.com"
+            searchableBlob: "contact user@gmail.com"
         )
         XCTAssertTrue(errors.contains { $0.contains("Forbidden") })
     }

@@ -45,22 +45,39 @@ enum KeyCode {
     static let nine: CGKeyCode = 0x19
     static let zero: CGKeyCode = 0x1D
 
+    // Numpad digits (ANSI keypad — corners map to quarter snaps)
+    static let keypad0: CGKeyCode = 0x52
+    static let keypad1: CGKeyCode = 0x53
+    static let keypad2: CGKeyCode = 0x54
+    static let keypad3: CGKeyCode = 0x55
+    static let keypad4: CGKeyCode = 0x56
+    static let keypad5: CGKeyCode = 0x57
+    static let keypad6: CGKeyCode = 0x58
+    static let keypad7: CGKeyCode = 0x59
+    static let keypad8: CGKeyCode = 0x5B
+    static let keypad9: CGKeyCode = 0x5C
+
     // Navigation / editing
     static let leftArrow: CGKeyCode = 0x7B
     static let rightArrow: CGKeyCode = 0x7C
     static let downArrow: CGKeyCode = 0x7D
     static let upArrow: CGKeyCode = 0x7E
-    static let delete: CGKeyCode = 0x33
+    static let delete: CGKeyCode = 0x33       // Backspace
     static let forwardDelete: CGKeyCode = 0x75
     static let tab: CGKeyCode = 0x30
     static let space: CGKeyCode = 0x31
     static let `return`: CGKeyCode = 0x24
     static let escape: CGKeyCode = 0x35
     static let semicolon: CGKeyCode = 0x29
+    static let quote: CGKeyCode = 0x27  // apostrophe — Run Shortcuts
     static let comma: CGKeyCode = 0x2B
     static let period: CGKeyCode = 0x2F
     static let slash: CGKeyCode = 0x2C
     static let grave: CGKeyCode = 0x32
+    static let home: CGKeyCode = 0x73
+    static let end: CGKeyCode = 0x77
+    static let pageUp: CGKeyCode = 0x74
+    static let pageDown: CGKeyCode = 0x79
 
     // Hyper trigger / help keys
     static let f18: CGKeyCode = 0x4F
@@ -86,6 +103,7 @@ enum KeyCode {
         case delete: return "Delete"
         case forwardDelete: return "Fwd Del"
         case semicolon: return ";"
+        case quote: return "'"
         case comma: return ","
         case period: return "."
         case slash: return "/"
@@ -105,6 +123,16 @@ enum KeyCode {
         case eight: return "8"
         case nine: return "9"
         case zero: return "0"
+        case keypad0: return "Num 0"
+        case keypad1: return "Num 1"
+        case keypad2: return "Num 2"
+        case keypad3: return "Num 3"
+        case keypad4: return "Num 4"
+        case keypad5: return "Num 5"
+        case keypad6: return "Num 6"
+        case keypad7: return "Num 7"
+        case keypad8: return "Num 8"
+        case keypad9: return "Num 9"
         case a: return "A"
         case b: return "B"
         case c: return "C"

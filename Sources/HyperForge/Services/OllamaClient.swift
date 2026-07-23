@@ -3,6 +3,7 @@
 // Never leaves localhost. Graceful fallback when Ollama is offline.
 
 import Foundation
+import HyperForgeKit
 
 struct AIIntent: Equatable {
     enum Kind: String {
@@ -31,32 +32,93 @@ final class OllamaClient: ObservableObject {
     @Published var lastError: String?
     @Published var isThinking = false
     @Published var enabled: Bool = UserDefaults.standard.object(forKey: "hf.ollamaEnabled") as? Bool ?? true
+    /// Installed models from last successful `/api/tags`.
+    @Published var installedModels: [OllamaModelInfo] = []
+    /// Fit of the configured model for this Mac’s RAM.
+    @Published var modelFit: ModelFitAssessment = ModelFitAssessment(
+        level: .unknown,
+        title: "Not checked yet",
+        detail: "Ping Ollama to assess model size vs memory."
+    )
+    /// Host physical RAM (bytes), captured once.
+    let physicalMemoryBytes: UInt64 = ModelFitness.physicalMemoryBytes()
 
-    private init() {}
+    private init() {
+        refreshModelFit()
+    }
 
     var baseURL: URL? { URL(string: baseURLString) }
+
+    var physicalMemoryGB: Double {
+        Double(physicalMemoryBytes) / 1_073_741_824.0
+    }
 
     func persistSettings() {
         UserDefaults.standard.set(model, forKey: "hf.ollamaModel")
         UserDefaults.standard.set(baseURLString, forKey: "hf.ollamaURL")
         UserDefaults.standard.set(enabled, forKey: "hf.ollamaEnabled")
+        refreshModelFit()
     }
 
-    /// Lightweight health check against local Ollama.
+    /// Recompute fitness from current model + installed list + host RAM.
+    func refreshModelFit() {
+        modelFit = ModelFitness.assess(
+            modelName: model,
+            installed: installedModels,
+            physicalMemoryBytes: physicalMemoryBytes
+        )
+    }
+
+    /// Lightweight health check against local Ollama; also sizes the configured model.
     func ping() async {
         guard enabled, let base = baseURL else {
             isAvailable = false
+            installedModels = []
+            refreshModelFit()
             return
         }
         var req = URLRequest(url: base.appendingPathComponent("api/tags"))
         req.timeoutInterval = 1.5
         do {
-            let (_, response) = try await URLSession.shared.data(for: req)
-            isAvailable = (response as? HTTPURLResponse)?.statusCode == 200
-            lastError = isAvailable ? nil : "Ollama responded with an error"
+            let (data, response) = try await URLSession.shared.data(for: req)
+            let ok = (response as? HTTPURLResponse)?.statusCode == 200
+            isAvailable = ok
+            if ok {
+                installedModels = Self.parseTags(data)
+                lastError = nil
+            } else {
+                lastError = "Ollama responded with an error"
+            }
+            refreshModelFit()
         } catch {
             isAvailable = false
             lastError = "Ollama offline — using offline router"
+            // Keep last installed list for offline sizing hints when possible.
+            refreshModelFit()
+        }
+    }
+
+    private static func parseTags(_ data: Data) -> [OllamaModelInfo] {
+        guard
+            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let models = root["models"] as? [[String: Any]]
+        else { return [] }
+
+        return models.compactMap { row in
+            guard let name = row["name"] as? String else { return nil }
+            let size: Int64
+            if let n = row["size"] as? Int64 {
+                size = n
+            } else if let n = row["size"] as? Int {
+                size = Int64(n)
+            } else if let n = row["size"] as? Double {
+                size = Int64(n)
+            } else {
+                size = 0
+            }
+            let details = row["details"] as? [String: Any]
+            let param = details?["parameter_size"] as? String
+            return OllamaModelInfo(name: name, sizeBytes: size, parameterSize: param)
         }
     }
 
@@ -272,6 +334,9 @@ enum OfflineIntentRouter {
             ("what are the shortcuts", "sys-cheatsheet", "Keybinding cheat sheet"),
             ("show bindings", "sys-cheatsheet", "Keybinding cheat sheet"),
             ("help", "sys-cheatsheet", "Keybinding cheat sheet"),
+            ("run shortcut", "sys-shortcuts", "Run Shortcut menu"),
+            ("run a shortcut", "sys-shortcuts", "Run Shortcut menu"),
+            ("shortcuts menu", "sys-shortcuts", "Run Shortcut menu"),
             ("pomodoro", "prod-pomodoro", "Pomodoro timer"),
             ("note", "prod-note", "Quick note"),
         ]
@@ -307,7 +372,7 @@ enum OfflineIntentRouter {
                 actionID: nil,
                 payload: """
                 HyperForge: hold Caps (F18) + key for Hyper actions. \
-                Right ⌘ for Vim nav. Hyper+Space opens this command bar. \
+                Hold Space + H/J/K/L for arrows (TouchCursor-style). Hyper+Space opens this command bar. \
                 Hyper+/ toggles link hints. Profiles switch action sets.
                 """,
                 title: "How HyperForge works",

@@ -133,6 +133,27 @@ struct OverridesView: View {
                     }
 
                     GlassCard {
+                        Toggle(isOn: Binding(
+                            get: { current.disableSpaceNav },
+                            set: { v in
+                                var item = current
+                                item.disableSpaceNav = v
+                                store.update(item)
+                                selectedID = item.id
+                            }
+                        )) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Disable Space navigation")
+                                    .font(.system(size: 13, weight: .semibold))
+                                Text("Space types normally (no HJKL layer) while this app is frontmost.")
+                                    .font(.caption)
+                                    .foregroundStyle(HFTheme.textTertiary)
+                            }
+                        }
+                        .toggleStyle(.switch)
+                    }
+
+                    GlassCard {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("Disabled actions")
                                 .font(.system(size: 13, weight: .semibold))

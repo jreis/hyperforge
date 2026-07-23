@@ -20,8 +20,27 @@ final class AppState: ObservableObject {
 
     @AppStorage("hf.hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @AppStorage("hf.launchEngineOnStart") var launchEngineOnStart = true
+    @AppStorage("hf.showDashboardOnStartup") var showDashboardOnStartup = true
     @AppStorage("hf.autoKeepAlive") var autoKeepAlive = false
     @AppStorage("hf.menuBarOnly") var menuBarOnly = true
+
+    /// Re-read UserDefaults into @AppStorage after config import.
+    func syncPrefsFromDefaults() {
+        let d = UserDefaults.standard
+        if d.object(forKey: "hf.launchEngineOnStart") != nil {
+            launchEngineOnStart = d.bool(forKey: "hf.launchEngineOnStart")
+        }
+        if d.object(forKey: "hf.showDashboardOnStartup") != nil {
+            showDashboardOnStartup = d.bool(forKey: "hf.showDashboardOnStartup")
+        }
+        if d.object(forKey: "hf.autoKeepAlive") != nil {
+            autoKeepAlive = d.bool(forKey: "hf.autoKeepAlive")
+        }
+        if d.object(forKey: "hf.menuBarOnly") != nil {
+            menuBarOnly = d.bool(forKey: "hf.menuBarOnly")
+        }
+        objectWillChange.send()
+    }
 
     let engine = HyperKeyEngine.shared
     let profiles = ProfileStore.shared
@@ -35,6 +54,8 @@ final class AppState: ObservableObject {
     private var trustTimer: Timer?
     /// Retries after posting openWindow when the dashboard was fully destroyed.
     private var openRetryWorkItems: [DispatchWorkItem] = []
+    /// True only during cold-start suppress window; cleared when user opens the dashboard.
+    private var suppressingDashboardOnStartup = false
 
     private init() {
         showOnboarding = !UserDefaults.standard.bool(forKey: "hf.hasCompletedOnboarding")
@@ -42,6 +63,12 @@ final class AppState: ObservableObject {
 
     func bootstrap() {
         Self.logCatalogPolicyIfNeeded()
+        EscapeCoordinator.shared.start()
+        // Force-load snippets into SnippetEngine before any typing (UI visit used to be required).
+        _ = SnippetStore.shared
+        // Space-nav block list + frontmost tracking (TouchCursor layer).
+        _ = SpaceNavStore.shared
+        SpaceNavStore.shared.refreshFrontmost()
         profiles.applyToEngine()
         if launchEngineOnStart {
             engine.start()
@@ -56,6 +83,39 @@ final class AppState: ObservableObject {
                 self?.isAccessibilityTrusted = PermissionsService.isTrusted
             }
         }
+        applyStartupWindowVisibility()
+    }
+
+    /// Honor “Show dashboard on startup”. Onboarding always shows the window.
+    private func applyStartupWindowVisibility() {
+        guard !showOnboarding else { return }
+        guard !showDashboardOnStartup else { return }
+        suppressingDashboardOnStartup = true
+        // WindowGroup may materialize a beat after launch — hide quietly (no toast).
+        for delay in [0.0, 0.05, 0.15, 0.4, 0.9] as [TimeInterval] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, self.suppressingDashboardOnStartup else { return }
+                self.hideMainWindowQuietly()
+            }
+        }
+    }
+
+    /// Hide the dashboard without a “hidden” toast — used on launch when startup show is off.
+    private func hideMainWindowQuietly() {
+        guard !showOnboarding else { return }
+        cancelOpenRetries()
+        commandBarVisible = false
+        for window in Self.dashboardWindows() {
+            window.orderOut(nil)
+        }
+        // Early launch: window may not be tagged yet.
+        for window in NSApp.windows where window.isVisible {
+            guard window.frame.width >= 500, window.frame.height >= 300 else { continue }
+            if window.styleMask.contains(.borderless) { continue }
+            registerDashboardWindow(window)
+            window.orderOut(nil)
+        }
+        restoreAccessoryIfSafe()
     }
 
     /// Soft guard: log if default catalog regresses (PII / missing core IDs).
@@ -78,8 +138,12 @@ final class AppState: ObservableObject {
 
     /// Bring the main dashboard forward (menu bar / Hyper+, / ⌘⇧D).
     func openMainWindow() {
+        suppressingDashboardOnStartup = false
         cancelOpenRetries()
         commandBarVisible = false
+        selectedSidebar = .dashboard
+
+        // Leave accessory-only mode so the window can become key.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
 
@@ -87,11 +151,13 @@ final class AppState: ObservableObject {
             return
         }
 
-        // Window was fully closed — ask the App scene to recreate it.
+        // Recreate WindowGroup — prefer the always-live MenuBarExtra openWindow
+        // binding (WindowOpenBridge inside a closed main window never runs).
+        WindowOpener.shared.openMainWindow()
         NotificationCenter.default.post(name: .hfOpenMainWindow, object: nil)
 
-        // SwiftUI openWindow can take a beat; retry a few times rather than one 150ms hope.
-        scheduleOpenRetries(delays: [0.05, 0.15, 0.35, 0.7, 1.2])
+        // SwiftUI openWindow can take a beat; retry a few times.
+        scheduleOpenRetries(delays: [0.05, 0.12, 0.28, 0.55, 1.0, 1.6])
     }
 
     /// Hide the main dashboard (Esc). Keeps the engine / menu bar running.
@@ -111,17 +177,13 @@ final class AppState: ObservableObject {
         )
     }
 
-    /// Handle Escape when the dashboard is key.
+    /// Escape from dashboard context — goes through the global priority stack.
     func handleDashboardEscape() {
-        if commandBarVisible {
-            commandBarVisible = false
-            return
-        }
         if showOnboarding {
             // Don't skip onboarding with Esc — use Continue / Enter HyperForge
             return
         }
-        closeMainWindow()
+        _ = EscapeCoordinator.shared.handleEscape()
     }
 
     /// Tag the key dashboard window once SwiftUI has created it.
@@ -145,7 +207,13 @@ final class AppState: ObservableObject {
         for extra in windows.dropFirst() {
             extra.orderOut(nil)
         }
+        registerDashboardWindow(window)
+        window.isReleasedWhenClosed = false
         window.collectionBehavior.insert(.moveToActiveSpace)
+        // orderOut → orderFront; also un-minimize.
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
@@ -184,8 +252,17 @@ final class AppState: ObservableObject {
     }
 
     /// Windows that look like the main HyperForge dashboard (not toasts / cheat sheet).
+    /// Includes `orderOut` (hidden) windows so Esc-hide can reopen.
     static func dashboardWindows() -> [NSWindow] {
-        NSApp.windows.filter { w in
+        // Prefer stable id first (set by registerDashboardWindow).
+        let byID = NSApp.windows.filter {
+            $0.identifier?.rawValue == DashboardWindowPolicy.dashboardIdentifier
+        }
+        if !byID.isEmpty { return byID }
+
+        return NSApp.windows.filter { w in
+            // Never treat the menu bar popover as the dashboard.
+            if w.frame.width < 500 || w.frame.height < 300 { return false }
             let traits = WindowTraits(
                 title: w.title,
                 width: w.frame.width,
@@ -254,6 +331,7 @@ extension Notification.Name {
 enum SidebarItem: String, CaseIterable, Identifiable {
     case dashboard = "Hyper Key"
     case doctor = "Doctor"
+    case checklist = "Checklist"
     case profiles = "Profiles"
     case workspaces = "Workspaces"
     case snippets = "Snippets"
@@ -271,6 +349,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         switch self {
         case .dashboard: return "keyboard.fill"
         case .doctor: return "stethoscope"
+        case .checklist: return "checklist"
         case .profiles: return "person.2.crop.square.stack"
         case .workspaces: return "rectangle.3.group"
         case .snippets: return "text.badge.plus"

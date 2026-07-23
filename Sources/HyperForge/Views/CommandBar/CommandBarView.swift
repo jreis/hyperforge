@@ -60,7 +60,7 @@ struct CommandBarView: View {
             aiNote = nil
         }
         .onExitCommand {
-            appState.commandBarVisible = false
+            _ = EscapeCoordinator.shared.handleEscape()
         }
     }
 

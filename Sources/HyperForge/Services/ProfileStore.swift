@@ -107,6 +107,20 @@ final class ProfileStore: ObservableObject {
         persist()
     }
 
+    /// Full replace used by config import.
+    func replaceAll(profiles: [HyperProfile], activeProfileID: UUID, autoTriggers: [AutoTrigger]) {
+        guard !profiles.isEmpty else { return }
+        self.profiles = profiles
+        if profiles.contains(where: { $0.id == activeProfileID }) {
+            self.activeProfileID = activeProfileID
+        } else {
+            self.activeProfileID = profiles[0].id
+        }
+        self.autoTriggers = autoTriggers
+        applyToEngine()
+        persist()
+    }
+
     private struct StorePayload: Codable {
         var profiles: [HyperProfile]
         var activeProfileID: UUID

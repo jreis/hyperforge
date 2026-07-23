@@ -23,6 +23,10 @@ DerivedData/
 *.app/
 dist/
 release/
+*.dmg
+
+# Intermediate iconset (keep AppIcon.icns + docs PNG)
+Supporting/AppIcon.iconset/
 
 # Logs & debug
 *.log

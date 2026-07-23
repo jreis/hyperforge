@@ -1,6 +1,8 @@
 // DashboardView.swift
 // Hyper Key Central — catalog, search, live test, engine status.
 
+import AppKit
+import HyperForgeKit
 import SwiftUI
 
 struct DashboardView: View {
@@ -11,6 +13,7 @@ struct DashboardView: View {
     @State private var categoryFilter: ActionCategory?
     @State private var selectedAction: HyperAction?
     @State private var flashID: String?
+    @FocusState private var searchFocused: Bool
 
     private var actions: [HyperAction] {
         var list = ActionCatalog.defaults
@@ -48,6 +51,27 @@ struct DashboardView: View {
                     .frame(width: 300)
             }
         }
+        .onAppear { focusSearchSoon() }
+        // Window re-shown after Esc hide / Hyper+, — onAppear may not re-fire.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) {
+            note in
+            guard let win = note.object as? NSWindow, isDashboardWindow(win) else { return }
+            focusSearchSoon()
+        }
+    }
+
+    private func focusSearchSoon() {
+        // Immediate + delayed: NSWindow key status often lags SwiftUI appear.
+        searchFocused = true
+        DispatchQueue.main.async { searchFocused = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { searchFocused = true }
+    }
+
+    private func isDashboardWindow(_ win: NSWindow) -> Bool {
+        if win.identifier?.rawValue == DashboardWindowPolicy.dashboardIdentifier {
+            return true
+        }
+        return AppState.dashboardWindows().contains { $0 === win }
     }
 
     // MARK: - Header
@@ -90,6 +114,8 @@ struct DashboardView: View {
                     TextField("Search bindings…", text: $appState.searchText)
                         .textFieldStyle(.plain)
                         .font(.system(size: 13))
+                        .focused($searchFocused)
+                        .onSubmit { searchFocused = true }
                 }
                 .padding(10)
                 .background {
@@ -186,27 +212,52 @@ struct DashboardView: View {
                         }
                         .padding(.horizontal, 4)
 
-                        ForEach(items) { action in
-                            ActionRow(
-                                action: action,
-                                isSelected: selectedAction?.id == action.id,
-                                isFlashing: flashID == action.id,
-                                liveTest: appState.liveTestMode
-                            ) {
-                                selectedAction = action
-                                if appState.liveTestMode {
-                                    flashID = action.id
-                                    HyperKeyActions.perform(actionID: action.id)
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                                        if flashID == action.id { flashID = nil }
+                        if category == .vim {
+                            ForEach(SpaceNavGroup.grouped(items), id: \.0) { group, sub in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: group.symbol)
+                                            .font(.system(size: 10, weight: .semibold))
+                                            .foregroundStyle(HFTheme.danger.opacity(0.85))
+                                        Text(group.rawValue)
+                                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                            .foregroundStyle(HFTheme.textTertiary)
+                                    }
+                                    .padding(.leading, 8)
+                                    .padding(.top, 4)
+
+                                    ForEach(sub) { action in
+                                        actionRow(action)
                                     }
                                 }
+                            }
+                        } else {
+                            ForEach(items) { action in
+                                actionRow(action)
                             }
                         }
                     }
                 }
             }
             .padding(20)
+        }
+    }
+
+    private func actionRow(_ action: HyperAction) -> some View {
+        ActionRow(
+            action: action,
+            isSelected: selectedAction?.id == action.id,
+            isFlashing: flashID == action.id,
+            liveTest: appState.liveTestMode
+        ) {
+            selectedAction = action
+            if appState.liveTestMode {
+                flashID = action.id
+                HyperKeyActions.perform(actionID: action.id)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    if flashID == action.id { flashID = nil }
+                }
+            }
         }
     }
 
@@ -304,7 +355,7 @@ struct DashboardView: View {
                         .fixedSize(horizontal: false, vertical: true)
 
                     HStack {
-                        KeyCap(text: action.mode == .hyper ? "Hyper" : "Vim")
+                        KeyCap(text: action.mode == .hyper ? "Hyper" : "Space")
                         Text("+")
                             .foregroundStyle(HFTheme.textTertiary)
                         KeyCap(text: action.keyLabel)
@@ -345,7 +396,7 @@ struct DashboardView: View {
                     Text("Select a binding")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(HFTheme.textSecondary)
-                    Text("Hold Caps (F18) + key to fire Hyper actions. Hold Right ⌘ for Vim nav.")
+                    Text("Hold Caps (F18) + key for Hyper. Hold Space + H/J/K/L for arrows (TouchCursor-style).")
                         .font(.system(size: 12))
                         .foregroundStyle(HFTheme.textTertiary)
                         .multilineTextAlignment(.center)
@@ -391,7 +442,7 @@ struct ActionRow: View {
 
                 HStack(spacing: 4) {
                     if action.mode != .hyper {
-                        KeyCap(text: action.mode == .vimShift ? "⇧" : (action.mode == .vimCtrl ? "⌃" : "Vim"), compact: true)
+                        KeyCap(text: action.mode == .vimShift ? "⇧" : (action.mode == .vimCtrl ? "⌃" : "Space"), compact: true)
                     } else {
                         KeyCap(text: "Hyper", compact: true)
                     }

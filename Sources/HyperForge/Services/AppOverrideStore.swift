@@ -60,12 +60,22 @@ final class AppOverrideStore: ObservableObject {
         if let idx = overrides.firstIndex(where: { $0.id == item.id }) {
             overrides[idx] = item
             persist()
+            // Space-nav block list may include this override’s disableSpaceNav flag.
+            SpaceNavStore.shared.pushRuntime()
         }
     }
 
     func delete(_ item: AppOverride) {
         overrides.removeAll { $0.id == item.id }
         persist()
+        SpaceNavStore.shared.pushRuntime()
+    }
+
+    /// Full replace used by config import.
+    func replaceAll(_ list: [AppOverride]) {
+        overrides = list
+        persist()
+        SpaceNavStore.shared.pushRuntime()
     }
 
     /// Active override for the current frontmost app (if any).

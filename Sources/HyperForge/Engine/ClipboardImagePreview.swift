@@ -13,9 +13,11 @@ final class ClipboardImagePreview {
     private var dragOrigin: NSPoint?
     private var windowOriginAtDrag: NSPoint?
     private var localMonitor: Any?
-    private var escapeMonitor: Any?
     private var lastImageSignature: String?
     private var lastShownChangeCount: Int
+
+    /// Whether a clipboard image pin is currently visible (Esc stack).
+    var isShowing: Bool { window != nil }
 
     private init() {
         lastShownChangeCount = NSPasteboard.general.changeCount
@@ -33,18 +35,16 @@ final class ClipboardImagePreview {
     }
 
     func close() {
-        window?.close()
+        window?.orderOut(nil)
+        window?.contentView = nil
         window = nil
         imageView = nil
         if let m = localMonitor {
             NSEvent.removeMonitor(m)
             localMonitor = nil
         }
-        if let m = escapeMonitor {
-            NSEvent.removeMonitor(m)
-            escapeMonitor = nil
-        }
         lastShownChangeCount = NSPasteboard.general.changeCount
+        RegionPinService.shared.refreshEscapeHandlers()
     }
 
     func show(image: NSImage) {
@@ -90,7 +90,9 @@ final class ClipboardImagePreview {
         win.orderFront(nil)
         window = win
         imageView = iv
+        RegionPinService.shared.refreshEscapeHandlers()
 
+        // Esc → EscapeCoordinator (.floatingPin). Mouse drag / right-click local.
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [
             .leftMouseDown, .leftMouseDragged, .leftMouseUp, .rightMouseUp,
         ]) { [weak self] event in
@@ -123,22 +125,25 @@ final class ClipboardImagePreview {
             }
             return event
         }
-
-        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.keyCode == KeyCode.escape {
-                self?.close()
-                return nil
-            }
-            return event
-        }
     }
 
     func showManual() {
         guard let image = NSImage(pasteboard: NSPasteboard.general) else {
-            Banner.show("No image in clipboard")
+            Banner.show(
+                "No image in clipboard",
+                subtitle: "Copy a screenshot first · Hyper+P pins a region",
+                style: .warning,
+                symbol: "photo"
+            )
             return
         }
         show(image: image)
+        Banner.show(
+            "Clipboard image",
+            subtitle: "Drag to move · Esc closes",
+            style: .success,
+            symbol: "photo"
+        )
     }
 
     func checkClipboard() {

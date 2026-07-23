@@ -1,6 +1,6 @@
 // LinkHintService.swift
 // Vimium-style link hints via Accessibility — fallback when browser extensions are blocked.
-// Hyper + / toggles. Type hint letters to click; Esc or / again to dismiss.
+// Hyper + / (F18 plain) toggles. Type hint letters to click; Esc to dismiss.
 
 import AppKit
 import ApplicationServices
@@ -22,10 +22,14 @@ final class LinkHintService: ObservableObject {
     @Published private(set) var targets: [LinkHintTarget] = []
     @Published private(set) var typed = ""
 
+    /// One host window per screen; labels are subviews (not 80 separate NSWindows).
     private var overlayWindows: [NSWindow] = []
     private var globalKeyMonitor: Any?
     private var localKeyMonitor: Any?
+    private var isCollecting = false
     private let alphabet = Array("asdfjklghweruionmtycvp")
+    private let maxHints = 60
+    private let maxWalk = 400
 
     private init() {}
 
@@ -34,21 +38,51 @@ final class LinkHintService: ObservableObject {
     }
 
     func activate() {
+        if isCollecting { return }
         dismiss()
         guard PermissionsService.isTrusted else {
-            Banner.show("Accessibility required for link hints")
+            Banner.show(
+                "Accessibility required",
+                subtitle: "Link hints need Accessibility access",
+                style: .warning,
+                symbol: "link.circle"
+            )
             return
         }
 
-        let found = collectTargets()
+        isCollecting = true
+        Banner.show(
+            "Link hints",
+            subtitle: "Scanning…",
+            style: .info,
+            symbol: "link.circle"
+        )
+
+        // AX tree walk can be heavy — keep UI responsive, then present.
+        let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        Task.detached(priority: .userInitiated) { [maxWalk] in
+            let found = Self.collectTargetsOffMain(frontPID: pid, limit: maxWalk)
+            await MainActor.run {
+                self.isCollecting = false
+                self.finishActivate(found: found)
+            }
+        }
+    }
+
+    private func finishActivate(found: [RawTarget]) {
         guard !found.isEmpty else {
-            Banner.show("No clickable elements found")
+            Banner.show(
+                "No clickable elements",
+                subtitle: "Focus a browser or app window first",
+                style: .warning,
+                symbol: "link.circle"
+            )
             return
         }
 
-        // Assign short hints
         var assigned: [LinkHintTarget] = []
-        for (i, t) in found.prefix(alphabet.count * alphabet.count).enumerated() {
+        assigned.reserveCapacity(min(found.count, maxHints))
+        for (i, t) in found.prefix(maxHints).enumerated() {
             let hint = hintString(for: i)
             assigned.append(
                 LinkHintTarget(
@@ -65,7 +99,17 @@ final class LinkHintService: ObservableObject {
         isActive = true
         showOverlays()
         installKeyMonitor()
-        Banner.show("Link hints · type label · Esc to cancel")
+        EscapeCoordinator.shared.setHandler(.linkHints) { [weak self] in
+            guard let self, self.isActive else { return false }
+            self.dismiss()
+            return true
+        }
+        Banner.show(
+            "Link hints",
+            subtitle: "Type label · Esc cancels · \(assigned.count) targets",
+            style: .success,
+            symbol: "link.circle"
+        )
         HyperLog.event("LinkHints activated count=\(assigned.count)")
     }
 
@@ -74,34 +118,31 @@ final class LinkHintService: ObservableObject {
         typed = ""
         targets = []
         removeOverlays()
-        if let globalKeyMonitor {
-            NSEvent.removeMonitor(globalKeyMonitor)
-            self.globalKeyMonitor = nil
-        }
-        if let localKeyMonitor {
-            NSEvent.removeMonitor(localKeyMonitor)
-            self.localKeyMonitor = nil
-        }
+        removeKeyMonitors()
+        EscapeCoordinator.shared.setHandler(.linkHints, handler: nil)
     }
 
-    // MARK: - Collection
+    // MARK: - Collection (off main)
 
-    private struct RawTarget {
+    private struct RawTarget: @unchecked Sendable {
         let element: AXUIElement
         let frame: CGRect
         let label: String
         let role: String
     }
 
-    private func collectTargets() -> [RawTarget] {
-        guard let app = NSWorkspace.shared.frontmostApplication else { return [] }
-        let axApp = AXUIElementCreateApplication(app.processIdentifier)
+    nonisolated private static func collectTargetsOffMain(frontPID: pid_t?, limit: Int)
+        -> [RawTarget]
+    {
+        guard let pid = frontPID else { return [] }
+        let axApp = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(axApp, 0.25)
 
         var focused: AnyObject?
         AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &focused)
         let roots: [AXUIElement]
         if let win = focused {
-            roots = [win as! AXUIElement]
+            roots = [unsafeBitCast(win, to: AXUIElement.self)]
         } else {
             var windowsRef: AnyObject?
             AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsRef)
@@ -111,10 +152,9 @@ final class LinkHintService: ObservableObject {
         var results: [RawTarget] = []
         var visited = 0
         for root in roots {
-            walk(root, into: &results, visited: &visited, limit: 800)
+            walk(root, into: &results, visited: &visited, limit: limit)
         }
 
-        // Prefer on-screen, de-dupe by frame center
         var seen = Set<String>()
         return results.filter { t in
             guard t.frame.width > 2, t.frame.height > 2 else { return false }
@@ -125,7 +165,7 @@ final class LinkHintService: ObservableObject {
         }
     }
 
-    private func walk(
+    nonisolated private static func walk(
         _ el: AXUIElement,
         into results: inout [RawTarget],
         visited: inout Int,
@@ -133,6 +173,7 @@ final class LinkHintService: ObservableObject {
     ) {
         guard visited < limit else { return }
         visited += 1
+        AXUIElementSetMessagingTimeout(el, 0.2)
 
         var roleRef: AnyObject?
         AXUIElementCopyAttributeValue(el, kAXRoleAttribute as CFString, &roleRef)
@@ -144,10 +185,8 @@ final class LinkHintService: ObservableObject {
             kAXCheckBoxRole as String,
             kAXRadioButtonRole as String,
             kAXPopUpButtonRole as String,
-            kAXTabGroupRole as String,
             kAXMenuItemRole as String,
             kAXMenuButtonRole as String,
-            "AXStaticText",  // many web views expose links poorly; include text that is pressable
         ]
 
         var actionsRef: CFArray?
@@ -155,18 +194,16 @@ final class LinkHintService: ObservableObject {
         let actions = (actionsRef as? [String]) ?? []
         let pressable = actions.contains(kAXPressAction as String)
 
+        // Skip broad AXStaticText unless pressable — huge trees + noisy.
         if pressable || clickableRoles.contains(role) {
             if let frame = frame(of: el) {
                 var titleRef: AnyObject?
                 AXUIElementCopyAttributeValue(el, kAXTitleAttribute as CFString, &titleRef)
                 var descRef: AnyObject?
                 AXUIElementCopyAttributeValue(el, kAXDescriptionAttribute as CFString, &descRef)
-                var valueRef: AnyObject?
-                AXUIElementCopyAttributeValue(el, kAXValueAttribute as CFString, &valueRef)
                 let label =
                     (titleRef as? String)
                     ?? (descRef as? String)
-                    ?? (valueRef as? String)
                     ?? role
                 results.append(RawTarget(element: el, frame: frame, label: label, role: role))
             }
@@ -175,23 +212,35 @@ final class LinkHintService: ObservableObject {
         var childrenRef: AnyObject?
         let err = AXUIElementCopyAttributeValue(el, kAXChildrenAttribute as CFString, &childrenRef)
         if err == .success, let children = childrenRef as? [AXUIElement] {
-            for child in children {
+            // Cap fan-out per node — deep Electron trees hang / OOM.
+            for child in children.prefix(40) {
                 walk(child, into: &results, visited: &visited, limit: limit)
             }
         }
     }
 
-    private func frame(of el: AXUIElement) -> CGRect? {
+    nonisolated private static func frame(of el: AXUIElement) -> CGRect? {
         var posRef: AnyObject?
         var sizeRef: AnyObject?
         guard
-            AXUIElementCopyAttributeValue(el, kAXPositionAttribute as CFString, &posRef) == .success,
+            AXUIElementCopyAttributeValue(el, kAXPositionAttribute as CFString, &posRef)
+                == .success,
             AXUIElementCopyAttributeValue(el, kAXSizeAttribute as CFString, &sizeRef) == .success
         else { return nil }
+        guard let posVal = posRef, let sizeVal = sizeRef else { return nil }
         var pos = CGPoint.zero
         var size = CGSize.zero
-        AXValueGetValue(posRef as! AXValue, .cgPoint, &pos)
-        AXValueGetValue(sizeRef as! AXValue, .cgSize, &size)
+        let posOK = AXValueGetValue(
+            unsafeBitCast(posVal, to: AXValue.self),
+            .cgPoint,
+            &pos
+        )
+        let sizeOK = AXValueGetValue(
+            unsafeBitCast(sizeVal, to: AXValue.self),
+            .cgSize,
+            &size
+        )
+        guard posOK, sizeOK else { return nil }
         return CGRect(origin: pos, size: size)
     }
 
@@ -199,56 +248,101 @@ final class LinkHintService: ObservableObject {
         if index < alphabet.count {
             return String(alphabet[index])
         }
-        let a = alphabet[index / alphabet.count]
-        let b = alphabet[index % alphabet.count]
-        return "\(a)\(b)"
+        let hi = index / alphabet.count
+        let lo = index % alphabet.count
+        guard hi < alphabet.count else { return "z\(lo)" }
+        return "\(alphabet[hi])\(alphabet[lo])"
     }
 
-    // MARK: - Overlay UI
+    // MARK: - Overlay UI (one window per screen)
 
     private func showOverlays() {
         removeOverlays()
         let filtered = filteredTargets()
-        for t in filtered.prefix(80) {
-            // Convert AX top-left coords to AppKit bottom-left for the screen
-            guard let screen = NSScreen.screens.first(where: {
-                $0.frame.contains(CGPoint(x: t.frame.midX, y: $0.frame.maxY - t.frame.midY))
-            }) ?? NSScreen.main else { continue }
+        guard !filtered.isEmpty else { return }
 
-            let axY = t.frame.origin.y
-            let appKitY = screen.frame.maxY - axY - 22
-            let x = t.frame.origin.x
+        // Group hints by screen for a single host window each.
+        var byScreen: [ObjectIdentifier: (NSScreen, [(String, NSRect)])] = [:]
 
+        for t in filtered {
+            let axMid = CGPoint(x: t.frame.midX, y: t.frame.midY)
+            // AX Y is top-left space; map roughly into AppKit global space for screen hit-test.
+            let primaryH = NSScreen.screens.map(\.frame.maxY).max()
+                ?? (NSScreen.main?.frame.maxY ?? 0)
+            let appKitProbe = CGPoint(x: axMid.x, y: primaryH - axMid.y)
+            let screen =
+                NSScreen.screens.first(where: { $0.frame.insetBy(dx: -40, dy: -40).contains(appKitProbe) })
+                ?? NSScreen.main
+                ?? NSScreen.screens.first
+            guard let screen else { continue }
+
+            let appKitY = screen.frame.maxY - t.frame.origin.y - 22
+            let labelFrame = NSRect(
+                x: t.frame.origin.x - screen.frame.minX,
+                y: appKitY - screen.frame.minY,
+                width: 34,
+                height: 22
+            )
+            let sid = ObjectIdentifier(screen)
+            var entry = byScreen[sid] ?? (screen, [])
+            entry.1.append((t.id.uppercased(), labelFrame))
+            byScreen[sid] = entry
+        }
+
+        for (_, pair) in byScreen {
+            let (screen, labels) = pair
             let win = NSWindow(
-                contentRect: NSRect(x: x, y: appKitY, width: 34, height: 22),
+                contentRect: screen.frame,
                 styleMask: .borderless,
                 backing: .buffered,
-                defer: false
+                defer: false,
+                screen: screen
             )
-            win.level = .screenSaver
+            win.isReleasedWhenClosed = false
+            win.level = .floating
             win.isOpaque = false
             win.backgroundColor = .clear
             win.ignoresMouseEvents = true
-            win.collectionBehavior = [.canJoinAllSpaces, .stationary]
-            win.hasShadow = true
+            win.hasShadow = false
+            win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+            win.alphaValue = 1
 
-            let label = NSTextField(labelWithString: t.id.uppercased())
-            label.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
-            label.textColor = .white
-            label.alignment = .center
-            label.wantsLayer = true
-            label.layer?.backgroundColor = NSColor.systemOrange.withAlphaComponent(0.92).cgColor
-            label.layer?.cornerRadius = 4
-            label.frame = NSRect(x: 0, y: 0, width: 34, height: 22)
-            win.contentView = label
-            win.orderFront(nil)
+            let host = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
+            host.wantsLayer = true
+            host.layer?.backgroundColor = NSColor.clear.cgColor
+
+            for (text, frame) in labels.prefix(maxHints) {
+                let label = NSTextField(labelWithString: text)
+                label.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
+                label.textColor = .white
+                label.alignment = .center
+                label.wantsLayer = true
+                label.layer?.backgroundColor =
+                    NSColor.systemOrange.withAlphaComponent(0.92).cgColor
+                label.layer?.cornerRadius = 4
+                label.layer?.masksToBounds = true
+                label.frame = frame
+                host.addSubview(label)
+            }
+
+            win.contentView = host
+            win.setFrame(screen.frame, display: false)
+            win.orderFrontRegardless()
             overlayWindows.append(win)
         }
     }
 
     private func removeOverlays() {
-        for w in overlayWindows { w.close() }
+        let windows = overlayWindows
         overlayWindows = []
+        for w in windows {
+            // Avoid close() animation / transform teardown crashes.
+            w.ignoresMouseEvents = true
+            w.alphaValue = 0
+            w.orderOut(nil)
+            w.contentView = nil
+            // isReleasedWhenClosed = false → ARC drops when `windows` leaves scope.
+        }
     }
 
     private func filteredTargets() -> [LinkHintTarget] {
@@ -262,27 +356,40 @@ final class LinkHintService: ObservableObject {
     }
 
     private func installKeyMonitor() {
-        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        removeKeyMonitors()
+        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) {
+            [weak self] event in
             Task { @MainActor in
                 self?.handleKey(event)
             }
         }
-        // Local monitor for when HyperForge is focused; swallow keys while hints are active.
-        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+            [weak self] event in
             guard let self, self.isActive else { return event }
             self.handleKey(event)
             return nil
         }
     }
 
+    private func removeKeyMonitors() {
+        if let globalKeyMonitor {
+            NSEvent.removeMonitor(globalKeyMonitor)
+            self.globalKeyMonitor = nil
+        }
+        if let localKeyMonitor {
+            NSEvent.removeMonitor(localKeyMonitor)
+            self.localKeyMonitor = nil
+        }
+    }
+
     private func handleKey(_ event: NSEvent) {
         guard isActive else { return }
         let code = event.keyCode
+        // Esc → EscapeCoordinator (.linkHints); don't handle here (avoids double-dismiss).
         if code == KeyCode.escape {
-            dismiss()
+            _ = EscapeCoordinator.shared.handleEscape()
             return
         }
-        // Backspace
         if code == KeyCode.delete {
             if !typed.isEmpty {
                 typed.removeLast()
@@ -303,7 +410,12 @@ final class LinkHintService: ObservableObject {
             return
         }
         if matches.isEmpty {
-            Banner.show("No hint “\(typed)”")
+            Banner.show(
+                "No match",
+                subtitle: "“\(typed)”",
+                style: .warning,
+                symbol: "link.circle"
+            )
             typed = ""
             refreshOverlays()
             return
@@ -314,11 +426,9 @@ final class LinkHintService: ObservableObject {
     private func click(_ target: LinkHintTarget) {
         let err = AXUIElementPerformAction(target.element, kAXPressAction as CFString)
         if err != .success {
-            // Fallback: click center via CGEvent
-            let screen = NSScreen.main ?? NSScreen.screens[0]
-            let x = target.frame.midX
-            let y = screen.frame.height - target.frame.midY
-            let point = CGPoint(x: x, y: y)
+            let primaryH = NSScreen.screens.map(\.frame.maxY).max()
+                ?? (NSScreen.main?.frame.height ?? 0)
+            let point = CGPoint(x: target.frame.midX, y: primaryH - target.frame.midY)
             if let down = CGEvent(
                 mouseEventSource: nil,
                 mouseType: .leftMouseDown,

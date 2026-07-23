@@ -1,5 +1,9 @@
 # HyperForge
 
+<p align="center">
+  <img src="docs/hyperforge-icon.png" alt="HyperForge icon" width="128" height="128" />
+</p>
+
 **Local-first power-user automation for macOS** — Hyper Key, Karabiner, window layouts, and Vim-style navigation in a native SwiftUI app.
 
 Built for restricted environments where Hammerspoon and browser extensions are blocked. Fully **local-first** and private by default.
@@ -13,7 +17,7 @@ Built for restricted environments where Hammerspoon and browser extensions are b
 | Problem | HyperForge |
 |--------|------------|
 | Hammerspoon blocked | Pure Swift event tap + Accessibility |
-| Browser Vimium blocked | System-wide Vim nav (Right ⌘) + link hints |
+| Browser Vimium blocked | Space-layer nav (TouchCursor-style) + link hints |
 | Opaque key remaps | Dashboard of every binding + live test |
 | Context switching | Profiles (Coding, Music, Browsing, Minimal) |
 | Caps Lock wasted | Karabiner Caps → Hyper (F18 or 4-mod) / tap = Escape |
@@ -55,13 +59,14 @@ Built for restricted environments where Hammerspoon and browser extensions are b
 - One-click pack to Desktop: bindings, profiles, Karabiner rule, architecture notes, screenshots
 
 ### Karabiner integration
-- **Caps → F18** (classic HyperForge / hyperkey.swift style)
+- **Caps → F18** (classic Hyper Key style)
 - **F19** bridge: Hyper + `/` or `` ` `` → cheat sheet (needed for 4-mod Hyper)
 - **F20** bridge: Hyper + `,` → dashboard
 - One-click write to `~/.config/karabiner/assets/complex_modifications/`
 
-### Vim / Navigation enhancer
-- Hold **Right ⌘** for h/j/k/l, word hops, gg/G, ⌃d/⌃u page scroll, operators (d, z)
+### Space navigation (TouchCursor-style)
+- Hold **Space** for h/j/k/l, word hops, gg/G, ⌃d/⌃u page scroll, operators (d, z)
+- Tap Space alone still types a space · disable in Settings → Engine if needed
 
 ### Workspace & tools
 - Save/restore window layouts
@@ -100,11 +105,11 @@ HyperForge accepts **either** style (and sticky grace for Karabiner flag blips):
 
 | Control | Action |
 |---------|--------|
-| Right **⌘** held | Vim navigation mode |
+| **Space** held | Nav layer (HJKL arrows, vim motions) |
 | Right **⌃** | Alternate Hyper (legacy fallback) |
 | Menu bar flame | Dashboard, engine, keybindings |
 
-Engine logic is a modular port of the production-tested [`hyperkey.swift`](../hyperkey.swift) daemon.
+Engine logic is a modular Swift port of a long-running Hyper Key CGEvent daemon (same muscle memory, structured app shell).
 
 ### Sample Hyper chords
 
@@ -121,6 +126,8 @@ Engine logic is a modular port of the production-tested [`hyperkey.swift`](../hy
 | Hyper + A | Always on top |
 | Hyper + B | Minimize window |
 | Hyper + S | Focus preferred terminal |
+| Hyper + P | Pin screen region (drag → stay-on-top) |
+| Hyper + ⇧P | Clipboard image pin (F18 extra Shift) |
 | Hyper + ⇧V | Paste transform menu |
 | Hyper + T | Smart terminal (reuse / new tab) |
 | Hyper + ⇧T | Terminal in Finder folder |
@@ -161,7 +168,16 @@ swift run HyperForgeSmoke   # pure Kit checks (works with CLT; no Xcode needed)
 swift run
 ```
 
-### Install as login app (recommended)
+### Local DMG (drag → Applications)
+
+```bash
+chmod +x Scripts/package-dmg.sh
+./Scripts/package-dmg.sh --open
+```
+
+Creates `dist/HyperForge-<version>.dmg` with the app, an Applications shortcut, optional Karabiner rule JSON, and install notes. Ad-hoc signed for local use (not notarized — Gatekeeper may prompt once).
+
+### Install as login app (recommended for daily use)
 
 ```bash
 chmod +x Scripts/install.sh
@@ -242,7 +258,7 @@ Full CGEvent-tap Hyper engine is a better fit for **direct download** from your 
 
 ## Origin
 
-HyperForge wraps and extends the battle-tested Hyper Key daemon (`hyperkey.swift` + `install_hyperkey.sh`) into a portfolio-grade SwiftUI companion — same muscle memory, better surface area.
+HyperForge grew out of a personal Hyper Key CGEvent daemon: same Caps/F18 muscle memory, rebuilt as a local-first SwiftUI companion with Doctor, profiles, Space navigation, and a richer surface area.
 
 ---
 

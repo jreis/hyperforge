@@ -1,6 +1,7 @@
 // SettingsView.swift
 // Tabbed settings for engine, privacy, and appearance.
 
+import HyperForgeKit
 import SwiftUI
 
 struct SettingsView: View {
@@ -9,6 +10,10 @@ struct SettingsView: View {
 
     @ObservedObject private var ollama = OllamaClient.shared
     @ObservedObject private var terminal = TerminalPreference.shared
+
+    @ObservedObject private var spaceNav = SpaceNavStore.shared
+    @State private var manualBlockBundle = ""
+    @State private var manualBlockName = ""
 
     var body: some View {
         TabView {
@@ -83,9 +88,29 @@ struct SettingsView: View {
                 Toggle("Enable Ollama for command bar", isOn: $ollama.enabled)
                     .onChange(of: ollama.enabled) { _, _ in ollama.persistSettings() }
                 TextField("Base URL", text: $ollama.baseURLString)
-                    .onSubmit { ollama.persistSettings() }
+                    .onSubmit {
+                        ollama.persistSettings()
+                        Task { await ollama.ping() }
+                    }
                 TextField("Model", text: $ollama.model)
-                    .onSubmit { ollama.persistSettings() }
+                    .onSubmit {
+                        ollama.persistSettings()
+                        Task { await ollama.ping() }
+                    }
+                    .onChange(of: ollama.model) { _, _ in
+                        ollama.refreshModelFit()
+                    }
+                if !ollama.installedModels.isEmpty {
+                    Picker("Installed", selection: $ollama.model) {
+                        ForEach(ollama.installedModels, id: \.name) { m in
+                            Text(m.name).tag(m.name)
+                        }
+                    }
+                    .onChange(of: ollama.model) { _, _ in
+                        ollama.persistSettings()
+                        ollama.refreshModelFit()
+                    }
+                }
                 HStack {
                     Image(systemName: ollama.isAvailable ? "checkmark.circle.fill" : "xmark.circle.fill")
                         .foregroundStyle(ollama.isAvailable ? HFTheme.success : HFTheme.danger)
@@ -95,6 +120,7 @@ struct SettingsView: View {
                         Task { await ollama.ping() }
                     }
                 }
+                modelFitRow
                 if let err = ollama.lastError {
                     Text(err)
                         .font(.caption)
@@ -102,20 +128,171 @@ struct SettingsView: View {
                 }
             }
             Section("Tips") {
-                Text("Install Ollama and pull a model (`ollama pull llama3.2`). HyperForge never sends prompts off-machine. Without Ollama, the offline intent router still handles phrases like “snap left” and “half-page scroll”.")
+                Text(aiTip)
                     .font(.system(size: 12))
                     .foregroundStyle(HFTheme.textSecondary)
             }
         }
         .formStyle(.grouped)
+        .task {
+            if ollama.enabled {
+                await ollama.ping()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var modelFitRow: some View {
+        let fit = ollama.modelFit
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: modelFitSymbol(fit.level))
+                    .foregroundStyle(modelFitColor(fit.level))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(fit.title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(HFTheme.textPrimary)
+                    Text(fit.detail)
+                        .font(.system(size: 11))
+                        .foregroundStyle(HFTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(String(format: "This Mac · ~%.0f GB RAM", ollama.physicalMemoryGB))
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(HFTheme.textTertiary)
+                }
+            }
+            if fit.isWarning, let suggestion = fit.suggestion, suggestion != ollama.model {
+                Button("Use suggested \(suggestion)") {
+                    ollama.model = suggestion
+                    ollama.persistSettings()
+                    Task { await ollama.ping() }
+                }
+                .controlSize(.small)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var aiTip: String {
+        let suggested = ModelFitness.suggestedModel(forRAMGB: ollama.physicalMemoryGB)
+        return "Install Ollama and pull a model that fits this Mac (`ollama pull \(suggested)`). HyperForge never sends prompts off-machine. Without Ollama, the offline intent router still handles phrases like “snap left” and “half-page scroll”."
+    }
+
+    private func modelFitSymbol(_ level: ModelFitLevel) -> String {
+        switch level {
+        case .ok: return "checkmark.circle.fill"
+        case .tight: return "exclamationmark.triangle.fill"
+        case .tooLarge: return "xmark.octagon.fill"
+        case .notInstalled: return "questionmark.circle.fill"
+        case .unknown: return "info.circle"
+        }
+    }
+
+    private func modelFitColor(_ level: ModelFitLevel) -> Color {
+        switch level {
+        case .ok: return HFTheme.success
+        case .tight: return HFTheme.warning
+        case .tooLarge: return HFTheme.danger
+        case .notInstalled: return HFTheme.warning
+        case .unknown: return HFTheme.textTertiary
+        }
     }
 
     private var engineTab: some View {
         Form {
             Section("Startup") {
                 Toggle("Start engine on launch", isOn: $appState.launchEngineOnStart)
+                Toggle("Show dashboard on startup", isOn: $appState.showDashboardOnStartup)
+                Text("When off, HyperForge stays in the menu bar until you open the dashboard (Hyper + , or menu).")
+                    .font(.system(size: 11))
+                    .foregroundStyle(HFTheme.textTertiary)
                 Toggle("Auto keep-alive", isOn: $appState.autoKeepAlive)
                 Toggle("Menu bar only (no Dock icon)", isOn: $appState.menuBarOnly)
+            }
+            Section("Space navigation") {
+                Toggle("Space-layer nav (TouchCursor-style)", isOn: $spaceNav.isEnabled)
+                Text("Hold Space + H/J/K/L for arrows and other motions. Tap Space alone still types a space. Hyper+Space is still the command bar.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(HFTheme.textTertiary)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Hold threshold")
+                        Spacer()
+                        Text(spaceNav.holdMilliseconds == 0
+                             ? "Immediate"
+                             : "\(spaceNav.holdMilliseconds) ms")
+                            .foregroundStyle(HFTheme.textTertiary)
+                            .monospacedDigit()
+                    }
+                    Slider(
+                        value: Binding(
+                            get: { Double(spaceNav.holdMilliseconds) },
+                            set: { spaceNav.holdMilliseconds = Int($0) }
+                        ),
+                        in: 0...250,
+                        step: 10
+                    )
+                    Text("Higher values feel safer while typing; Space+HJKL chords still arm immediately.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(HFTheme.textTertiary)
+                }
+
+                Text("Disabled in apps")
+                    .font(.system(size: 12, weight: .semibold))
+                Text("Space types normally in these apps (terminals, Vim, …). Also settable per App Override.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(HFTheme.textTertiary)
+
+                ForEach(spaceNav.blockedApps) { app in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(app.displayTitle)
+                                .font(.system(size: 12, weight: .medium))
+                            Text(app.bundleID)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(HFTheme.textTertiary)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        Button(role: .destructive) {
+                            spaceNav.remove(app)
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(HFTheme.danger.opacity(0.85))
+                    }
+                }
+
+                HStack {
+                    Button {
+                        spaceNav.addFrontmost()
+                    } label: {
+                        Label("Block frontmost", systemImage: "plus.app")
+                    }
+                    .controlSize(.small)
+                    Button("Restore defaults") {
+                        spaceNav.restoreDefaultBlockedApps()
+                    }
+                    .controlSize(.small)
+                }
+
+                HStack {
+                    TextField("Bundle ID", text: $manualBlockBundle)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 11, design: .monospaced))
+                    TextField("Name", text: $manualBlockName)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 100)
+                    Button("Add") {
+                        spaceNav.add(bundleID: manualBlockBundle, appName: manualBlockName)
+                        manualBlockBundle = ""
+                        manualBlockName = ""
+                    }
+                    .controlSize(.small)
+                    .disabled(manualBlockBundle.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
             }
             Section("Permissions") {
                 HStack {
@@ -150,12 +327,32 @@ struct SettingsView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(HFTheme.textSecondary)
             }
+            Section("Backup") {
+                Text("Export a single JSON pack: profiles, snippets, app overrides, Space nav, terminal, Ollama prefs, and checklist. Import replaces those on this Mac.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(HFTheme.textTertiary)
+                HStack {
+                    Button {
+                        _ = ConfigBackupService.exportWithSavePanel()
+                    } label: {
+                        Label("Export config…", systemImage: "square.and.arrow.up")
+                    }
+                    Button {
+                        _ = ConfigBackupService.importWithOpenPanel()
+                    } label: {
+                        Label("Import config…", systemImage: "square.and.arrow.down")
+                    }
+                }
+            }
             Section("Logs") {
                 LabeledContent("Event log", value: HyperLog.path)
                 Toggle("Write event log", isOn: Binding(
                     get: { HyperLog.enabled },
                     set: { HyperLog.enabled = $0 }
                 ))
+                Text("Off by default. Enabling logs every Hyper event to disk — can slow typing if left on.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(HFTheme.textTertiary)
             }
         }
         .formStyle(.grouped)

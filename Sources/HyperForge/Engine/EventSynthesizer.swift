@@ -113,24 +113,37 @@ enum EventSynthesizer {
     }
 
     /// Type a string via unicode keyboard events (slow enough for apps to accept).
+    /// Newlines and tabs use real Return/Tab keycodes — many apps ignore `\n` as unicode.
     static func typeString(_ str: String) {
-        HyperLog.event("typeString: \(str.prefix(40))")
+        HyperLog.event("typeString: \(str.prefix(40).replacingOccurrences(of: "\n", with: "↵"))")
         for ch in str {
-            expectPassThrough(2)
-            guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true) else {
-                _ = consumePassThroughIfNeeded()
-                _ = consumePassThroughIfNeeded()
-                continue
+            switch ch {
+            case "\n", "\r":
+                // Return produces a real line break in almost every text field.
+                postKey(KeyCode.return)
+                usleep(8_000)
+            case "\t":
+                postKey(KeyCode.tab)
+                usleep(5_000)
+            default:
+                expectPassThrough(2)
+                guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true)
+                else {
+                    _ = consumePassThroughIfNeeded()
+                    _ = consumePassThroughIfNeeded()
+                    continue
+                }
+                var utf16 = Array(String(ch).utf16)
+                down.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
+                down.post(tap: .cghidEventTap)
+                guard let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
+                else {
+                    _ = consumePassThroughIfNeeded()
+                    continue
+                }
+                up.post(tap: .cghidEventTap)
+                usleep(5_000)
             }
-            var utf16 = Array(String(ch).utf16)
-            down.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
-            down.post(tap: .cghidEventTap)
-            guard let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) else {
-                _ = consumePassThroughIfNeeded()
-                continue
-            }
-            up.post(tap: .cghidEventTap)
-            usleep(5_000)
         }
     }
 }

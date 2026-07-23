@@ -26,7 +26,7 @@ struct OnboardingView: View {
         (
             "sparkles",
             "You're ready",
-            "Use Doctor to verify setup. Hold Caps + key for actions, Right ⌘ for Vim nav, menu bar flame for Keybindings anytime."
+            "Use Doctor to verify setup. Hold Caps + key for Hyper actions, hold Space + H/J/K/L for arrows, menu bar flame for Keybindings anytime."
         ),
     ]
 

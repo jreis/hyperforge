@@ -168,6 +168,16 @@ final class CheatSheetPanelController: NSObject {
         win.level = .floating
         win.orderFrontRegardless()
         win.makeKeyAndOrderFront(nil)
+        // Let SwiftUI focus the search field after the window is key.
+        DispatchQueue.main.async {
+            win.makeKey()
+            // Bounce key status so StandaloneCheatSheetView's didBecomeKey listener runs
+            // even when the panel was already visible and we only re-ordered it.
+            NotificationCenter.default.post(
+                name: NSWindow.didBecomeKeyNotification,
+                object: win
+            )
+        }
     }
 
     private func restoreAccessoryIfNeeded() {

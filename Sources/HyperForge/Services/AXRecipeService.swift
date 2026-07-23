@@ -125,17 +125,32 @@ final class AXRecipeStore: ObservableObject {
 
     func run(_ recipe: AXRecipe) {
         guard recipe.isEnabled else {
-            Banner.show("Recipe disabled")
+            Banner.show(
+                "Recipe disabled",
+                subtitle: recipe.name,
+                style: .warning,
+                symbol: "wand.and.stars"
+            )
             return
         }
         if !recipe.bundleID.isEmpty {
             let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? ""
             if front != recipe.bundleID {
-                Banner.show("Need \(recipe.bundleID)")
+                Banner.show(
+                    "Wrong app",
+                    subtitle: "Need \(recipe.bundleID)",
+                    style: .warning,
+                    symbol: "app.badge.checkmark"
+                )
                 return
             }
         }
-        Banner.show("Recipe: \(recipe.name)")
+        Banner.show(
+            "Running recipe",
+            subtitle: recipe.name,
+            style: .success,
+            symbol: recipe.symbol.isEmpty ? "wand.and.stars" : recipe.symbol
+        )
         Task {
             for step in recipe.steps {
                 await Self.perform(step)
@@ -147,7 +162,12 @@ final class AXRecipeStore: ObservableObject {
         if let r = recipes.first(where: { $0.name.localizedCaseInsensitiveContains(name) }) {
             run(r)
         } else {
-            Banner.show("No recipe “\(name)”")
+            Banner.show(
+                "No recipe found",
+                subtitle: "“\(name)”",
+                style: .warning,
+                symbol: "wand.and.stars"
+            )
         }
     }
 
@@ -186,7 +206,12 @@ final class AXRecipeStore: ObservableObject {
         case .clickNamed:
             await MainActor.run {
                 if !clickElement(named: step.value) {
-                    Banner.show("Not found: \(step.value)")
+                    Banner.show(
+                        "Element not found",
+                        subtitle: step.value,
+                        style: .warning,
+                        symbol: "wand.and.stars"
+                    )
                 }
             }
         }

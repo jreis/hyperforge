@@ -34,7 +34,7 @@ struct HyperForgeApp: App {
                 Button("Hide Dashboard") {
                     appState.closeMainWindow()
                 }
-                .keyboardShortcut(.escape, modifiers: [])
+                // Esc is owned by EscapeCoordinator (pins → hints → bar → sheet → dashboard).
 
                 Button(appState.engine.isRunning ? "Stop Engine" : "Start Engine") {
                     if appState.engine.isRunning {
@@ -86,13 +86,31 @@ struct HyperForgeApp: App {
     }
 }
 
-/// Tiny AppKit glue: accessory policy + bootstrap.
+/// AppKit glue: single-instance, accessory policy, bootstrap.
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Set when this process is a secondary launch and should exit.
+    private var isSecondaryInstance = false
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Before engine / menu bar / event tap: hand off to the live copy if any.
+        if !SingleInstance.claimPrimaryOrHandOff() {
+            isSecondaryInstance = true
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if isSecondaryInstance {
+            // Hard exit so we never install a second CGEvent tap.
+            exit(0)
+        }
+
         // Menu bar first-class; dock optional later via settings.
         if UserDefaults.standard.object(forKey: "hf.menuBarOnly") as? Bool ?? true {
             NSApp.setActivationPolicy(.accessory)
         }
+
+        SingleInstance.installPrimaryHandlers()
+
         Task { @MainActor in
             AppState.shared.bootstrap()
         }
@@ -101,9 +119,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool)
         -> Bool
     {
-        if !flag {
-            Task { @MainActor in AppState.shared.openMainWindow() }
+        // Dock icon / second "open" of the same process → show dashboard.
+        Task { @MainActor in
+            AppState.shared.openMainWindow()
         }
         return true
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        // Menu bar app: closing the dashboard must not quit.
+        false
     }
 }

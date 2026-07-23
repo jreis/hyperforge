@@ -3,6 +3,7 @@
 
 import AppKit
 import Foundation
+import ScreenCaptureKit
 import UniformTypeIdentifiers
 
 @MainActor
@@ -33,12 +34,16 @@ final class DemoExportService: ObservableObject {
             try writeKarabiner(to: dir.appendingPathComponent("karabiner-caps-to-f18.json"))
             try writeFeatureREADME(to: dir.appendingPathComponent("README.md"))
             try writeArchitectureNotes(to: dir.appendingPathComponent("ARCHITECTURE.md"))
-            captureWindowScreenshots(into: dir.appendingPathComponent("screenshots", isDirectory: true))
 
             lastExportURL = dir
-            status = "Exported → \(dir.path)"
-            Banner.show("Demo pack on Desktop")
-            NSWorkspace.shared.open(dir)
+            status = "Capturing screenshots…"
+            let shotsDir = dir.appendingPathComponent("screenshots", isDirectory: true)
+            Task { @MainActor in
+                await self.captureWindowScreenshots(into: shotsDir)
+                self.status = "Exported → \(dir.path)"
+                Banner.show("Demo pack on Desktop")
+                NSWorkspace.shared.open(dir)
+            }
             return dir
         } catch {
             status = "Export failed: \(error.localizedDescription)"
@@ -66,7 +71,7 @@ final class DemoExportService: ObservableObject {
         ## Modes
 
         - **Hyper** — hold Caps Lock (F18 via Karabiner) + key
-        - **Vim** — hold Right ⌘ + key
+        - **Space nav** — hold Space + H/J/K/L (TouchCursor-style)
         - **Link hints** — Hyper + /
         - **Command bar** — Hyper + Space (local Ollama optional)
 
@@ -148,7 +153,7 @@ final class DemoExportService: ObservableObject {
         - **Hyper Key engine** — CGEvent tap, F18 or 4-mod Hyper, window snaps, app launchers, keep-alive
         - **Karabiner pack** — Caps→Hyper + F19 help / F20 dashboard bridges
         - **Doctor** — Accessibility + rule health check
-        - **Vim navigation** — system-wide h/j/k/l, words, pages (Right ⌘)
+        - **Space navigation** — system-wide h/j/k/l, words, pages (hold Space)
         - **Link hints** — Accessibility-based click targets (Vimium fallback)
         - **Local AI command bar** — offline router + optional Ollama on localhost
         - **Profiles & auto-triggers** — Wi‑Fi / app / time → profile switch
@@ -197,7 +202,7 @@ final class DemoExportService: ObservableObject {
 
         ### Design goals
 
-        - Muscle memory from production `hyperkey.swift` preserved
+        - Muscle memory from classic Hyper Key setups preserved
         - UI is a control plane; engine stays fast and local
         - Features are modular — enable without rewriting the tap
 
@@ -205,35 +210,63 @@ final class DemoExportService: ObservableObject {
         try text.write(to: url, atomically: true, encoding: .utf8)
     }
 
-    private func captureWindowScreenshots(into dir: URL) {
+    /// Own windows via AppKit (no Screen Recording). Desktop via ScreenCaptureKit when allowed.
+    private func captureWindowScreenshots(into dir: URL) async {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        // Capture each visible HyperForge window
-        for (i, window) in NSApp.windows.enumerated() where window.isVisible {
-            guard let cgImage = CGWindowListCreateImage(
-                .null,
-                .optionIncludingWindow,
-                CGWindowID(window.windowNumber),
-                [.boundsIgnoreFraming, .bestResolution]
-            ) else { continue }
-            let rep = NSBitmapImageRep(cgImage: cgImage)
-            guard let png = rep.representation(using: .png, properties: [:]) else { continue }
-            let file = dir.appendingPathComponent(String(format: "window-%02d.png", i + 1))
-            try? png.write(to: file)
-        }
-        // Full main display snapshot for context (portfolio hero)
-        if let screen = NSScreen.main {
-            let rect = screen.frame
-            if let cg = CGWindowListCreateImage(
-                rect,
-                .optionOnScreenOnly,
-                kCGNullWindowID,
-                [.bestResolution]
-            ) {
-                let rep = NSBitmapImageRep(cgImage: cg)
-                if let png = rep.representation(using: .png, properties: [:]) {
-                    try? png.write(to: dir.appendingPathComponent("desktop-context.png"))
-                }
+
+        var windowIndex = 0
+        for window in NSApp.windows where window.isVisible && window.frame.width >= 200 {
+            if let png = Self.pngData(from: window) {
+                windowIndex += 1
+                let file = dir.appendingPathComponent(String(format: "window-%02d.png", windowIndex))
+                try? png.write(to: file)
             }
+        }
+
+        // Optional full-display context — may require Screen Recording permission.
+        if let png = await Self.captureMainDisplayPNG() {
+            try? png.write(to: dir.appendingPathComponent("desktop-context.png"))
+        }
+    }
+
+    /// Capture an NSWindow we own without deprecated CGWindowList APIs.
+    private static func pngData(from window: NSWindow) -> Data? {
+        // Same-process contentView snapshot — no Screen Recording permission needed.
+        guard let view = window.contentView else { return nil }
+        let bounds = view.bounds
+        guard bounds.width > 1, bounds.height > 1,
+              let rep = view.bitmapImageRepForCachingDisplay(in: bounds)
+        else { return nil }
+        view.cacheDisplay(in: bounds, to: rep)
+        return rep.representation(using: .png, properties: [:])
+    }
+
+    /// Main display screenshot via ScreenCaptureKit (macOS 14+). Fails soft without permission.
+    private static func captureMainDisplayPNG() async -> Data? {
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(
+                false,
+                onScreenWindowsOnly: true
+            )
+            guard let display = content.displays.first else { return nil }
+
+            let filter = SCContentFilter(display: display, excludingWindows: [])
+            let config = SCStreamConfiguration()
+            // Retina-friendly: match pixel dimensions of the display.
+            config.width = display.width
+            config.height = display.height
+            config.showsCursor = false
+            config.captureResolution = .best
+
+            let cgImage = try await SCScreenshotManager.captureImage(
+                contentFilter: filter,
+                configuration: config
+            )
+            let rep = NSBitmapImageRep(cgImage: cgImage)
+            return rep.representation(using: .png, properties: [:])
+        } catch {
+            HyperLog.event("DemoExport desktop capture skipped: \(error.localizedDescription)")
+            return nil
         }
     }
 }
