@@ -22,6 +22,11 @@ final class VimNavigation: @unchecked Sendable {
     private var _enabled = true
     private var armWorkItem: DispatchWorkItem?
     private var spaceDownAt: Date?
+    private var layerArmedAt: Date?
+    /// Last time a non-Space key was typed (for inter-word hold boost).
+    private var lastTypingKeyAt: Date?
+    /// Ignore next N Space edges from our own synthetic posts (backup if pass-through races).
+    private var ignoreSyntheticSpaceEdges = 0
 
     private var dWaiting = false
     private var ggWaiting = false
@@ -30,6 +35,11 @@ final class VimNavigation: @unchecked Sendable {
     private let halfPage: Int32 = 300
     private let fullPage: Int32 = 600
     private let alignAmount: Int32 = 800
+    /// After rapid typing, require this much extra hold before Space becomes a layer.
+    private let interWordBoostMs = 80
+    /// If the first key after arm arrives within this window, treat as typing not nav
+    /// (finger still finishing a long space tap).
+    private let postArmTypingGraceMs = 90.0
 
     private init() {
         let defaults = UserDefaults.standard
@@ -79,6 +89,7 @@ final class VimNavigation: @unchecked Sendable {
         layerArmed = active
         typingRollover = false
         spaceDownAt = active ? Date() : nil
+        layerArmedAt = active ? Date() : nil
         if !active {
             layerUsed = false
             clearOperatorsUnlocked()
@@ -94,28 +105,45 @@ final class VimNavigation: @unchecked Sendable {
         shiftOnlyOrNone: Bool,
         hyperActive: Bool
     ) -> Bool {
+        lock.lock()
+        if ignoreSyntheticSpaceEdges > 0 {
+            ignoreSyntheticSpaceEdges -= 1
+            lock.unlock()
+            return false
+        }
+        lock.unlock()
+
         guard isEnabled, !hyperActive, shiftOnlyOrNone else { return false }
         // Per-app block list / App Override (terminals, Vim, …).
         guard SpaceNavRuntime.shared.shouldCaptureSpace() else { return false }
 
-        // Hold threshold: 0 = arm immediately (power mode). Prefer ~140–180ms for typing.
-        let holdMs = SpaceNavRuntime.shared.holdMilliseconds
+        // Hold threshold: 0 = arm immediately (power mode). Default ~200ms for typing.
+        var holdMs = SpaceNavRuntime.shared.holdMilliseconds
         lock.lock()
+        // Mid-word / inter-word: recent key → need a longer intentional hold to arm nav.
+        if holdMs > 0, let last = lastTypingKeyAt,
+           Date().timeIntervalSince(last) < 0.14
+        {
+            holdMs += interWordBoostMs
+        }
         cancelArmTimerUnlocked()
         spaceDown = true
         layerUsed = false
         typingRollover = false
         spaceDownAt = Date()
+        layerArmedAt = nil
         clearOperatorsUnlocked()
         if holdMs <= 0 {
             layerArmed = true
+            layerArmedAt = Date()
         } else {
             layerArmed = false
             let work = DispatchWorkItem { [weak self] in
                 guard let self else { return }
                 self.lock.lock()
-                if self.spaceDown, !self.typingRollover {
+                if self.spaceDown, !self.typingRollover, !self.layerUsed {
                     self.layerArmed = true
+                    self.layerArmedAt = Date()
                 }
                 self.lock.unlock()
             }
@@ -133,19 +161,23 @@ final class VimNavigation: @unchecked Sendable {
     @discardableResult
     func handleSpaceKeyUp() -> Bool {
         lock.lock()
+        if ignoreSyntheticSpaceEdges > 0 {
+            ignoreSyntheticSpaceEdges -= 1
+            lock.unlock()
+            return false
+        }
         cancelArmTimerUnlocked()
         let owned = spaceDown
         // Emit a typed space only if we never navigated and never flushed for rollover typing
         // (rollover already emitted one space when the next key arrived).
         let emitSpace = owned && !layerUsed && !typingRollover
-        // typingRollover already emitted space on first key — still swallow physical keyUp.
         let swallow = owned
         resetSpaceStateUnlocked()
         lock.unlock()
 
         guard swallow else { return false }
         if emitSpace {
-            EventSynthesizer.postKey(KeyCode.space)
+            emitTypedSpace()
         }
         return true
     }
@@ -162,6 +194,7 @@ final class VimNavigation: @unchecked Sendable {
         lock.lock()
         layerUsed = true
         typingRollover = false
+        cancelArmTimerUnlocked()
         lock.unlock()
     }
 
@@ -172,12 +205,30 @@ final class VimNavigation: @unchecked Sendable {
         layerUsed = false
         typingRollover = false
         spaceDownAt = nil
+        layerArmedAt = nil
         clearOperatorsUnlocked()
     }
 
     private func cancelArmTimerUnlocked() {
         armWorkItem?.cancel()
         armWorkItem = nil
+    }
+
+    /// Inject a real space character; ignore re-entry on the event tap.
+    private func emitTypedSpace() {
+        lock.lock()
+        ignoreSyntheticSpaceEdges += 2
+        lock.unlock()
+        EventSynthesizer.postKey(KeyCode.space)
+    }
+
+    /// Convert pending/armed Space into normal typing: one space, then pass the key.
+    private func beginTypingRolloverUnlocked() {
+        cancelArmTimerUnlocked()
+        typingRollover = true
+        layerUsed = true
+        layerArmed = false
+        clearOperatorsUnlocked()
     }
 
     // MARK: - Layer keys
@@ -188,25 +239,33 @@ final class VimNavigation: @unchecked Sendable {
     func handle(keyCode: CGKeyCode, shiftDown: Bool, ctrlDown: Bool) -> Bool {
         lock.lock()
         guard spaceDown else {
+            lastTypingKeyAt = Date()
             lock.unlock()
             return false
         }
 
         // Already decided this Space is part of normal typing — don't steal keys.
         if typingRollover {
+            lastTypingKeyAt = Date()
             lock.unlock()
             return false
         }
 
-        // Fast typing: next key while Space still in the hold window → type space + letter,
-        // never treat as a Space-layer chord. (Previously we armed immediately here.)
+        // Fast typing: next key while Space still in the hold window → type space + letter.
         if !layerArmed {
-            cancelArmTimerUnlocked()
-            typingRollover = true
-            layerUsed = true // keyUp must not emit a second space
-            clearOperatorsUnlocked()
+            beginTypingRolloverUnlocked()
             lock.unlock()
-            EventSynthesizer.postKey(KeyCode.space)
+            emitTypedSpace()
+            return false
+        }
+
+        // Barely armed (long space tap that just crossed threshold) + first key → still typing.
+        if !layerUsed, let armedAt = layerArmedAt,
+           Date().timeIntervalSince(armedAt) * 1000 < postArmTypingGraceMs
+        {
+            beginTypingRolloverUnlocked()
+            lock.unlock()
+            emitTypedSpace()
             return false
         }
 
@@ -484,9 +543,16 @@ final class VimNavigation: @unchecked Sendable {
             return true
 
         default:
-            // Unmapped key while Space held: cancel the pending space so you don't
-            // get a leading space, then let the key through.
-            markLayerUsed()
+            // Unmapped key while layer armed: treat as typing (don't drop the space).
+            lock.lock()
+            if !layerUsed {
+                beginTypingRolloverUnlocked()
+                lock.unlock()
+                emitTypedSpace()
+            } else {
+                lastTypingKeyAt = Date()
+                lock.unlock()
+            }
             return false
         }
     }

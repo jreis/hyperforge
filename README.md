@@ -106,7 +106,7 @@ HyperForge supports **either** style (with short sticky grace for Karabiner flag
 | **Hyper + Space** | Command bar (not stolen by Space layer) |
 | Menu bar flame | Dashboard, engine, cheat sheet |
 
-Hold-before-layer (~160 ms default) and blocked apps: **Settings → Engine → Space navigation**. Keys during the hold window type a normal space + letter so fast typing isn’t stolen.
+Hold-before-layer (~200 ms default) and blocked apps: **Settings → Engine → Space navigation**. Keys during the hold window type a normal space + letter so fast typing isn’t stolen.
 
 ---
 

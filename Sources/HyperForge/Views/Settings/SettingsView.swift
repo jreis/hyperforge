@@ -234,14 +234,14 @@ struct SettingsView: View {
                         step: 10
                     )
                     HStack(spacing: 8) {
-                        Button("Typing-safe 160") { spaceNav.holdMilliseconds = 160 }
+                        Button("Fast typist 200") { spaceNav.holdMilliseconds = 200 }
                             .controlSize(.mini)
-                        Button("Relaxed 200") { spaceNav.holdMilliseconds = 200 }
+                        Button("Relaxed 260") { spaceNav.holdMilliseconds = 260 }
                             .controlSize(.mini)
                         Button("Instant 0") { spaceNav.holdMilliseconds = 0 }
                             .controlSize(.mini)
                     }
-                    Text("Space must be held this long before HJKL (etc.) act as navigation. Keys pressed sooner type a normal space + letter — better for fast typists. Instant (0) arms the layer on key-down (old behavior).")
+                    Text("Space must be held this long before HJKL act as navigation. Keys sooner type space+letter. After rapid typing, hold is auto-boosted slightly. Instant (0) is power-user only.")
                         .font(.system(size: 11))
                         .foregroundStyle(HFTheme.textTertiary)
                 }

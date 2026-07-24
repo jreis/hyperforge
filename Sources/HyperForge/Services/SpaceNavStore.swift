@@ -76,8 +76,10 @@ final class SpaceNavStore: ObservableObject {
     static let ghosttyUnblockMigrationKey = "hf.spaceNavUnblockGhostty"
     /// One-time: typing-safe hold default (was 0 = instant arm, bad for fast typists).
     static let typistHoldMigrationKey = "hf.spaceNavTypistHoldV1"
+    /// Second pass: bump prior 160ms default to 200ms for faster typists.
+    static let typistHoldMigrationKeyV2 = "hf.spaceNavTypistHoldV2"
     /// Default hold before Space becomes a nav layer (ms).
-    static let defaultHoldMilliseconds = 160
+    static let defaultHoldMilliseconds = 200
 
     /// Sensible defaults — terminals & modal Vim UIs where Space must type.
     /// Ghostty is intentionally **not** blocked so Space+HJKL works for shell navigation.
@@ -166,6 +168,14 @@ final class SpaceNavStore: ObservableObject {
             }
             d.set(true, forKey: Self.typistHoldMigrationKey)
             d.set(holdMilliseconds, forKey: Self.holdMsKey)
+        }
+        // Users still on the old 160ms default → 200ms (explicit custom values left alone).
+        if !d.bool(forKey: Self.typistHoldMigrationKeyV2) {
+            if (d.object(forKey: Self.holdMsKey) as? Int) == 160 {
+                holdMilliseconds = Self.defaultHoldMilliseconds
+                d.set(holdMilliseconds, forKey: Self.holdMsKey)
+            }
+            d.set(true, forKey: Self.typistHoldMigrationKeyV2)
         }
         isBootstrapping = false
         VimNavigation.shared.setEnabled(isEnabled, persist: false)
