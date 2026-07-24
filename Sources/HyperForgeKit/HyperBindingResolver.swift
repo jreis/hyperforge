@@ -38,10 +38,16 @@ public enum HyperKeyCode {
     public static let seven: UInt16 = 0x1A
     public static let eight: UInt16 = 0x1C
     public static let zero: UInt16 = 0x1D
-    // Numpad (ANSI)
+    // Numpad (ANSI) — full spatial window pad under Hyper
+    public static let keypad0: UInt16 = 0x52
     public static let keypad1: UInt16 = 0x53
+    public static let keypad2: UInt16 = 0x54
     public static let keypad3: UInt16 = 0x55
+    public static let keypad4: UInt16 = 0x56
+    public static let keypad5: UInt16 = 0x57
+    public static let keypad6: UInt16 = 0x58
     public static let keypad7: UInt16 = 0x59
+    public static let keypad8: UInt16 = 0x5B
     public static let keypad9: UInt16 = 0x5C
     public static let o: UInt16 = 0x1F
     public static let u: UInt16 = 0x20
@@ -116,11 +122,21 @@ public enum HyperBindingResolver {
         .init(actionID: "win-tr", keyCode: HyperKeyCode.eight, title: "Top-Right"),
         .init(actionID: "win-bl", keyCode: HyperKeyCode.nine, title: "Bottom-Left"),
         .init(actionID: "win-br", keyCode: HyperKeyCode.zero, title: "Bottom-Right"),
-        // Numpad corners (7 9 / 1 3) — spatial layout
+        // Numpad full pad — spatial window layout (Hyper held)
+        //  7 TL   8 Top   9 TR
+        //  4 Left 5 Max   6 Right
+        //  1 BL   2 Bot   3 BR
+        //  0 Center
         .init(actionID: "win-tl", keyCode: HyperKeyCode.keypad7, title: "Top-Left (Num 7)"),
+        .init(actionID: "win-top", keyCode: HyperKeyCode.keypad8, title: "Top Half (Num 8)"),
         .init(actionID: "win-tr", keyCode: HyperKeyCode.keypad9, title: "Top-Right (Num 9)"),
+        .init(actionID: "win-left", keyCode: HyperKeyCode.keypad4, title: "Left Half (Num 4)"),
+        .init(actionID: "win-max", keyCode: HyperKeyCode.keypad5, title: "Maximize (Num 5)"),
+        .init(actionID: "win-right", keyCode: HyperKeyCode.keypad6, title: "Right Half (Num 6)"),
         .init(actionID: "win-bl", keyCode: HyperKeyCode.keypad1, title: "Bottom-Left (Num 1)"),
+        .init(actionID: "win-bottom", keyCode: HyperKeyCode.keypad2, title: "Bottom Half (Num 2)"),
         .init(actionID: "win-br", keyCode: HyperKeyCode.keypad3, title: "Bottom-Right (Num 3)"),
+        .init(actionID: "win-center", keyCode: HyperKeyCode.keypad0, title: "Center (Num 0)"),
         .init(actionID: "win-close", keyCode: HyperKeyCode.x, title: "Close Window"),
         .init(actionID: "win-always-on-top", keyCode: HyperKeyCode.a, title: "Always On Top"),
         .init(actionID: "win-minimize", keyCode: HyperKeyCode.b, title: "Minimize"),
@@ -268,8 +284,12 @@ public enum HyperBindingResolver {
         case HyperKeyCode.seven where allowed("win-tl"),
              HyperKeyCode.keypad7 where allowed("win-tl"):
             return .action("win-tl")
-        case HyperKeyCode.eight where allowed("win-tr"),
-             HyperKeyCode.keypad9 where allowed("win-tr"):
+        case HyperKeyCode.eight where allowed("win-tr"):
+            // Top-row 8 = top-right quarter (legacy); numpad 8 = top half
+            return .action("win-tr")
+        case HyperKeyCode.keypad8 where allowed("win-top"):
+            return .action("win-top")
+        case HyperKeyCode.keypad9 where allowed("win-tr"):
             return .action("win-tr")
         case HyperKeyCode.nine where allowed("win-bl"),
              HyperKeyCode.keypad1 where allowed("win-bl"):
@@ -277,6 +297,16 @@ public enum HyperBindingResolver {
         case HyperKeyCode.zero where allowed("win-br"),
              HyperKeyCode.keypad3 where allowed("win-br"):
             return .action("win-br")
+        case HyperKeyCode.keypad4 where allowed("win-left"):
+            return .action("win-left")
+        case HyperKeyCode.keypad5 where allowed("win-max"):
+            return .action("win-max")
+        case HyperKeyCode.keypad6 where allowed("win-right"):
+            return .action("win-right")
+        case HyperKeyCode.keypad2 where allowed("win-bottom"):
+            return .action("win-bottom")
+        case HyperKeyCode.keypad0 where allowed("win-center"):
+            return .action("win-center")
         case HyperKeyCode.tab where allowed("app-toggle"):
             return .action("app-toggle")
         case HyperKeyCode.h where allowed("scroll-left"):

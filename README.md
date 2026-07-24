@@ -116,6 +116,7 @@ Hold-before-layer (~200 ms default) and blocked apps: **Settings → Engine �
 |-------|--------|
 | Hyper + ←/→/↑/↓ | Snap half |
 | Hyper + Return | Maximize |
+| Hyper + **Numpad** | Full spatial pad (see below) |
 | Hyper + 6 | Tile all windows |
 | Hyper + H/J/L | Scroll |
 | Hyper + K | Keep-alive |
@@ -127,6 +128,15 @@ Hold-before-layer (~200 ms default) and blocked apps: **Settings → Engine �
 | Space + H/J/K/L | Arrows |
 | Space + X | Kill to end of line |
 | Space + Y / P / U | Copy / paste / undo |
+
+**Numpad (Hyper held)** — spatial window pad:
+
+```text
+7 TL    8 Top    9 TR
+4 Left  5 Max    6 Right
+1 BL    2 Bot    3 BR
+0 Center
+```
 
 Full list: in-app **cheat sheet** or dashboard. Snippets: `,sig`, `@@`, `,date`, `,v`, `,host` (edit under Snippets).
 

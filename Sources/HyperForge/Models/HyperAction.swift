@@ -77,6 +77,12 @@ struct HyperAction: Identifiable, Equatable, Codable, Hashable {
         case "win-tr": return "8 · Num9"
         case "win-bl": return "9 · Num1"
         case "win-br": return "0 · Num3"
+        case "win-left": return "← · Num4"
+        case "win-right": return "→ · Num6"
+        case "win-top": return "↑ · Num8"
+        case "win-bottom": return "↓ · Num2"
+        case "win-max": return "Return · Num5"
+        case "win-center": return "C · Num0"
         default: return KeyCode.displayName(CGKeyCode(keyCode))
         }
     }
@@ -100,6 +106,12 @@ struct HyperAction: Identifiable, Equatable, Codable, Hashable {
         case "win-tr": return "Hyper + 8  ·  Num 9"
         case "win-bl": return "Hyper + 9  ·  Num 1"
         case "win-br": return "Hyper + 0  ·  Num 3"
+        case "win-left": return "Hyper + ←  ·  Num 4"
+        case "win-right": return "Hyper + →  ·  Num 6"
+        case "win-top": return "Hyper + ↑  ·  Num 8"
+        case "win-bottom": return "Hyper + ↓  ·  Num 2"
+        case "win-max": return "Hyper + Return  ·  Num 5"
+        case "win-center": return "Hyper + C  ·  Num 0"
         default: break
         }
         switch mode {
@@ -116,19 +128,19 @@ struct HyperAction: Identifiable, Equatable, Codable, Hashable {
 enum ActionCatalog {
     static let defaults: [HyperAction] = [
         // Window
-        HyperAction(id: "win-left", title: "Snap Left Half", detail: "Left 50% of screen", keyCode: KeyCode.leftArrow, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.lefthalf.filled"),
-        HyperAction(id: "win-right", title: "Snap Right Half", detail: "Right 50% of screen", keyCode: KeyCode.rightArrow, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.righthalf.filled"),
-        HyperAction(id: "win-top", title: "Snap Top Half", detail: "Top 50% of screen", keyCode: KeyCode.upArrow, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.tophalf.filled"),
-        HyperAction(id: "win-bottom", title: "Snap Bottom Half", detail: "Bottom 50% of screen", keyCode: KeyCode.downArrow, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.bottomhalf.filled"),
-        HyperAction(id: "win-max", title: "Maximize", detail: "Fill visible screen", keyCode: KeyCode.return, mode: .hyper, category: .window, isEnabled: true, symbol: "arrow.up.left.and.arrow.down.right"),
+        HyperAction(id: "win-left", title: "Snap Left Half", detail: "Left 50% · arrows or Num 4", keyCode: KeyCode.leftArrow, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.lefthalf.filled"),
+        HyperAction(id: "win-right", title: "Snap Right Half", detail: "Right 50% · arrows or Num 6", keyCode: KeyCode.rightArrow, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.righthalf.filled"),
+        HyperAction(id: "win-top", title: "Snap Top Half", detail: "Top 50% · arrows or Num 8", keyCode: KeyCode.upArrow, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.tophalf.filled"),
+        HyperAction(id: "win-bottom", title: "Snap Bottom Half", detail: "Bottom 50% · arrows or Num 2", keyCode: KeyCode.downArrow, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.bottomhalf.filled"),
+        HyperAction(id: "win-max", title: "Maximize", detail: "Fill screen · Return or Num 5", keyCode: KeyCode.return, mode: .hyper, category: .window, isEnabled: true, symbol: "arrow.up.left.and.arrow.down.right"),
         HyperAction(id: "win-tile-all", title: "Tile All Windows", detail: "Grid every visible window on this screen", keyCode: KeyCode.six, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.split.3x3"),
-        HyperAction(id: "win-center", title: "Center Window", detail: "Keep size, center on screen", keyCode: KeyCode.c, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.center.inset.filled"),
+        HyperAction(id: "win-center", title: "Center Window", detail: "Keep size · C or Num 0", keyCode: KeyCode.c, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.center.inset.filled"),
         HyperAction(id: "win-next-screen", title: "Next Display", detail: "Move window to next screen", keyCode: KeyCode.m, mode: .hyper, category: .window, isEnabled: true, symbol: "display.2"),
         HyperAction(id: "win-undo", title: "Undo Snap", detail: "Restore previous frame", keyCode: KeyCode.z, mode: .hyper, category: .window, isEnabled: true, symbol: "arrow.uturn.backward"),
-        HyperAction(id: "win-tl", title: "Top-Left Quarter", detail: "25% top-left · top-row 7 or numpad 7", keyCode: KeyCode.seven, mode: .hyper, category: .window, isEnabled: true, symbol: "square.grid.2x2"),
-        HyperAction(id: "win-tr", title: "Top-Right Quarter", detail: "25% top-right · top-row 8 or numpad 9", keyCode: KeyCode.eight, mode: .hyper, category: .window, isEnabled: true, symbol: "square.grid.2x2"),
-        HyperAction(id: "win-bl", title: "Bottom-Left Quarter", detail: "25% bottom-left · top-row 9 or numpad 1", keyCode: KeyCode.nine, mode: .hyper, category: .window, isEnabled: true, symbol: "square.grid.2x2"),
-        HyperAction(id: "win-br", title: "Bottom-Right Quarter", detail: "25% bottom-right · top-row 0 or numpad 3", keyCode: KeyCode.zero, mode: .hyper, category: .window, isEnabled: true, symbol: "square.grid.2x2"),
+        HyperAction(id: "win-tl", title: "Top-Left Quarter", detail: "25% top-left · 7 or Num 7", keyCode: KeyCode.seven, mode: .hyper, category: .window, isEnabled: true, symbol: "square.grid.2x2"),
+        HyperAction(id: "win-tr", title: "Top-Right Quarter", detail: "25% top-right · 8 or Num 9", keyCode: KeyCode.eight, mode: .hyper, category: .window, isEnabled: true, symbol: "square.grid.2x2"),
+        HyperAction(id: "win-bl", title: "Bottom-Left Quarter", detail: "25% bottom-left · 9 or Num 1", keyCode: KeyCode.nine, mode: .hyper, category: .window, isEnabled: true, symbol: "square.grid.2x2"),
+        HyperAction(id: "win-br", title: "Bottom-Right Quarter", detail: "25% bottom-right · 0 or Num 3", keyCode: KeyCode.zero, mode: .hyper, category: .window, isEnabled: true, symbol: "square.grid.2x2"),
         // Hide-others is available via Live Test / Command Bar (Hyper+H is scroll left in the engine).
         HyperAction(id: "win-hide-others", title: "Hide Other Apps", detail: "Hide every non-front app (command bar)", keyCode: KeyCode.h, mode: .hyper, category: .window, isEnabled: true, symbol: "eye.slash"),
         HyperAction(id: "win-close", title: "Close Window", detail: "⌘W on front window", keyCode: KeyCode.x, mode: .hyper, category: .window, isEnabled: true, symbol: "xmark"),
