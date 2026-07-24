@@ -33,6 +33,7 @@ enum QuickMenuService {
         menu.addItem(item("Copy hostname", "desktopcomputer", #selector(QuickMenuTarget.copyHostname)))
         menu.addItem(item("Link hints", "link.circle", #selector(QuickMenuTarget.linkHints)))
         menu.addItem(item("Pin screen region", "crop", #selector(QuickMenuTarget.regionPin)))
+        menu.addItem(item("Copy top pin image", "doc.on.clipboard", #selector(QuickMenuTarget.copyTopPin)))
         menu.addItem(item("Clipboard image pin", "photo", #selector(QuickMenuTarget.clipboardImage)))
         menu.addItem(.separator())
         menu.addItem(item("Open dashboard", "rectangle.center.inset.filled", #selector(QuickMenuTarget.dashboard)))
@@ -63,6 +64,15 @@ final class QuickMenuTarget: NSObject {
     @objc func copyHostname() { SystemActions.copyHostname() }
     @objc func linkHints() { LinkHintService.shared.toggle() }
     @objc func regionPin() { RegionPinService.shared.beginSelection() }
+    @objc func copyTopPin() {
+        if RegionPinService.shared.copyTopPinToClipboard() { return }
+        Banner.show(
+            "No pin to copy",
+            subtitle: "Hyper+P to pin a region first",
+            style: .warning,
+            symbol: "crop"
+        )
+    }
     @objc func clipboardImage() { ClipboardImagePreview.shared.showManual() }
     @objc func dashboard() { AppState.shared.openMainWindow() }
 }

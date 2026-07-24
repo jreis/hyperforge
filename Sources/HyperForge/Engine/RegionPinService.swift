@@ -87,10 +87,17 @@ final class RegionPinService {
         refreshEscapeHandlers()
         Banner.show(
             "Region pinned",
-            subtitle: "Drag to move · Esc / right-click closes",
+            subtitle: "⌘C or right-click → Copy · Esc closes",
             style: .success,
             symbol: "pin.fill"
         )
+    }
+
+    /// Copy the topmost region pin image to the pasteboard (if any).
+    @discardableResult
+    func copyTopPinToClipboard() -> Bool {
+        guard let pin = pins.last else { return false }
+        return pin.copyImageToClipboard()
     }
 
     /// Keep Esc stack in sync when selection / pins change.
@@ -569,6 +576,7 @@ final class FloatingImagePin {
     private let onClose: (FloatingImagePin) -> Void
     private let image: NSImage
     private let preferredOrigin: NSPoint?
+    private let menuTarget = PinMenuTarget()
 
     init(
         image: NSImage,
@@ -578,6 +586,7 @@ final class FloatingImagePin {
         self.image = image
         self.preferredOrigin = preferredOrigin
         self.onClose = onClose
+        menuTarget.pin = self
     }
 
     func show() {
@@ -628,6 +637,7 @@ final class FloatingImagePin {
         win.minSize = NSSize(width: 80, height: 60)
         win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         win.isMovableByWindowBackground = false
+        win.acceptsMouseMovedEvents = true
 
         let iv = NSImageView(frame: NSRect(x: 0, y: 0, width: w, height: h))
         iv.image = image
@@ -643,14 +653,15 @@ final class FloatingImagePin {
         iv.layer?.masksToBounds = true
         iv.layer?.borderWidth = 2
         iv.layer?.borderColor = NSColor.systemOrange.withAlphaComponent(0.95).cgColor
+        iv.toolTip = "⌘C or right-click → Copy · Esc / menu → Close"
 
         win.contentView = iv
-        win.orderFrontRegardless()
+        win.makeKeyAndOrderFront(nil)
         window = win
 
         // Esc is handled by EscapeCoordinator (floatingPin layer).
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [
-            .leftMouseDown, .leftMouseDragged, .leftMouseUp, .rightMouseUp,
+            .leftMouseDown, .leftMouseDragged, .leftMouseUp, .rightMouseUp, .keyDown,
         ]) { [weak self] event in
             self?.handlePinEvent(event) ?? event
         }
@@ -659,6 +670,38 @@ final class FloatingImagePin {
         ]) { [weak self] event in
             Task { @MainActor in _ = self?.handlePinEvent(event) }
         }
+    }
+
+    /// Write the pin’s image to the general pasteboard (PNG + TIFF).
+    @discardableResult
+    func copyImageToClipboard() -> Bool {
+        guard let tiff = image.tiffRepresentation else {
+            Banner.show("Copy failed", style: .warning, symbol: "doc.on.clipboard")
+            return false
+        }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        var wrote = false
+        if let rep = NSBitmapImageRep(data: tiff),
+           let png = rep.representation(using: .png, properties: [:])
+        {
+            pb.setData(png, forType: .png)
+            wrote = true
+        }
+        pb.setData(tiff, forType: .tiff)
+        wrote = true
+        // Also offer as file promise–friendly raw image object for some apps
+        _ = pb.writeObjects([image])
+        if wrote {
+            Banner.show(
+                "Copied pin",
+                subtitle: "Image on clipboard",
+                style: .success,
+                symbol: "doc.on.clipboard"
+            )
+            HyperLog.event("Region pin copied to clipboard")
+        }
+        return wrote
     }
 
     @discardableResult
@@ -687,13 +730,46 @@ final class FloatingImagePin {
             windowOriginAtDrag = nil
         case .rightMouseUp:
             if frame.contains(pt) {
-                close()
+                win.makeKeyAndOrderFront(nil)
+                showContextMenu(at: pt)
+                return nil
+            }
+        case .keyDown:
+            // ⌘C copies when this pin is key (or mouse is over it)
+            let overPin = frame.contains(pt)
+            let isKey = win.isKeyWindow
+            if (overPin || isKey),
+               event.modifierFlags.contains(.command),
+               event.charactersIgnoringModifiers?.lowercased() == "c"
+            {
+                _ = copyImageToClipboard()
                 return nil
             }
         default:
             break
         }
         return event
+    }
+
+    private func showContextMenu(at screenPoint: NSPoint) {
+        let menu = NSMenu(title: "Pin")
+        let copyItem = NSMenuItem(
+            title: "Copy Image",
+            action: #selector(PinMenuTarget.copyImage(_:)),
+            keyEquivalent: "c"
+        )
+        copyItem.keyEquivalentModifierMask = .command
+        copyItem.target = menuTarget
+        menu.addItem(copyItem)
+        menu.addItem(.separator())
+        let closeItem = NSMenuItem(
+            title: "Close Pin",
+            action: #selector(PinMenuTarget.closePin(_:)),
+            keyEquivalent: ""
+        )
+        closeItem.target = menuTarget
+        menu.addItem(closeItem)
+        menu.popUp(positioning: nil, at: screenPoint, in: nil)
     }
 
     func close() {
@@ -703,5 +779,19 @@ final class FloatingImagePin {
         window?.contentView = nil
         window = nil
         onClose(self)
+    }
+}
+
+/// NSMenu needs an NSObject target.
+@MainActor
+private final class PinMenuTarget: NSObject {
+    weak var pin: FloatingImagePin?
+
+    @objc func copyImage(_ sender: Any?) {
+        _ = pin?.copyImageToClipboard()
+    }
+
+    @objc func closePin(_ sender: Any?) {
+        pin?.close()
     }
 }
