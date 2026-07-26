@@ -9,12 +9,23 @@ struct DoctorView: View {
     @EnvironmentObject private var karabiner: KarabinerService
     @ObservedObject private var ollama = OllamaClient.shared
     @ObservedObject private var terminal = TerminalPreference.shared
+    @ObservedObject private var challenge = FirstRunChallengeStore.shared
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 header
                 overallCard
+                FirstRunChallengeView(compact: true)
+                if challenge.completed || challenge.skipped {
+                    HStack {
+                        Spacer()
+                        Button("Replay first chords") {
+                            challenge.reset()
+                        }
+                        .controlSize(.small)
+                    }
+                }
                 checksCard
                 hyperStyleCard
                 actionsCard
@@ -189,23 +200,38 @@ struct DoctorView: View {
                 }
 
                 let space = SpaceNavStore.shared
-                let front = SpaceNavRuntime.shared.frontmostID
+                let front = SpaceNavRuntime.shared.refreshFrontmostLive()
                 let spaceBlocked = front.map { bid in
                     space.blockedApps.contains(where: { $0.bundleID == bid })
                         || (AppOverrideStore.shared.overrides.contains {
                             $0.isEnabled && $0.disableSpaceNav && $0.bundleID == bid
                         })
                 } ?? false
+                let frontLabel = front.map { id in
+                    let short = id.split(separator: ".").last.map(String.init) ?? id
+                    return spaceBlocked ? "\(short) (blocked)" : short
+                } ?? "—"
                 checkRow(
                     ok: true,
                     title: "Space navigation",
                     detail: space.isEnabled
                         ? (spaceBlocked
-                            ? "On · disabled in frontmost app · hold \(space.holdMilliseconds) ms · \(space.blockedApps.count) blocked"
-                            : "On · hold \(space.holdMilliseconds == 0 ? "immediate" : "\(space.holdMilliseconds) ms") · \(space.blockedApps.count) apps blocked")
+                            ? "On · off in \(frontLabel) · hold \(space.holdMilliseconds) ms · \(space.blockedApps.count) blocked"
+                            : "On · front \(frontLabel) · hold \(space.holdMilliseconds == 0 ? "immediate" : "\(space.holdMilliseconds) ms") · HUD \(space.showLayerHUD ? "on" : "off") · \(space.blockedApps.count) apps blocked")
                         : "Off — Space always types a space",
                     fix: nil,
                     neutral: true
+                )
+                checkRow(
+                    ok: challenge.allProved || challenge.completed,
+                    title: "First chords",
+                    detail: challenge.allProved || challenge.completed
+                        ? "Hyper · Space nav · snap — done"
+                        : (challenge.skipped
+                            ? "Skipped — replay above anytime"
+                            : "Pending \(challenge.progressLabel) — do the three live checks"),
+                    fix: nil,
+                    neutral: !challenge.allProved && !challenge.completed
                 )
             }
         }

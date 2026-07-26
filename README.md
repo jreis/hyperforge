@@ -50,7 +50,8 @@ Then:
 1. **System Settings → Privacy & Security → Accessibility** → enable **HyperForge**
 2. **Karabiner-Elements → Complex Modifications** → enable Caps → Hyper (and F19/F20 if you use 4-mod)
 3. Open the menu bar flame → **Doctor** and confirm green checks
-4. Try **Hyper + ←** (snap) and **hold Space + H/J/K/L** (arrows)
+4. Complete the **three first chords** (onboarding or Dashboard): Hyper · Space+HJKL · Hyper+←
+5. Watch for the **NAV** pill when Space is armed; menu bar icon switches to arrows
 
 Dev / smoke (no full Xcode required for Kit checks):
 
@@ -66,7 +67,9 @@ swift run   # launch the app from the build product
 
 - **Hyper Key Central** — searchable catalog, live test, engine status  
 - **Doctor** — Accessibility, Karabiner rules, Hyper style, Space nav, Ollama fit  
+- **First-run challenge** — prove Hyper, Space+HJKL, and a window snap in ~10 seconds  
 - **Space navigation** — hold Space for vim-style motions + edit/clipboard chords; tap Space still types a space  
+- **NAV pill + menu bar mode** — floating indicator while Space layer is armed; menu icon switches to arrows  
 - **Per-app Space block list** — e.g. keep Terminal normal; allow Ghostty (editable in Settings)  
 - **Profiles & auto-triggers** — Coding / Browsing / Music / Minimal; Wi‑Fi, app, or time  
 - **Per-app Hyper overrides** — disable or remap chords per bundle ID  
@@ -160,7 +163,14 @@ Full list: in-app **cheat sheet** or dashboard. Snippets: `,sig`, `@@`, `,date`,
 ./Scripts/install.sh
 ```
 
-Builds release, packages `~/Applications/HyperForge.app`, ad-hoc signs with stable id `app.hyperforge.HyperForge` (Accessibility survives rebuilds), writes Karabiner pack assets when config exists, optional LaunchAgent.
+Builds release, packages `HyperForge.app`, ad-hoc signs with stable id `app.hyperforge.HyperForge` + designated requirement (so Accessibility can survive rebuilds), writes Karabiner pack assets when config exists, optional LaunchAgent.
+
+```bash
+./scripts/install.sh          # full install
+./scripts/install.sh --update # swap binary + re-sign only (preferred while developing)
+```
+
+**Do not** copy `.build/release/HyperForge` straight over the `.app` without re-signing — that leaves a linker ad-hoc signature (`Identifier=HyperForge`) and macOS will ask for Accessibility again on every build.
 
 ### Local DMG
 

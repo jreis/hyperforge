@@ -274,7 +274,7 @@ enum CommandRouter {
             add("New Terminal Window", "Hyper + T", "terminal", "app-iterm")
         }
         if q.contains("lock") {
-            add("Lock Screen", "Hyper + Esc", "lock", "sys-lock")
+            add("Lock Screen", "Hold Hyper + Esc", "lock", "sys-lock")
         }
 
         for action in ActionCatalog.defaults {

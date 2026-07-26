@@ -215,6 +215,11 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(HFTheme.textTertiary)
 
+                Toggle("Show NAV pill when layer is armed", isOn: $spaceNav.showLayerHUD)
+                Text("Floating indicator at the top of the screen while Space navigation is live. Menu bar icon also switches.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(HFTheme.textTertiary)
+
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Text("Hold before layer")
@@ -234,6 +239,8 @@ struct SettingsView: View {
                         step: 10
                     )
                     HStack(spacing: 8) {
+                        Button("Snappy 120") { spaceNav.holdMilliseconds = 120 }
+                            .controlSize(.mini)
                         Button("Fast typist 200") { spaceNav.holdMilliseconds = 200 }
                             .controlSize(.mini)
                         Button("Relaxed 260") { spaceNav.holdMilliseconds = 260 }
@@ -248,7 +255,7 @@ struct SettingsView: View {
 
                 Text("Disabled in apps")
                     .font(.system(size: 12, weight: .semibold))
-                Text("Space types normally in these apps (terminals, Vim, …). Also settable per App Override.")
+                Text("Space types normally in these apps (most terminals, Vim, …). Ghostty is allowed by default so Space+HJKL works in the shell. Also settable per App Override.")
                     .font(.system(size: 11))
                     .foregroundStyle(HFTheme.textTertiary)
 

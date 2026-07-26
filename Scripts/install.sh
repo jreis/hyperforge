@@ -1,9 +1,30 @@
 #!/bin/zsh
 # HyperForge installer — builds, packages as .app, optional LaunchAgent.
 # Builds a signed .app under ~/Applications (or /Applications with flags).
+#
+# Usage:
+#   ./scripts/install.sh           # full package + LaunchAgent
+#   ./scripts/install.sh --update  # fast path: swap binary + re-sign (keeps TCC happy)
+#
+# IMPORTANT — Accessibility / TCC:
+#   Never `cp` a raw `swift build` binary over HyperForge.app without re-signing.
+#   The linker ad-hoc signature uses identifier "HyperForge" and a new CDHash every
+#   build, so macOS asks for Accessibility again. Always re-sign with the stable
+#   bundle id + designated requirement (see sign_app below), or use this script.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+UPDATE_ONLY=0
+for arg in "$@"; do
+  case "$arg" in
+    --update|-u) UPDATE_ONLY=1 ;;
+    -h|--help)
+      sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+  esac
+done
+
 # Prefer /Applications (what Dock/Spotlight often resolve) when writable.
 if [[ -w /Applications ]] || [[ -w /Applications/HyperForge.app ]]; then
   APP_DIR="/Applications/HyperForge.app"
@@ -19,6 +40,33 @@ UID_NUM="$(id -u)"
 DOMAIN="gui/${UID_NUM}"
 SERVICE="${DOMAIN}/${LABEL}"
 
+# codesign rejects resource forks / FinderInfo (from prior setIcon or copy).
+strip_codesign_detritus() {
+  local app="$1"
+  # Custom Finder icon is literally "Icon" + CR (Apple's convention).
+  find "$app" \( -name $'Icon\r' -o -name 'Icon?' -o -name '._*' \) -delete 2>/dev/null || true
+  rm -f "$app"/Icon$'\r' 2>/dev/null || true
+  xattr -cr "$app" 2>/dev/null || true
+}
+
+# Ad-hoc sign with stable identifier + designated requirement.
+# TCC matches the designated requirement for ad-hoc apps when it is stable across
+# rebuilds; a bare linker-signed "HyperForge" binary will re-prompt every build.
+sign_app() {
+  local app="$1"
+  strip_codesign_detritus "$app"
+  codesign --force --deep --sign - \
+    --identifier "${BUNDLE_ID}" \
+    --requirements "=designated => identifier \"${BUNDLE_ID}\"" \
+    "$app"
+  # Sanity: must not be linker-signed as plain "HyperForge"
+  local id
+  id="$(codesign -dv "$app" 2>&1 | awk -F= '/^Identifier=/{print $2; exit}')"
+  if [[ "$id" != "$BUNDLE_ID" ]]; then
+    echo "warning: codesign Identifier is '$id' (expected $BUNDLE_ID)" >&2
+  fi
+}
+
 echo "→ Building HyperForge (release)…"
 cd "$ROOT"
 swift build -c release
@@ -32,6 +80,31 @@ fi
 # Quit so we can replace the bundle cleanly.
 killall HyperForge 2>/dev/null || true
 sleep 0.3
+
+if [[ "$UPDATE_ONLY" -eq 1 && -d "$APP_DIR" ]]; then
+  echo "→ Fast update (binary + re-sign) → ${APP_DIR}"
+  mkdir -p "$MACOS_DIR" "${APP_DIR}/Contents/Resources"
+  cp "$BUILD_BIN" "$BIN"
+  chmod +x "$BIN"
+  # Keep Info.plist in sync without nuking the bundle (helps TCC path stability).
+  cp "${ROOT}/Supporting/Info.plist" "${APP_DIR}/Contents/Info.plist"
+  if [[ -f "${ROOT}/Supporting/AppIcon.icns" ]]; then
+    cp "${ROOT}/Supporting/AppIcon.icns" "${APP_DIR}/Contents/Resources/AppIcon.icns"
+  fi
+  sign_app "$APP_DIR"
+  echo "→ Opening HyperForge…"
+  open "$APP_DIR" || true
+  cat <<MSG
+
+✓ HyperForge updated (re-signed as ${BUNDLE_ID}).
+
+  If Accessibility still asks once: System Settings → Privacy & Security →
+  Accessibility → enable HyperForge, then leave it on. Future --update
+  installs should keep that grant when the designated requirement matches.
+
+MSG
+  exit 0
+fi
 
 # Drop a stale twin so icons/launch don't point at the other copy.
 if [[ "$APP_DIR" == "/Applications/HyperForge.app" && -d "${HOME}/Applications/HyperForge.app" ]]; then
@@ -55,21 +128,7 @@ if [[ -f "${ROOT}/Supporting/AppIcon.icns" ]]; then
   cp "${ROOT}/Supporting/AppIcon.icns" "${APP_DIR}/Contents/Resources/AppIcon.icns"
 fi
 
-# codesign rejects resource forks / FinderInfo (from prior setIcon or copy).
-strip_codesign_detritus() {
-  local app="$1"
-  # Custom Finder icon is literally "Icon" + CR (Apple's convention).
-  find "$app" \( -name $'Icon\r' -o -name 'Icon?' -o -name '._*' \) -delete 2>/dev/null || true
-  rm -f "$app"/Icon$'\r' 2>/dev/null || true
-  xattr -cr "$app" 2>/dev/null || true
-}
-strip_codesign_detritus "$APP_DIR"
-
-# Ad-hoc sign with stable identifier so TCC Accessibility persists across rebuilds.
-codesign --force --deep --sign - \
-  --identifier "${BUNDLE_ID}" \
-  --requirements "=designated => identifier \"${BUNDLE_ID}\"" \
-  "$APP_DIR"
+sign_app "$APP_DIR"
 
 # Finder custom icon AFTER signing (must not run before codesign).
 # This can make `codesign -v` complain about unsealed Icon\r; the app still runs.

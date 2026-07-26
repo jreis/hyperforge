@@ -267,11 +267,28 @@ enum QuickNote {
 // MARK: - System helpers
 
 enum SystemActions {
+    /// Lock the session (login screen). Never use `pmset displaysleepnow` — that only
+    /// blanks the panel (looks like a black screen) and often fires by accident when
+    /// Karabiner’s Caps-alone Escape collides with Hyper.
     static func lockScreen() {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
-        task.arguments = ["displaysleepnow"]
-        try? task.run()
+        // Preferred: CGSession -suspend (same as menu bar lock).
+        let cgSession = URL(
+            fileURLWithPath:
+                "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession"
+        )
+        if FileManager.default.isExecutableFile(atPath: cgSession.path) {
+            let task = Process()
+            task.executableURL = cgSession
+            task.arguments = ["-suspend"]
+            do {
+                try task.run()
+                return
+            } catch {
+                HyperLog.event("CGSession -suspend failed: \(error.localizedDescription)")
+            }
+        }
+        // Fallback: system shortcut ⌃⌘Q
+        EventSynthesizer.postKey(KeyCode.q, flags: [.maskControl, .maskCommand])
     }
 
     static func typeDateISO() {

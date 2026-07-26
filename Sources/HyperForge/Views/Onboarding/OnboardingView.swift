@@ -1,13 +1,14 @@
 // OnboardingView.swift
-// Clear permissions + Hyper/Karabiner setup.
+// Permissions + Hyper setup + live 3-chord first-run challenge.
 
 import SwiftUI
 
 struct OnboardingView: View {
     @EnvironmentObject private var appState: AppState
+    @ObservedObject private var challenge = FirstRunChallengeStore.shared
     @State private var step = 0
 
-    private let steps: [(String, String, String)] = [
+    private let infoSteps: [(String, String, String)] = [
         (
             "flame.fill",
             "Welcome to HyperForge",
@@ -23,56 +24,28 @@ struct OnboardingView: View {
             "Accessibility permission",
             "macOS needs Accessibility so HyperForge can observe Hyper keys and synthesize keystrokes, scrolls, and window moves. Nothing is uploaded."
         ),
-        (
-            "sparkles",
-            "You're ready",
-            "Use Doctor to verify setup. Hold Caps + key for Hyper actions, hold Space + H/J/K/L for arrows, menu bar flame for Keybindings anytime."
-        ),
     ]
+
+    /// info steps + interactive prove-it step
+    private var lastInfoIndex: Int { infoSteps.count - 1 }
+    private var proveStep: Int { infoSteps.count }
+    private var totalSteps: Int { infoSteps.count + 1 }
 
     var body: some View {
         ZStack {
             Color.black.opacity(0.55).ignoresSafeArea()
             GlassCard(padding: 28) {
                 VStack(spacing: 22) {
-                    Image(systemName: steps[step].0)
-                        .font(.system(size: 40))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [HFTheme.accent, HFTheme.accentSecondary],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                    Text(steps[step].1)
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                        .foregroundStyle(HFTheme.textPrimary)
-                        .multilineTextAlignment(.center)
-
-                    Text(steps[step].2)
-                        .font(.system(size: 13))
-                        .foregroundStyle(HFTheme.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 400)
-
-                    if step == 2 {
-                        HStack {
-                            Button("Request Accessibility") {
-                                PermissionsService.requestTrust()
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .tint(HFTheme.warning)
-                            Button("Open System Settings") {
-                                PermissionsService.openSystemSettings()
-                            }
-                        }
+                    if step <= lastInfoIndex {
+                        infoStepBody
+                    } else {
+                        proveStepBody
                     }
 
-                    // ZStack keeps page dots geometrically centered regardless of
-                    // Back / Continue button widths (or Back being hidden on step 0).
+                    // Dots + navigation
                     ZStack {
                         HStack(spacing: 8) {
-                            ForEach(0..<steps.count, id: \.self) { i in
+                            ForEach(0..<totalSteps, id: \.self) { i in
                                 Circle()
                                     .fill(i == step ? HFTheme.accent : Color.white.opacity(0.2))
                                     .frame(width: 7, height: 7)
@@ -84,16 +57,24 @@ struct OnboardingView: View {
                             if step > 0 {
                                 Button("Back") { step -= 1 }
                             } else {
-                                // Invisible placeholder so layout stays balanced if needed
                                 Color.clear.frame(width: 1, height: 1)
                             }
                             Spacer()
-                            if step < steps.count - 1 {
-                                Button("Continue") { step += 1 }
-                                    .buttonStyle(.borderedProminent)
-                                    .tint(HFTheme.accent)
+                            if step < proveStep {
+                                Button("Continue") {
+                                    step += 1
+                                    if step == proveStep {
+                                        // Ensure engine is listening for the live checks.
+                                        appState.engine.start()
+                                    }
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(HFTheme.accent)
                             } else {
-                                Button("Enter HyperForge") {
+                                Button(challenge.allProved ? "Enter HyperForge" : "Skip & enter") {
+                                    if !challenge.allProved {
+                                        challenge.skip()
+                                    }
                                     appState.completeOnboarding()
                                 }
                                 .buttonStyle(.borderedProminent)
@@ -103,9 +84,78 @@ struct OnboardingView: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .frame(width: 460)
+                .frame(width: 500)
                 .multilineTextAlignment(.center)
             }
+        }
+        .onAppear {
+            // Fresh installs should re-run the interactive checks.
+            if !UserDefaults.standard.bool(forKey: "hf.hasCompletedOnboarding") {
+                // leave challenge as-is if partially done
+            }
+        }
+    }
+
+    private var infoStepBody: some View {
+        VStack(spacing: 22) {
+            Image(systemName: infoSteps[step].0)
+                .font(.system(size: 40))
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [HFTheme.accent, HFTheme.accentSecondary],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            Text(infoSteps[step].1)
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundStyle(HFTheme.textPrimary)
+                .multilineTextAlignment(.center)
+
+            Text(infoSteps[step].2)
+                .font(.system(size: 13))
+                .foregroundStyle(HFTheme.textSecondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+
+            if step == 2 {
+                HStack {
+                    Button("Request Accessibility") {
+                        PermissionsService.requestTrust()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(HFTheme.warning)
+                    Button("Open System Settings") {
+                        PermissionsService.openSystemSettings()
+                    }
+                }
+            }
+        }
+    }
+
+    private var proveStepBody: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 36))
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [HFTheme.accent, HFTheme.accentSecondary],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            Text("Three chords. Ten seconds.")
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .foregroundStyle(HFTheme.textPrimary)
+
+            Text("Do these live with the engine running. Each check turns green when HyperForge sees the real input.")
+                .font(.system(size: 12))
+                .foregroundStyle(HFTheme.textSecondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+
+            FirstRunChallengeView(compact: false)
+                .multilineTextAlignment(.leading)
         }
     }
 }

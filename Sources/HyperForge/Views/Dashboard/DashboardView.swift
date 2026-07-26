@@ -40,9 +40,17 @@ struct DashboardView: View {
         ActionCatalog.grouped(actions)
     }
 
+    @ObservedObject private var challenge = FirstRunChallengeStore.shared
+
     var body: some View {
         VStack(spacing: 0) {
             header
+            if challenge.shouldShowCard {
+                FirstRunChallengeView(compact: true)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                Divider().overlay(HFTheme.stroke)
+            }
             Divider().overlay(HFTheme.stroke)
             HStack(spacing: 0) {
                 actionList

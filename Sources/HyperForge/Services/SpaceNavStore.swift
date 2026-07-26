@@ -48,14 +48,92 @@ final class SpaceNavRuntime: @unchecked Sendable {
         return frontmostBundleID
     }
 
+    /// Best-effort live frontmost (event tap runs on the main run loop).
+    /// Keeps the cache warm and avoids a one-activation lag after app switches.
+    @discardableResult
+    func refreshFrontmostLive() -> String? {
+        let bid = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        setFrontmostBundleID(bid)
+        return bid
+    }
+
     /// Whether Space should be captured for the layer right now.
+    /// Always re-reads frontmost so Ghostty / app switches are not gated by a stale cache.
     func shouldCaptureSpace() -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        guard enabled else { return false }
-        if let bid = frontmostBundleID, blockedBundleIDs.contains(bid) {
-            return false
+        let live = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        lock.lock()
+        if let live {
+            frontmostBundleID = live
         }
-        return true
+        let bid = live ?? frontmostBundleID
+        let allow = enabled && !(bid.map { blockedBundleIDs.contains($0) } ?? false)
+        lock.unlock()
+        return allow
+    }
+
+    /// True when the frontmost app is a terminal emulator (shell / TUI).
+    /// Used so Space-layer word/line motions use readline chords (⌃A/E, ⌥B/F) instead of
+    /// Cocoa ⌘← / ⌥← which most terminals ignore.
+    func frontmostIsTerminalEmulator() -> Bool {
+        let bid = currentFrontmostBundleID()?.lowercased() ?? ""
+        guard !bid.isEmpty else { return false }
+        // Exact known IDs (including Ghostty — intentionally unblocked for Space nav).
+        let known: Set<String> = [
+            "com.mitchellh.ghostty",
+            "com.apple.terminal",
+            "com.googlecode.iterm2",
+            "net.kovidgoyal.kitty",
+            "com.github.wez.wezterm",
+            "dev.warp.warp-stable",
+            "dev.warp.warp",
+            "org.alacritty",
+            "co.zeit.hyper",
+            "com.github.rionninge.rio",
+        ]
+        if known.contains(bid) { return true }
+        if bid.contains("ghostty") { return true }
+        if bid.contains("terminal") { return true }
+        if bid.contains("iterm") { return true }
+        if bid.contains("alacritty") || bid.contains("wezterm") || bid.contains("kitty") {
+            return true
+        }
+        return false
+    }
+
+    /// Chrome / Brave / Edge / Arc / Safari — Monaco & contenteditable need solid HID injection
+    /// and prefer Home/End over ⌘← for line motions (CodeSignal, LeetCode, etc.).
+    func frontmostIsBrowser() -> Bool {
+        let bid = currentFrontmostBundleID()?.lowercased() ?? ""
+        guard !bid.isEmpty else { return false }
+        let known: Set<String> = [
+            "com.google.chrome",
+            "com.google.chrome.beta",
+            "com.google.chrome.canary",
+            "com.google.chrome.dev",
+            "com.brave.browser",
+            "com.brave.browser.beta",
+            "com.microsoft.edgemac",
+            "com.microsoft.edgemac.beta",
+            "company.thebrowser.browser", // Arc
+            "com.apple.safari",
+            "com.apple.safaritechnologypreview",
+            "org.mozilla.firefox",
+            "org.mozilla.firefoxdeveloperedition",
+            "com.operasoftware.opera",
+            "com.vivaldi.vivaldi",
+            "com.kagi.kagibrowser",
+            "app.zen-browser.zen",
+        ]
+        if known.contains(bid) { return true }
+        if bid.contains("chrome") || bid.contains("chromium") { return true }
+        if bid.contains("brave") || bid.contains("edgemac") { return true }
+        if bid.contains("firefox") || bid.contains("safari") { return true }
+        if bid.contains("codesignal") { return true }
+        return false
+    }
+
+    private func currentFrontmostBundleID() -> String? {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? frontmostID
     }
 
     var holdMilliseconds: Int {
@@ -72,6 +150,8 @@ final class SpaceNavStore: ObservableObject {
     static let holdMsKey = "hf.spaceNavHoldMs"
     static let blockedKey = "hf.spaceNavBlockedApps"
     static let seededKey = "hf.spaceNavDefaultsSeeded"
+    /// Sticky on-screen NAV pill while Space layer is armed.
+    static let hudKey = "hf.showSpaceLayerHUD"
     /// One-time: allow Space nav in Ghostty (removed from defaults after seed).
     static let ghosttyUnblockMigrationKey = "hf.spaceNavUnblockGhostty"
     /// One-time: typing-safe hold default (was 0 = instant arm, bad for fast typists).
@@ -111,6 +191,17 @@ final class SpaceNavStore: ObservableObject {
         }
     }
 
+    /// Show the floating NAV pill while Space layer is armed (default on).
+    @Published var showLayerHUD: Bool = true {
+        didSet {
+            guard !isBootstrapping else { return }
+            UserDefaults.standard.set(showLayerHUD, forKey: Self.hudKey)
+            if !showLayerHUD {
+                Task { @MainActor in SpaceLayerHUD.hide() }
+            }
+        }
+    }
+
     /// Hold duration before Space arms as nav layer. 0 = arm immediately (power mode).
     /// ~160ms is typing-safe: keys during the window type space + letter, not chords.
     @Published var holdMilliseconds: Int = SpaceNavStore.defaultHoldMilliseconds {
@@ -142,6 +233,9 @@ final class SpaceNavStore: ObservableObject {
         let d = UserDefaults.standard
         if d.object(forKey: Self.enabledKey) != nil {
             isEnabled = d.bool(forKey: Self.enabledKey)
+        }
+        if d.object(forKey: Self.hudKey) != nil {
+            showLayerHUD = d.bool(forKey: Self.hudKey)
         }
         if let stored = d.object(forKey: Self.holdMsKey) as? Int {
             holdMilliseconds = stored

@@ -15,6 +15,10 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
 
     @Published private(set) var isRunning = false
     @Published private(set) var hyperKeyActive = false
+    /// Space key is owned (pending hold, armed, or typing rollover).
+    @Published private(set) var spaceLayerHeld = false
+    /// Space layer accepts nav keys (hold threshold met).
+    @Published private(set) var spaceLayerArmed = false
     @Published private(set) var lastActionTitle: String?
     @Published private(set) var statusMessage = "Idle"
 
@@ -83,7 +87,17 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         isRunning = false
         setHyperActive(false)
         VimNavigation.shared.cancelSpaceLayer()
+        applySpaceLayerUI(held: false, armed: false)
         statusMessage = "Stopped"
+    }
+
+    /// Called from VimNavigation on main-queue edges (never from the tap directly).
+    @MainActor
+    func applySpaceLayerUI(held: Bool, armed: Bool) {
+        spaceLayerHeld = held
+        spaceLayerArmed = armed
+        let hudOn = UserDefaults.standard.object(forKey: "hf.showSpaceLayerHUD") as? Bool ?? true
+        SpaceLayerHUD.setArmed(armed && hudOn)
     }
 
     @MainActor
@@ -180,8 +194,9 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
 
         // Let our own injected keystrokes through. Without this, Hyper+X → ⌘W is
         // swallowed because F18 is still held and unbound Hyper keys are blocked.
+        // Prefer eventSourceUserData marker (reliable); counter is a fallback.
         if type == .keyDown || type == .keyUp {
-            if EventSynthesizer.consumePassThroughIfNeeded() {
+            if EventSynthesizer.shouldPassThrough(event) {
                 return Unmanaged.passUnretained(event)
             }
         }
@@ -223,10 +238,11 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                 flags.contains(.maskControl)
                 && flags.contains(.maskCommand)
                 && flags.contains(.maskAlternate)
-            // Don't steal Hyper+Space (command bar) or Cmd/Ctrl/Opt+Space (Spotlight…).
-            let hyperNow =
-                isHyperActive
-                || f18Held
+            // Only block Space-layer for *physical* Hyper / real mod chords (Hyper+Space
+            // command bar, Spotlight, etc.). Sticky Hyper grace alone must NOT disable
+            // Space nav — that broke HJKL in browsers right after a Hyper chord.
+            let physicalHyperOnSpace =
+                f18Held
                 || looksLikeQuad
                 || looksLikeTriple
                 || flags.contains(hyperFlags)
@@ -243,7 +259,7 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                 }
                 if VimNavigation.shared.handleSpaceKeyDown(
                     shiftOnlyOrNone: shiftOnlyOrNone,
-                    hyperActive: hyperNow
+                    hyperActive: physicalHyperOnSpace
                 ) {
                     return nil
                 }
@@ -332,7 +348,23 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             setHyperActive(false)
         }
 
-        if shouldTreatAsHyper {
+        // Space-layer (TouchCursor) must win over sticky/grace Hyper — otherwise HJKL is
+        // swallowed as unbound Hyper while coding in Chrome/CodeSignal after a recent chord.
+        // Physical Hyper hold still wins when Caps/F18/4-mod is actually down.
+        let spaceLayerActive = VimNavigation.shared.isActive
+        if spaceLayerActive, !physicallyHeld {
+            let shiftDown = flags.contains(.maskShift)
+            let ctrlDown = flags.contains(.maskControl)
+            if VimNavigation.shared.handle(
+                keyCode: keyCode,
+                shiftDown: shiftDown,
+                ctrlDown: ctrlDown
+            ) {
+                SnippetEngine.shared.resetBuffer()
+                return nil
+            }
+            // Unmapped key while Space held: let it through (typing mid-hold).
+        } else if shouldTreatAsHyper {
             // Only extend grace from real Hyper hold — not from every chord keyDown.
             // Extending on each key made a following bare “7” into Hyper+7 (top-left).
             if physicallyHeld {
@@ -343,6 +375,15 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             // Ignore key-repeat while Hyper is held (avoids double snaps / odd overrides).
             if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
                 return nil
+            }
+
+            // Karabiner Caps→Hyper usually maps “tap Caps alone → Escape”. That Escape
+            // must NEVER become Hyper+Esc (was: sys-lock → display sleep → black screen).
+            // Only treat Esc as a Hyper chord while Hyper is still physically held.
+            if keyCode == KeyCode.escape, !physicallyHeld {
+                HyperLog.event("Escape after Hyper release → pass through (not lock)")
+                endStickyHyper()
+                return Unmanaged.passUnretained(event)
             }
 
             // Help keys by keycode first (avoid NSEvent conversion on every Hyper key).
@@ -367,7 +408,8 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                 keyCode,
                 enabledIDs: ids,
                 shiftDown: shiftDown,
-                hyperConsumesShift: hyperConsumesShift
+                hyperConsumesShift: hyperConsumesShift,
+                physicallyHyperHeld: physicallyHeld
             ) {
                 HyperLog.event(
                     "HYPER handled key=\(keyCode) physical=\(physicallyHeld) grace=\(withinGrace)"
@@ -385,9 +427,8 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                 endStickyHyper()
             }
             return nil
-        }
-
-        if VimNavigation.shared.isActive {
+        } else if spaceLayerActive {
+            // Physical Hyper was also held — still allow Space layer if Hyper didn't claim above.
             let shiftDown = flags.contains(.maskShift)
             let ctrlDown = flags.contains(.maskControl)
             if VimNavigation.shared.handle(
@@ -398,8 +439,6 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                 SnippetEngine.shared.resetBuffer()
                 return nil
             }
-            // Unmapped key while Space held: cancel pending space (already markLayerUsed)
-            // and let the key through so typing still works mid-hold.
         }
 
         // Text expansions — lock-based matcher, never block the tap waiting for MainActor.
@@ -436,6 +475,9 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         guard changed else { return }
         DispatchQueue.main.async { [weak self] in
             self?.hyperKeyActive = value
+            if value {
+                FirstRunChallengeStore.shared.noteHyper()
+            }
         }
     }
 

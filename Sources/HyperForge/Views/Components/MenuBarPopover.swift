@@ -10,24 +10,43 @@ struct MenuBarPopover: View {
     @EnvironmentObject private var profiles: ProfileStore
     @Environment(\.openWindow) private var openWindow
 
+    private var menuStatusTitle: String {
+        if !engine.isRunning { return "Off" }
+        if engine.spaceLayerArmed { return "NAV" }
+        if engine.hyperKeyActive { return "Hyper" }
+        return "Live"
+    }
+
+    private var menuStatusColor: Color {
+        if !engine.isRunning { return HFTheme.danger }
+        if engine.spaceLayerArmed { return HFTheme.accent }
+        return HFTheme.success
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Image(systemName: "flame.fill")
-                    .foregroundStyle(HFTheme.accent)
+                Image(systemName: engine.spaceLayerArmed ? "arrow.up.and.down.and.arrow.left.and.right" : "flame.fill")
+                    .foregroundStyle(engine.spaceLayerArmed ? HFTheme.accent : HFTheme.accent)
                 Text("HyperForge")
                     .font(.system(size: 13, weight: .bold, design: .rounded))
                 Spacer()
                 StatusPill(
-                    title: engine.isRunning ? "Live" : "Off",
-                    color: engine.isRunning ? HFTheme.success : HFTheme.danger,
-                    pulse: engine.hyperKeyActive
+                    title: menuStatusTitle,
+                    color: menuStatusColor,
+                    pulse: engine.hyperKeyActive || engine.spaceLayerArmed
                 )
             }
 
             Text(engine.statusMessage)
                 .font(.system(size: 11))
                 .foregroundStyle(HFTheme.textTertiary)
+
+            if engine.spaceLayerArmed {
+                Text("Space layer armed — HJKL navigates")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(HFTheme.accent)
+            }
 
             Divider()
 

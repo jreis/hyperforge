@@ -80,9 +80,21 @@ struct HyperForgeApp: App {
     }
 
     private var menuBarSymbol: String {
-        appState.engine.isRunning
-            ? (appState.engine.hyperKeyActive ? "flame.fill" : "flame")
-            : "flame"
+        if !appState.engine.isRunning {
+            return "flame"
+        }
+        // Space layer armed wins — instant “mode” feedback in the menu bar.
+        if appState.engine.spaceLayerArmed {
+            return "arrow.up.and.down.and.arrow.left.and.right"
+        }
+        if appState.engine.hyperKeyActive {
+            return "flame.fill"
+        }
+        // Space held but not yet armed — soft cue.
+        if appState.engine.spaceLayerHeld {
+            return "circle.dotted"
+        }
+        return "flame"
     }
 }
 

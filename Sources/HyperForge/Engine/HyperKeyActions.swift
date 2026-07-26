@@ -16,7 +16,8 @@ enum HyperKeyActions {
         _ keyCode: CGKeyCode,
         enabledIDs: Set<String>?,
         shiftDown: Bool = false,
-        hyperConsumesShift: Bool = false
+        hyperConsumesShift: Bool = false,
+        physicallyHyperHeld: Bool = true
     ) -> Bool {
         let route = HyperBindingResolver.resolve(
             keyCode: UInt16(keyCode),
@@ -28,13 +29,27 @@ enum HyperKeyActions {
         case .unhandled:
             return false
         case .action(let id):
+            // Belt-and-suspenders: never lock from sticky Hyper + Escape
+            // (Caps-alone → Esc after release).
+            if id == "sys-lock", !physicallyHyperHeld {
+                HyperLog.event("sys-lock suppressed (Hyper not physically held)")
+                return false
+            }
             executeRouted(actionID: id)
             return true
         }
     }
 
+    private static let firstRunSnapIDs: Set<String> = [
+        "win-left", "win-right", "win-top", "win-bottom", "win-max",
+        "win-center", "win-tl", "win-tr", "win-bl", "win-br",
+    ]
+
     /// Side effects for a resolved Hyper action id (engine path).
     static func executeRouted(actionID: String) {
+        if firstRunSnapIDs.contains(actionID) {
+            onMain { FirstRunChallengeStore.shared.noteWindowSnap() }
+        }
         switch actionID {
         case "win-left":
             onMain { WindowManager.shared.snap(x: 0, y: 0, w: 0.5, h: 1) }
@@ -134,6 +149,7 @@ enum HyperKeyActions {
         case "sys-mic":
             DispatchQueue.global().async { SystemActions.toggleMic() }
         case "sys-lock":
+            // Session lock (CGSession) — never `displaysleepnow` (black panel).
             SystemActions.lockScreen()
         case "sys-reload":
             Banner.show("HyperForge engine reloading…")

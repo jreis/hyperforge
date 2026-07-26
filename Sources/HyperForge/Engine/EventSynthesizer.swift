@@ -1,25 +1,38 @@
 // EventSynthesizer.swift
 // Low-level CGEvent helpers for keystrokes, scroll, and unicode typing.
-// Synthetic events are tagged so HyperKeyEngine does not re-intercept them
-// while Hyper (F18) is still held — e.g. Hyper+X → ⌘W for close window.
+// Synthetic events are tagged with eventSourceUserData so HyperKeyEngine
+// never re-intercepts them (more reliable than a pass-through counter).
 
 import AppKit
 import CoreGraphics
 import Foundation
 
 enum EventSynthesizer {
+    /// 'HyFg' — marks keys we inject so the session tap lets them through.
+    static let syntheticMarker: Int64 = 0x4879_4667
+
     private static let lock = NSLock()
-    /// Number of upcoming keyboard events that must pass through the tap untouched.
+    /// Legacy counter kept as a backup for events that lose userData.
     private static var passThroughRemaining = 0
 
-    /// True while we are expecting our own injected key events.
+    private static let source: CGEventSource? = {
+        // combinedSessionState is what most apps (incl. Chromium) accept as “real” input.
+        let src = CGEventSource(stateID: .combinedSessionState)
+        src?.localEventsSuppressionInterval = 0
+        return src
+    }()
+
+    private static let hidSource: CGEventSource? = {
+        let src = CGEventSource(stateID: .hidSystemState)
+        src?.localEventsSuppressionInterval = 0
+        return src
+    }()
+
     static var hasPassThrough: Bool {
         lock.lock(); defer { lock.unlock() }
         return passThroughRemaining > 0
     }
 
-    /// Call from the event tap when a keyboard event arrives; returns true if this
-    /// event should skip Hyper/Vim handling (it is one we just posted).
     @discardableResult
     static func consumePassThroughIfNeeded() -> Bool {
         lock.lock(); defer { lock.unlock() }
@@ -28,47 +41,61 @@ enum EventSynthesizer {
         return true
     }
 
+    /// Prefer marker; fall back to counter for older paths.
+    static func shouldPassThrough(_ event: CGEvent) -> Bool {
+        if event.getIntegerValueField(.eventSourceUserData) == syntheticMarker {
+            return true
+        }
+        return consumePassThroughIfNeeded()
+    }
+
     private static func expectPassThrough(_ count: Int) {
         lock.lock()
         passThroughRemaining += count
         lock.unlock()
     }
 
+    private static func makeKeyEvent(
+        virtualKey keyCode: CGKeyCode,
+        keyDown: Bool,
+        flags: CGEventFlags
+    ) -> CGEvent? {
+        // Prefer session source; fall back to HID source if creation fails.
+        let ev =
+            CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: keyDown)
+            ?? CGEvent(keyboardEventSource: hidSource, virtualKey: keyCode, keyDown: keyDown)
+            ?? CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: keyDown)
+        guard let ev else { return nil }
+        ev.flags = flags
+        ev.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
+        ev.setIntegerValueField(.eventSourceUserData, value: syntheticMarker)
+        return ev
+    }
+
+    /// HID stream only (re-enters our tap; marker lets us pass through).
+    /// Do not also postToPid — that can double-fire or skip the tap and desync counters.
+    private static func deliver(_ event: CGEvent) {
+        event.post(tap: .cghidEventTap)
+    }
+
     /// Post a key down/up pair (or a single edge when `keyDown` is set).
     static func postKey(_ keyCode: CGKeyCode, flags: CGEventFlags = [], keyDown: Bool? = nil) {
         if let keyDown {
-            expectPassThrough(1)
-            guard let ev = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: keyDown)
-            else {
-                // Roll back the reservation if we failed to create the event.
-                _ = consumePassThroughIfNeeded()
-                return
-            }
-            ev.flags = flags
-            ev.post(tap: .cghidEventTap)
+            guard let ev = makeKeyEvent(virtualKey: keyCode, keyDown: keyDown, flags: flags)
+            else { return }
+            deliver(ev)
         } else {
-            expectPassThrough(2)  // down + up
-            guard let down = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true),
-                  let up = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false)
-            else {
-                // Best-effort: clear both reservations.
-                _ = consumePassThroughIfNeeded()
-                _ = consumePassThroughIfNeeded()
-                return
-            }
-            down.flags = flags
-            down.post(tap: .cghidEventTap)
-            up.flags = flags
-            up.post(tap: .cghidEventTap)
+            guard let down = makeKeyEvent(virtualKey: keyCode, keyDown: true, flags: flags),
+                  let up = makeKeyEvent(virtualKey: keyCode, keyDown: false, flags: flags)
+            else { return }
+            deliver(down)
+            deliver(up)
         }
     }
 
     /// ⌘W-style close: press Command, press W, release W, release Command.
-    /// More reliable than a single key event with flags for some apps.
     static func postCommandKey(_ keyCode: CGKeyCode) {
-        // left Command = 0x37
         let cmd: CGKeyCode = 0x37
-        expectPassThrough(4)
         let events: [(CGKeyCode, Bool, CGEventFlags)] = [
             (cmd, true, .maskCommand),
             (keyCode, true, .maskCommand),
@@ -76,18 +103,16 @@ enum EventSynthesizer {
             (cmd, false, []),
         ]
         for (code, down, flags) in events {
-            guard let ev = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down)
+            guard let ev = makeKeyEvent(virtualKey: code, keyDown: down, flags: flags)
             else { continue }
-            ev.flags = flags
-            ev.post(tap: .cghidEventTap)
-            usleep(1_000)
+            deliver(ev)
         }
     }
 
     static func postScroll(dy: Int32) {
         guard
             let ev = CGEvent(
-                scrollWheelEvent2Source: nil,
+                scrollWheelEvent2Source: source ?? hidSource,
                 units: .pixel,
                 wheelCount: 1,
                 wheel1: dy,
@@ -95,13 +120,14 @@ enum EventSynthesizer {
                 wheel3: 0
             )
         else { return }
-        ev.post(tap: .cghidEventTap)
+        ev.setIntegerValueField(.eventSourceUserData, value: syntheticMarker)
+        deliver(ev)
     }
 
     static func postScrollHorizontal(dx: Int32) {
         guard
             let ev = CGEvent(
-                scrollWheelEvent2Source: nil,
+                scrollWheelEvent2Source: source ?? hidSource,
                 units: .pixel,
                 wheelCount: 2,
                 wheel1: 0,
@@ -109,40 +135,26 @@ enum EventSynthesizer {
                 wheel3: 0
             )
         else { return }
-        ev.post(tap: .cghidEventTap)
+        ev.setIntegerValueField(.eventSourceUserData, value: syntheticMarker)
+        deliver(ev)
     }
 
-    /// Type a string via unicode keyboard events (slow enough for apps to accept).
-    /// Newlines and tabs use real Return/Tab keycodes — many apps ignore `\n` as unicode.
     static func typeString(_ str: String) {
         HyperLog.event("typeString: \(str.prefix(40).replacingOccurrences(of: "\n", with: "↵"))")
         for ch in str {
             switch ch {
             case "\n", "\r":
-                // Return produces a real line break in almost every text field.
                 postKey(KeyCode.return)
-                usleep(8_000)
             case "\t":
                 postKey(KeyCode.tab)
-                usleep(5_000)
             default:
-                expectPassThrough(2)
-                guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true)
-                else {
-                    _ = consumePassThroughIfNeeded()
-                    _ = consumePassThroughIfNeeded()
-                    continue
-                }
+                guard let down = makeKeyEvent(virtualKey: 0, keyDown: true, flags: []),
+                      let up = makeKeyEvent(virtualKey: 0, keyDown: false, flags: [])
+                else { continue }
                 var utf16 = Array(String(ch).utf16)
                 down.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
-                down.post(tap: .cghidEventTap)
-                guard let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
-                else {
-                    _ = consumePassThroughIfNeeded()
-                    continue
-                }
-                up.post(tap: .cghidEventTap)
-                usleep(5_000)
+                deliver(down)
+                deliver(up)
             }
         }
     }

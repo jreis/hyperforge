@@ -189,7 +189,7 @@ enum ActionCatalog {
         HyperAction(id: "sys-copy-hostname", title: "Copy Hostname", detail: "Machine name → clipboard", keyCode: KeyCode.m, mode: .hyper, category: .system, isEnabled: true, symbol: "desktopcomputer"),
         HyperAction(id: "sys-reverse-dns", title: "Reverse DNS", detail: "host lookup on clipboard IP", keyCode: KeyCode.w, mode: .hyper, category: .system, isEnabled: true, symbol: "globe"),
         HyperAction(id: "sys-mic", title: "Mic Toggle", detail: "Mute / unmute input", keyCode: KeyCode.semicolon, mode: .hyper, category: .system, isEnabled: true, symbol: "mic"),
-        HyperAction(id: "sys-lock", title: "Lock Screen", detail: "pmset displaysleepnow", keyCode: KeyCode.escape, mode: .hyper, category: .system, isEnabled: true, symbol: "lock"),
+        HyperAction(id: "sys-lock", title: "Lock Screen", detail: "Hold Hyper + Esc (not Caps-alone Esc)", keyCode: KeyCode.escape, mode: .hyper, category: .system, isEnabled: true, symbol: "lock"),
         HyperAction(id: "sys-reload", title: "Reload Engine", detail: "Soft restart HyperForge engine", keyCode: KeyCode.r, mode: .hyper, category: .system, isEnabled: true, symbol: "arrow.clockwise"),
         HyperAction(id: "sys-command-bar", title: "Command Bar", detail: "Local AI / action palette", keyCode: KeyCode.space, mode: .hyper, category: .system, isEnabled: true, symbol: "sparkles"),
         HyperAction(id: "sys-dashboard", title: "Show Dashboard", detail: "Open main UI · Esc hides it", keyCode: KeyCode.comma, mode: .hyper, category: .system, isEnabled: true, symbol: "rectangle.center.inset.filled"),
