@@ -1,0 +1,16 @@
+[Unit]
+Description=HyperForge kanata (Caps Hyper + Space nav)
+Documentation=https://github.com/jreis/hyperforge/tree/main/hyperforge-linux
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/kanata -c %h/.config/kanata/hyperforge.kbd
+Restart=on-failure
+RestartSec=2
+
+# Uncomment if kanata is installed system-wide:
+# ExecStart=/usr/bin/kanata -c %h/.config/kanata/hyperforge.kbd
+
+[Install]
+WantedBy=default.target

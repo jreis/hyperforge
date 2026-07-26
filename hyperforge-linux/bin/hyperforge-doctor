@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# hyperforge-doctor — setup health check for HyperForge Linux
+set -euo pipefail
+
+ROOT="${HYPERFORGE_LINUX_ROOT:-$HOME/.local/share/hyperforge-linux}"
+ok=0
+warn=0
+fail=0
+
+pass() { echo "  ✓ $*"; ok=$((ok + 1)); }
+soft() { echo "  ~ $*"; warn=$((warn + 1)); }
+bad()  { echo "  ✗ $*"; fail=$((fail + 1)); }
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+echo "HyperForge Linux — Doctor"
+echo "root: $ROOT"
+echo
+
+echo "Input stack"
+if have kanata; then
+  pass "kanata $(kanata --version 2>/dev/null | head -1 || echo installed)"
+else
+  soft "kanata not in PATH (primary recommended engine)"
+fi
+if have keyd; then
+  pass "keyd available (alternative)"
+else
+  soft "keyd not installed (optional)"
+fi
+
+if [[ -r /dev/input/event0 ]] || id -nG 2>/dev/null | grep -qE '\b(input|plugdev)\b'; then
+  pass "input device access looks OK (group or perms)"
+else
+  soft "may need user in 'input' group or uinput udev rules for kanata"
+fi
+
+if [[ -f /dev/uinput ]] || [[ -e /dev/uinput ]]; then
+  if [[ -w /dev/uinput ]]; then
+    pass "/dev/uinput writable"
+  else
+    soft "/dev/uinput exists but not writable — check udev / groups"
+  fi
+else
+  soft "/dev/uinput missing — load uinput module"
+fi
+
+echo
+echo "Compositor / WM"
+if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+  pass "Hyprland session"
+elif [[ -n "${SWAYSOCK:-}" ]]; then
+  pass "Sway session"
+elif [[ -n "${DISPLAY:-}" ]]; then
+  pass "X11 DISPLAY=$DISPLAY"
+  have wmctrl && pass "wmctrl" || soft "wmctrl missing (X11 snaps)"
+  have xdotool && pass "xdotool" || soft "xdotool missing (X11 snaps)"
+else
+  soft "no HYPRLAND / SWAYSOCK / DISPLAY detected"
+fi
+have hyprctl && pass "hyprctl" || true
+have swaymsg && pass "swaymsg" || true
+have jq && pass "jq" || soft "jq recommended for Hyprland snaps"
+
+echo
+echo "HyperForge files"
+[[ -x "$ROOT/bin/hyperforge-snap" ]] && pass "hyperforge-snap" || bad "hyperforge-snap missing — run install.sh"
+[[ -x "$ROOT/bin/hyperforge-action" ]] && pass "hyperforge-action" || bad "hyperforge-action missing"
+[[ -f "$HOME/.config/kanata/hyperforge.kbd" ]] && pass "~/.config/kanata/hyperforge.kbd" \
+  || soft "kanata config not installed yet"
+
+echo
+echo "Optional helpers"
+have notify-send && pass "notify-send" || soft "notify-send (desktop toasts)"
+have wtype && pass "wtype (type date on Wayland)" || soft "wtype or ydotool for typing into focused apps"
+have wl-copy && pass "wl-copy" || soft "wl-clipboard for Wayland copy"
+
+echo
+echo "Summary: $ok ok · $warn warnings · $fail failures"
+if [[ "$fail" -gt 0 ]]; then exit 1; fi
+exit 0

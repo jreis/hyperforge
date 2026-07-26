@@ -22,6 +22,14 @@
 
 ---
 
+## Platforms
+
+| | |
+|--|--|
+| **macOS** | Full app (this repo root) — Swift, CGEvent, SwiftUI |
+| **[Windows](hyperforge-win/)** | AHK v2 Hyper companion (+ TouchCursor for Space) |
+| **[Linux](hyperforge-linux/)** | kanata/keyd + snap scripts (Hyprland / Sway / X11) |
+
 ## Why
 
 When **Hammerspoon**, browser extensions, and heavy automation stacks are blocked, you still want power-user flow. HyperForge is a native companion for **Karabiner Hyper** plus a **TouchCursor-style Space layer** — all on-device.

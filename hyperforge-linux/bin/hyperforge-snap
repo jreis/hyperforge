@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# hyperforge-snap — window snaps for Hyprland, Sway/i3, or X11.
+# Usage: hyperforge-snap <left|right|top|bottom|max|center|tl|tr|bl|br|min|close|next-mon|undo>
+set -euo pipefail
+
+action="${1:-}"
+if [[ -z "$action" ]]; then
+  echo "usage: $0 <left|right|top|bottom|max|center|tl|tr|bl|br|min|close|next-mon|undo>" >&2
+  exit 2
+fi
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# ── Hyprland (geometry) ───────────────────────────────────────────────
+snap_hypr() {
+  if ! have jq; then
+    echo "hyperforge-snap: install jq for Hyprland snaps" >&2
+    exit 1
+  fi
+  case "$action" in
+    min)   hyprctl dispatch movetoworkspacesilent special:minimized >/dev/null; return ;;
+    close) hyprctl dispatch killactive >/dev/null; return ;;
+    next-mon) hyprctl dispatch movewindow mon:+1 >/dev/null; return ;;
+    undo)  hyprctl dispatch togglefloating 0 >/dev/null 2>&1 || true; return ;;
+  esac
+
+  local mon_id
+  mon_id="$(hyprctl activewindow -j | jq -r '.monitor')"
+  read -r mx my mw mh < <(hyprctl monitors -j | jq -r --argjson id "$mon_id" '
+    (map(select(.id == $id)) | .[0] // .[0]) | "\(.x) \(.y) \(.width) \(.height)"
+  ')
+
+  local nx="$mx" ny="$my" nw="$mw" nh="$mh"
+  case "$action" in
+    left)   nw=$((mw / 2)); nh=$mh; nx=$mx; ny=$my ;;
+    right)  nw=$((mw / 2)); nh=$mh; nx=$((mx + mw / 2)); ny=$my ;;
+    top)    nw=$mw; nh=$((mh / 2)); nx=$mx; ny=$my ;;
+    bottom) nw=$mw; nh=$((mh / 2)); nx=$mx; ny=$((my + mh / 2)) ;;
+    max)    nw=$mw; nh=$mh; nx=$mx; ny=$my ;;
+    center)
+      nw=$((mw * 2 / 3)); nh=$((mh * 2 / 3))
+      nx=$((mx + (mw - nw) / 2)); ny=$((my + (mh - nh) / 2))
+      ;;
+    tl) nw=$((mw / 2)); nh=$((mh / 2)); nx=$mx; ny=$my ;;
+    tr) nw=$((mw / 2)); nh=$((mh / 2)); nx=$((mx + mw / 2)); ny=$my ;;
+    bl) nw=$((mw / 2)); nh=$((mh / 2)); nx=$mx; ny=$((my + mh / 2)) ;;
+    br) nw=$((mw / 2)); nh=$((mh / 2)); nx=$((mx + mw / 2)); ny=$((my + mh / 2)) ;;
+    *) echo "unknown action: $action" >&2; exit 2 ;;
+  esac
+
+  # Floating exact place is the most reliable half/quarter snap across Hyprland versions
+  hyprctl dispatch togglefloating 1 >/dev/null 2>&1 || true
+  hyprctl dispatch resizeactive exact "$nw" "$nh" >/dev/null
+  hyprctl dispatch moveactive exact "$nx" "$ny" >/dev/null
+}
+
+# ── Sway ──────────────────────────────────────────────────────────────
+snap_sway() {
+  local msg="${SWAY_MSG:-swaymsg}"
+  case "$action" in
+    left)   $msg "fullscreen disable; floating enable; resize set 50 ppt 100 ppt; move position 0 ppt 0 ppt" ;;
+    right)  $msg "fullscreen disable; floating enable; resize set 50 ppt 100 ppt; move position 50 ppt 0 ppt" ;;
+    top)    $msg "fullscreen disable; floating enable; resize set 100 ppt 50 ppt; move position 0 ppt 0 ppt" ;;
+    bottom) $msg "fullscreen disable; floating enable; resize set 100 ppt 50 ppt; move position 0 ppt 50 ppt" ;;
+    max)    $msg "fullscreen enable" ;;
+    center) $msg "fullscreen disable; floating enable; resize set 66 ppt 66 ppt; move position center" ;;
+    tl)     $msg "fullscreen disable; floating enable; resize set 50 ppt 50 ppt; move position 0 ppt 0 ppt" ;;
+    tr)     $msg "fullscreen disable; floating enable; resize set 50 ppt 50 ppt; move position 50 ppt 0 ppt" ;;
+    bl)     $msg "fullscreen disable; floating enable; resize set 50 ppt 50 ppt; move position 0 ppt 50 ppt" ;;
+    br)     $msg "fullscreen disable; floating enable; resize set 50 ppt 50 ppt; move position 50 ppt 50 ppt" ;;
+    min)    $msg "move window to scratchpad" ;;
+    close)  $msg kill ;;
+    next-mon) $msg "move workspace to output right" ;;
+    undo)   $msg "floating disable" ;;
+    *) echo "unknown: $action" >&2; exit 2 ;;
+  esac
+}
+
+# ── X11 ───────────────────────────────────────────────────────────────
+snap_x11() {
+  if ! have wmctrl || ! have xdotool; then
+    echo "hyperforge-snap: need wmctrl + xdotool on X11" >&2
+    exit 1
+  fi
+  local win sw sh
+  win="$(xdotool getactivewindow)"
+  read -r sw sh < <(xdpyinfo | awk '/dimensions/{print $2}' | tr 'x' ' ')
+  local nw=$sw nh=$sh nx=0 ny=0
+  case "$action" in
+    left)   nw=$((sw / 2)); nh=$sh; nx=0; ny=0 ;;
+    right)  nw=$((sw / 2)); nh=$sh; nx=$((sw / 2)); ny=0 ;;
+    top)    nw=$sw; nh=$((sh / 2)); nx=0; ny=0 ;;
+    bottom) nw=$sw; nh=$((sh / 2)); nx=0; ny=$((sh / 2)) ;;
+    max)    wmctrl -ir "$win" -b add,maximized_vert,maximized_horz; return ;;
+    center)
+      nw=$((sw * 2 / 3)); nh=$((sh * 2 / 3))
+      nx=$(((sw - nw) / 2)); ny=$(((sh - nh) / 2))
+      ;;
+    tl) nw=$((sw / 2)); nh=$((sh / 2)); nx=0; ny=0 ;;
+    tr) nw=$((sw / 2)); nh=$((sh / 2)); nx=$((sw / 2)); ny=0 ;;
+    bl) nw=$((sw / 2)); nh=$((sh / 2)); nx=0; ny=$((sh / 2)) ;;
+    br) nw=$((sw / 2)); nh=$((sh / 2)); nx=$((sw / 2)); ny=$((sh / 2)) ;;
+    min) xdotool windowminimize "$win"; return ;;
+    close) wmctrl -ic "$win"; return ;;
+    next-mon|undo) wmctrl -ir "$win" -b remove,maximized_vert,maximized_horz; return ;;
+    *) echo "unknown: $action" >&2; exit 2 ;;
+  esac
+  wmctrl -ir "$win" -b remove,maximized_vert,maximized_horz
+  wmctrl -ir "$win" -e "0,$nx,$ny,$nw,$nh"
+}
+
+# ── Dispatch ──────────────────────────────────────────────────────────
+if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] && have hyprctl; then
+  snap_hypr
+elif [[ -n "${SWAYSOCK:-}" ]] && have swaymsg; then
+  snap_sway
+elif [[ -n "${I3SOCK:-}" ]] && have i3-msg; then
+  SWAY_MSG=i3-msg snap_sway
+elif [[ -n "${DISPLAY:-}" ]]; then
+  snap_x11
+else
+  echo "hyperforge-snap: no supported session (Hyprland / Sway / i3 / X11)" >&2
+  exit 1
+fi

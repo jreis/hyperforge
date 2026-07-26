@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# hyperforge-action — small command palette for Hyper chords (kanata cmd targets).
+# Usage: hyperforge-action <id>
+set -euo pipefail
+
+ROOT="${HYPERFORGE_LINUX_ROOT:-$HOME/.local/share/hyperforge-linux}"
+SNAP="${ROOT}/bin/hyperforge-snap"
+have() { command -v "$1" >/dev/null 2>&1; }
+
+notify() {
+  local msg="$1"
+  if have notify-send; then
+    notify-send -a HyperForge -t 1500 "HyperForge" "$msg" 2>/dev/null || true
+  fi
+}
+
+id="${1:-}"
+case "$id" in
+  ""|-h|--help)
+    echo "usage: $0 <action-id>"
+    echo "  snaps: win-left win-right win-top win-bottom win-max win-center win-tl win-tr win-bl win-br win-min win-close win-next"
+    echo "  apps:  term browser editor files"
+    echo "  sys:   lock hostname date google-clip"
+    exit 0
+    ;;
+  win-left)   exec "$SNAP" left ;;
+  win-right)  exec "$SNAP" right ;;
+  win-top)    exec "$SNAP" top ;;
+  win-bottom) exec "$SNAP" bottom ;;
+  win-max)    exec "$SNAP" max ;;
+  win-center) exec "$SNAP" center ;;
+  win-tl)     exec "$SNAP" tl ;;
+  win-tr)     exec "$SNAP" tr ;;
+  win-bl)     exec "$SNAP" bl ;;
+  win-br)     exec "$SNAP" br ;;
+  win-min)    exec "$SNAP" min ;;
+  win-close)  exec "$SNAP" close ;;
+  win-next)   exec "$SNAP" next-mon ;;
+  win-undo)   exec "$SNAP" undo ;;
+
+  term)
+    if have ghostty; then exec ghostty
+    elif have kitty; then exec kitty
+    elif have alacritty; then exec alacritty
+    elif have wezterm; then exec wezterm
+    elif have gnome-terminal; then exec gnome-terminal
+    elif have x-terminal-emulator; then exec x-terminal-emulator
+    else notify "No terminal found"; exit 1
+    fi
+    ;;
+  browser)
+    if have firefox; then exec firefox
+    elif have google-chrome; then exec google-chrome
+    elif have chromium; then exec chromium
+    elif have brave-browser; then exec brave-browser
+    elif have xdg-open; then exec xdg-open https://
+    else notify "No browser found"; exit 1
+    fi
+    ;;
+  editor)
+    if have zed; then exec zed
+    elif have code; then exec code
+    elif have nvim; then exec x-terminal-emulator -e nvim 2>/dev/null || exec nvim
+    else notify "No editor found"; exit 1
+    fi
+    ;;
+  files)
+    if have nautilus; then exec nautilus
+    elif have dolphin; then exec dolphin
+    elif have thunar; then exec thunar
+    elif have pcmanfm; then exec pcmanfm
+    elif have xdg-open; then exec xdg-open "$HOME"
+    else notify "No file manager"; exit 1
+    fi
+    ;;
+
+  lock)
+    if have loginctl; then loginctl lock-session
+    elif have xdg-screensaver; then xdg-screensaver lock
+    elif have gnome-screensaver-command; then gnome-screensaver-command -l
+    else notify "No lock command"; exit 1
+    fi
+    ;;
+  hostname)
+    if have wl-copy; then hostname | wl-copy
+    elif have xclip; then hostname | xclip -selection clipboard
+    else hostname
+    fi
+    notify "Hostname copied"
+    ;;
+  date)
+    d="$(date +%Y-%m-%d)"
+    if have wtype; then wtype "$d"
+    elif have ydotool; then ydotool type "$d"
+    elif have xdotool; then xdotool type --clearmodifiers "$d"
+    else
+      if have wl-copy; then printf '%s' "$d" | wl-copy; notify "Date copied (no typer)"
+      else echo "$d"; fi
+    fi
+    ;;
+  google-clip)
+    q=""
+    if have wl-paste; then q="$(wl-paste 2>/dev/null || true)"
+    elif have xclip; then q="$(xclip -selection clipboard -o 2>/dev/null || true)"
+    fi
+    if [[ -z "$q" ]]; then notify "Clipboard empty"; exit 1; fi
+    enc="$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$q")"
+    xdg-open "https://www.google.com/search?q=${enc}" >/dev/null 2>&1 &
+    ;;
+  *)
+    echo "unknown action: $id" >&2
+    exit 2
+    ;;
+esac
