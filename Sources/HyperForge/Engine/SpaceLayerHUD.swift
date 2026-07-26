@@ -62,9 +62,14 @@ enum SpaceLayerHUD {
         visual.wantsLayer = true
         visual.layer?.cornerRadius = height / 2
         visual.layer?.masksToBounds = true
+        let infernal =
+            (UserDefaults.standard.string(forKey: AppearanceKeys.style) ?? "forge") == "infernal"
+        let accent: NSColor = infernal
+            ? NSColor(calibratedRed: 0.88, green: 0.024, blue: 0.0, alpha: 1)
+            : NSColor(calibratedRed: 0.42, green: 0.62, blue: 1.0, alpha: 1)
+
         visual.layer?.borderWidth = 1
-        visual.layer?.borderColor = NSColor(calibratedRed: 0.42, green: 0.62, blue: 1.0, alpha: 0.55)
-            .cgColor
+        visual.layer?.borderColor = accent.withAlphaComponent(0.55).cgColor
 
         let iconConfig = NSImage.SymbolConfiguration(pointSize: 12, weight: .bold)
         let icon = NSImageView(
@@ -74,12 +79,14 @@ enum SpaceLayerHUD {
             systemSymbolName: "arrow.up.and.down.and.arrow.left.and.right",
             accessibilityDescription: "Space nav"
         )?.withSymbolConfiguration(iconConfig)
-        icon.contentTintColor = NSColor(calibratedRed: 0.42, green: 0.62, blue: 1.0, alpha: 1)
+        icon.contentTintColor = accent
         icon.imageScaling = .scaleProportionallyUpOrDown
 
-        let label = NSTextField(labelWithString: "NAV")
+        let label = NSTextField(labelWithString: infernal ? "VOID" : "NAV")
         label.font = NSFont.systemFont(ofSize: 12, weight: .bold)
-        label.textColor = .white
+        label.textColor = infernal
+            ? NSColor(calibratedRed: 0.95, green: 0.93, blue: 0.89, alpha: 1)
+            : .white
         label.frame = NSRect(x: 34, y: 0, width: width - 42, height: height)
         label.alignment = .left
 

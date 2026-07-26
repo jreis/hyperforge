@@ -97,9 +97,13 @@ final class FirstRunChallengeStore: ObservableObject {
     private func checkAll() {
         guard allProved else { return }
         markCompletedQuietly()
+        let infernal =
+            (UserDefaults.standard.string(forKey: AppearanceKeys.style) ?? "") == "infernal"
         Banner.show(
-            "You're dangerous",
-            subtitle: "Hyper · Space nav · snaps — all green",
+            infernal ? "You're beautiful" : "You're dangerous",
+            subtitle: infernal
+                ? "Hyper · VOID · snaps — the show is yours"
+                : "Hyper · Space nav · snaps — all green",
             style: .success,
             symbol: "flame.fill",
             duration: 3.0

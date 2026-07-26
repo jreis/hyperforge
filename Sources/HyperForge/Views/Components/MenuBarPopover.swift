@@ -8,12 +8,14 @@ struct MenuBarPopover: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var engine: HyperKeyEngine
     @EnvironmentObject private var profiles: ProfileStore
+    @ObservedObject private var appearance = AppearanceStore.shared
     @Environment(\.openWindow) private var openWindow
 
     private var menuStatusTitle: String {
-        if !engine.isRunning { return "Off" }
-        if engine.spaceLayerArmed { return "NAV" }
-        if engine.hyperKeyActive { return "Hyper" }
+        let infernal = appearance.style == .infernal
+        if !engine.isRunning { return infernal ? "Dead" : "Off" }
+        if engine.spaceLayerArmed { return infernal ? "VOID" : "NAV" }
+        if engine.hyperKeyActive { return infernal ? "HELD" : "Hyper" }
         return "Live"
     }
 
@@ -43,7 +45,11 @@ struct MenuBarPopover: View {
                 .foregroundStyle(HFTheme.textTertiary)
 
             if engine.spaceLayerArmed {
-                Text("Space layer armed — HJKL navigates")
+                Text(
+                    appearance.style == .infernal
+                        ? "VOID layer — HJKL cuts through"
+                        : "Space layer armed — HJKL navigates"
+                )
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(HFTheme.accent)
             }

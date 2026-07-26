@@ -12,6 +12,7 @@ struct SettingsView: View {
     @ObservedObject private var terminal = TerminalPreference.shared
 
     @ObservedObject private var spaceNav = SpaceNavStore.shared
+    @ObservedObject private var appearance = AppearanceStore.shared
     @State private var manualBlockBundle = ""
     @State private var manualBlockName = ""
 
@@ -19,6 +20,8 @@ struct SettingsView: View {
         TabView {
             engineTab
                 .tabItem { Label("Engine", systemImage: "flame") }
+            appearanceTab
+                .tabItem { Label("Skin", systemImage: "paintbrush.pointed") }
             appsTab
                 .tabItem { Label("Apps", systemImage: "app.badge") }
             aiTab
@@ -31,6 +34,65 @@ struct SettingsView: View {
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(GlassBackground())
+    }
+
+    private var appearanceTab: some View {
+        Form {
+            Section("Skin") {
+                Picker("Appearance", selection: $appearance.style) {
+                    ForEach(AppearanceStyle.allCases) { style in
+                        Label(style.title, systemImage: style.symbol)
+                            .tag(style)
+                    }
+                }
+                .pickerStyle(.inline)
+                .onChange(of: appearance.style) { _, new in
+                    Banner.show(
+                        new == .infernal ? "Infernal" : "Forge",
+                        subtitle: new.detail,
+                        style: .info,
+                        symbol: new == .infernal ? "flame.fill" : "flame",
+                        duration: 1.8
+                    )
+                }
+
+                Text(appearance.style.detail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(HFTheme.textTertiary)
+
+                // Live swatch
+                HStack(spacing: 10) {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(HFTheme.accent)
+                        .frame(width: 36, height: 36)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(HFTheme.accentSecondary)
+                        .frame(width: 36, height: 36)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(HFTheme.bgDeep)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(HFTheme.stroke, lineWidth: 1)
+                        }
+                        .frame(width: 36, height: 36)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(appearance.style == .infernal ? "Void · Blood · Bone" : "Neon · Glass · Night")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(appearance.brandTagline)
+                            .font(.system(size: 11))
+                            .foregroundStyle(HFTheme.textTertiary)
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 4)
+            }
+            Section("Infernal") {
+                Text("Industrial-gothic skin: arterial red, bone type, VOID layer instead of NAV. Homage to the aesthetic — not an official anything.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(HFTheme.textTertiary)
+            }
+        }
+        .formStyle(.grouped)
     }
 
     private var appsTab: some View {
@@ -382,11 +444,20 @@ struct SettingsView: View {
                 VStack(alignment: .leading) {
                     Text("HyperForge")
                         .font(.title2.bold())
-                    Text("v0.3.0 · Local-first automation forge")
+                        .textCase(appearance.style == .infernal ? .uppercase : nil)
+                    Text(
+                        appearance.style == .infernal
+                            ? "v0.4.0 · Built for the beautiful and the damned"
+                            : "v0.4.0 · Local-first automation forge"
+                    )
                         .foregroundStyle(HFTheme.textSecondary)
                 }
             }
-            Text("Built for restricted environments where Hammerspoon and browser extensions are blocked — without giving up power-user flow.")
+            Text(
+                appearance.style == .infernal
+                    ? "Power-user flow for locked-down machines. No cloud. No mercy for weak remaps. Hold Space until the void opens."
+                    : "Built for restricted environments where Hammerspoon and browser extensions are blocked — without giving up power-user flow."
+            )
                 .font(.system(size: 13))
                 .foregroundStyle(HFTheme.textSecondary)
             Text("Hyper+Space command bar · Hyper+/ help (F19) · profiles · Doctor · F18 or 4-mod Hyper")

@@ -7,10 +7,12 @@ struct RootView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var engine: HyperKeyEngine
     @EnvironmentObject private var profiles: ProfileStore
+    @ObservedObject private var appearance = AppearanceStore.shared
 
     var body: some View {
         ZStack {
             GlassBackground()
+                .id(appearance.style) // force skin refresh
 
             NavigationSplitView {
                 sidebar
@@ -66,11 +68,23 @@ struct RootView: View {
                 }
                 VStack(alignment: .leading, spacing: 1) {
                     Text("HyperForge")
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .font(.system(
+                            size: 15,
+                            weight: .semibold,
+                            design: appearance.style == .infernal ? .default : .rounded
+                        ))
                         .foregroundStyle(HFTheme.textPrimary)
-                    Text(profiles.activeProfile.name)
+                        .textCase(appearance.style == .infernal ? .uppercase : nil)
+                    Text(
+                        appearance.style == .infernal
+                            ? appearance.brandTagline
+                            : profiles.activeProfile.name
+                    )
                         .font(.system(size: 11, weight: .medium, design: .rounded))
-                        .foregroundStyle(HFTheme.textTertiary)
+                        .foregroundStyle(
+                            appearance.style == .infernal ? HFTheme.accent.opacity(0.85) : HFTheme.textTertiary
+                        )
+                        .lineLimit(1)
                 }
                 Spacer()
             }

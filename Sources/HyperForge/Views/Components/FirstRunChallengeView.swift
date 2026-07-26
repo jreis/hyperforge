@@ -36,7 +36,7 @@ struct FirstRunChallengeView: View {
                 done: challenge.spaceDone,
                 symbol: "arrow.up.and.down.and.arrow.left.and.right",
                 title: "Hold Space + H / J / K / L",
-                detail: "Hold Space ~120–200ms, then move — look for the NAV pill"
+                detail: "Hold Space ~120–200ms, then move — look for the NAV / VOID pill"
             )
             challengeRow(
                 done: challenge.snapDone,

@@ -16,6 +16,7 @@ struct HyperForgeApp: App {
                 .environmentObject(appState.engine)
                 .environmentObject(appState.profiles)
                 .environmentObject(appState.karabiner)
+                .environmentObject(AppearanceStore.shared)
                 .frame(minWidth: 980, minHeight: 640)
                 .preferredColorScheme(.dark)
                 .background(WindowOpenBridge())
@@ -66,8 +67,9 @@ struct HyperForgeApp: App {
                 .environmentObject(appState.engine)
                 .environmentObject(appState.profiles)
                 .environmentObject(appState.karabiner)
+                .environmentObject(AppearanceStore.shared)
                 .preferredColorScheme(.dark)
-                .frame(width: 520, height: 420)
+                .frame(width: 520, height: 480)
         }
 
         MenuBarExtra("HyperForge", systemImage: menuBarSymbol) {
@@ -75,13 +77,15 @@ struct HyperForgeApp: App {
                 .environmentObject(appState)
                 .environmentObject(appState.engine)
                 .environmentObject(appState.profiles)
+                .environmentObject(AppearanceStore.shared)
         }
         .menuBarExtraStyle(.window)
     }
 
     private var menuBarSymbol: String {
+        let infernal = AppearanceStore.shared.style == .infernal
         if !appState.engine.isRunning {
-            return "flame"
+            return infernal ? "flame" : "flame"
         }
         // Space layer armed wins — instant “mode” feedback in the menu bar.
         if appState.engine.spaceLayerArmed {
@@ -92,9 +96,9 @@ struct HyperForgeApp: App {
         }
         // Space held but not yet armed — soft cue.
         if appState.engine.spaceLayerHeld {
-            return "circle.dotted"
+            return infernal ? "circle.fill" : "circle.dotted"
         }
-        return "flame"
+        return infernal ? "flame.fill" : "flame"
     }
 }
 
