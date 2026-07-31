@@ -186,7 +186,28 @@ Builds release, packages `HyperForge.app`, ad-hoc signs with stable id `app.hype
 ./Scripts/package-dmg.sh --open
 ```
 
-Output under `dist/` (gitignored). Ad-hoc signed — not notarized; Gatekeeper may prompt once.
+Output under `dist/` (gitignored).
+
+**Gatekeeper / “macOS cannot verify the developer”**
+
+| Build type | Who can open it cleanly |
+|------------|-------------------------|
+| **Ad-hoc** (default) | Local builds and `install.sh`. **Downloaded** DMGs/apps are blocked until the user right-clicks → **Open**, or runs `xattr -cr /Applications/HyperForge.app`. |
+| **Developer ID + notarized** | Anyone who downloads the DMG — no scary dialog. |
+
+Ad-hoc is fine for development. For public GitHub Releases that open without complaints you need an [Apple Developer Program](https://developer.apple.com/programs/) membership, a **Developer ID Application** certificate, and notarization:
+
+```bash
+# One-time: store notary credentials (app-specific password or API key)
+xcrun notarytool store-credentials hyperforge \
+  --apple-id "you@example.com" --team-id "TEAMID" --password "app-specific-password"
+
+# Release DMG
+CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+  ./Scripts/package-dmg.sh --notarize --open
+```
+
+Without those credentials, ship the ad-hoc DMG and put the **Install Notes** Gatekeeper steps in the release body (the DMG includes the same text).
 
 ### Event log (optional)
 
@@ -230,7 +251,10 @@ Core Hyper Key never needs the network. Optional command-bar AI talks only to **
 
 ## Distribution notes
 
-A full CGEvent-tap engine fits **direct download / open source** better than the Mac App Store sandbox. Ad-hoc signing is for local/dev use; notarization is optional for wider distribution.
+A full CGEvent-tap engine fits **direct download / open source** better than the Mac App Store sandbox.
+
+- **Local / contributors:** `./Scripts/install.sh` or ad-hoc `package-dmg.sh` — no Apple account needed.
+- **Public downloads:** Developer ID sign + `notarytool` (see Local DMG above). There is no free workaround that removes the Gatekeeper dialog for random downloads; Apple requires notarization for that.
 
 ---
 
