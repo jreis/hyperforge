@@ -66,7 +66,7 @@ struct KarabinerView: View {
                             .font(.system(size: 12, weight: .bold, design: .rounded))
                             .foregroundStyle(HFTheme.textSecondary)
 
-                        Text("Writes JSON assets under ~/.config/karabiner/assets/complex_modifications/. Enable them in Karabiner → Complex Modifications.")
+                        Text("Enables rules on your active Karabiner profile (they appear under Complex Modifications immediately) and also saves asset copies under ~/.config/karabiner/assets/complex_modifications/.")
                             .font(.system(size: 11))
                             .foregroundStyle(HFTheme.textTertiary)
 
@@ -74,8 +74,8 @@ struct KarabinerView: View {
                             Button {
                                 _ = karabiner.installRecommendedPack()
                                 Banner.show(
-                                    "Recommended pack written",
-                                    subtitle: "Caps→F18 + F19 help + F20 dashboard",
+                                    "Recommended pack enabled",
+                                    subtitle: karabiner.status,
                                     style: .success
                                 )
                             } label: {
@@ -86,14 +86,14 @@ struct KarabinerView: View {
 
                             Button {
                                 _ = karabiner.installCapsToF18Rule()
-                                Banner.show("Caps→F18 asset written")
+                                Banner.show("Caps→F18 enabled", subtitle: karabiner.status)
                             } label: {
                                 Label("Caps→F18 only", systemImage: "f.circle")
                             }
 
                             Button {
                                 _ = karabiner.installBridgeRules()
-                                Banner.show("F19 + F20 bridge assets written")
+                                Banner.show("F19/F20 bridges enabled", subtitle: karabiner.status)
                             } label: {
                                 Label("F19/F20 bridges", systemImage: "arrow.triangle.branch")
                             }
@@ -124,9 +124,9 @@ struct KarabinerView: View {
 
                         Button {
                             _ = karabiner.installCustomRuleAsset()
-                            Banner.show("Custom rule asset written")
+                            Banner.show("Custom rule enabled", subtitle: karabiner.status)
                         } label: {
-                            Label("Install editor JSON as asset", systemImage: "square.and.arrow.down")
+                            Label("Enable editor JSON in Karabiner", systemImage: "square.and.arrow.down")
                         }
                     }
                 }
@@ -136,8 +136,8 @@ struct KarabinerView: View {
                         Text("Setup checklist")
                             .font(.system(size: 13, weight: .semibold))
                         checklist("Install Karabiner-Elements")
-                        checklist("Enable one Caps Hyper rule (F18 or 4-mod) under Complex Modifications")
-                        checklist("If using 4-mod: enable Hyper+/ → F19 and Hyper+, → F20")
+                        checklist("Install recommended pack (or enable Caps→F18 / 4-mod under Complex Modifications)")
+                        checklist("If using 4-mod: enable Hyper+/ → F19 and Hyper+, → F20 bridges")
                         checklist("Grant Accessibility to HyperForge (Doctor sidebar)")
                         checklist("Hold Caps + key → Hyper action; tap Caps alone → Escape")
                     }

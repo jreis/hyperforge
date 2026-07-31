@@ -144,6 +144,8 @@ if let img = NSImage(contentsOfFile: png) {
 fi
 
 # Optional Karabiner rule pack (Caps→F18 + F19 help + F20 dashboard)
+# Assets alone only appear under “Add predefined rule”; we also enable them on the
+# selected profile so they show under Complex Modifications immediately.
 if [[ -d "${HOME}/.config/karabiner" ]]; then
   ASSET_DIR="${HOME}/.config/karabiner/assets/complex_modifications"
   mkdir -p "$ASSET_DIR"
@@ -154,7 +156,17 @@ if [[ -d "${HOME}/.config/karabiner" ]]; then
   if [[ -f "${ROOT}/Config/karabiner-hyper-comma-to-f20.json" ]]; then
     cp "${ROOT}/Config/karabiner-hyper-comma-to-f20.json" "${ASSET_DIR}/hyperforge_dashboard_f20.json"
   fi
-  echo "→ Installed Karabiner pack (Caps→F18, F19 help, F20 dashboard) — enable in Karabiner UI"
+  KARABINER_JSON="${HOME}/.config/karabiner/karabiner.json"
+  ENABLE_PY="${ROOT}/Scripts/karabiner-enable-pack.py"
+  if [[ -f "$KARABINER_JSON" ]] && [[ -f "$ENABLE_PY" ]] && command -v python3 >/dev/null 2>&1; then
+    if python3 "$ENABLE_PY" "$KARABINER_JSON" "$ASSET_DIR"; then
+      echo "→ Karabiner pack enabled/updated (Caps→F18, F19 help, F20 dashboard)"
+    else
+      echo "→ Wrote Karabiner assets — enable failed; check Complex Modifications → Add predefined rule"
+    fi
+  else
+    echo "→ Wrote Karabiner assets — open Karabiner → Complex Modifications → Add predefined rule"
+  fi
 fi
 
 # LaunchAgent: open the .app (proper GUI/TCC path) rather than the raw binary.
@@ -244,9 +256,9 @@ cat <<MSG
 Grant Accessibility to:
   ${APP_DIR}
 
-Karabiner → Complex Modifications — enable:
-  • Caps Lock to F18 (or your existing 4-mod Caps Hyper)
-  • Hyper + / help (F19) and Hyper + , dashboard (F20) if using 4-mod
+Karabiner → Complex Modifications should list:
+  • Caps Lock to F18 (disable if you prefer an existing 4-mod Caps rule)
+  • Hyper + / help (F19) and Hyper + , dashboard (F20) for 4-mod Hyper
   Tap Caps alone → Escape · hold Caps + key → Hyper
 
 Open Doctor in the app for a setup health check.

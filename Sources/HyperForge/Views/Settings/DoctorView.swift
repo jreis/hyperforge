@@ -276,8 +276,8 @@ struct DoctorView: View {
                     Button {
                         _ = karabiner.installRecommendedPack()
                         Banner.show(
-                            "HyperForge pack written",
-                            subtitle: "Enable under Karabiner → Complex Modifications",
+                            "HyperForge pack enabled",
+                            subtitle: karabiner.status,
                             style: .success,
                             symbol: "checkmark.seal"
                         )
@@ -310,11 +310,11 @@ struct DoctorView: View {
     private var tipsCard: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 8) {
-                Text("After installing assets")
+                Text("After installing the pack")
                     .font(.system(size: 13, weight: .semibold))
-                tip("Open Karabiner-Elements → Complex Modifications → Add rule")
-                tip("Enable “Caps Lock to F18” (or your existing 4-mod Caps rule)")
-                tip("Enable “Hyper + / help (F19)” and “Hyper + , dashboard (F20)” if using 4-mod Hyper")
+                tip("Rules are enabled on your active Karabiner profile — open Karabiner → Complex Modifications to confirm")
+                tip("You should see Caps→F18 (and F19/F20 bridges). Toggle off any conflicting Caps rule")
+                tip("If using 4-mod Hyper instead of F18, keep F19/F20 bridges and disable Caps→F18")
                 tip("Hold Caps + key for actions · tap Caps alone for Escape")
                 tip("Menu bar flame → Keybindings always works without chords")
             }

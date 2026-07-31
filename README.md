@@ -56,7 +56,7 @@ chmod +x Scripts/install.sh
 Then:
 
 1. **System Settings → Privacy & Security → Accessibility** → enable **HyperForge**
-2. **Karabiner-Elements → Complex Modifications** → enable Caps → Hyper (and F19/F20 if you use 4-mod)
+2. **Doctor → Install recommended pack** (or Karabiner → Complex Modifications) → Caps → Hyper (and F19/F20 if you use 4-mod)
 3. Open the menu bar flame → **Doctor** and confirm green checks
 4. Complete the **three first chords** (onboarding or Dashboard): Hyper · Space+HJKL · Hyper+←
 5. Watch for the **NAV** pill when Space is armed; menu bar icon switches to arrows

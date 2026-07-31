@@ -44,6 +44,10 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
     /// made bare keys after Hyper+← (e.g. 7 / Num7) fire as Hyper+7 → top-left.
     private var lastHyperSeenTime = Date.distantPast
     private let hyperGraceSeconds: TimeInterval = 0.18
+    /// After Caps/F18/4-mod physical release, Karabiner often posts Escape via
+    /// `to_if_alone`. That must not dismiss HyperForge UI (dashboard, etc.).
+    private var suppressUIEscapeUntil = Date.distantPast
+    private let capsAloneEscapeSuppressSeconds: TimeInterval = 0.45
     private var enabledIDsCopy: Set<String>?
 
     private var eventTap: CFMachPort?
@@ -214,6 +218,8 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                     f18Held = false
                     setHyperActive(false)
                     lastHyperTriggerTime = now
+                    // Caps-alone → Escape follows this keyUp; don't treat it as UI Esc.
+                    noteCapsAloneEscapeWindow(from: now)
                 } else if type == .flagsChanged {
                     f18Held.toggle()
                     if f18Held {
@@ -221,6 +227,7 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                         setHyperActive(true)
                     } else {
                         setHyperActive(false)
+                        noteCapsAloneEscapeWindow(from: now)
                     }
                 }
             }
@@ -280,6 +287,7 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             {
                 setHyperActive(false)
                 lastHyperTriggerTime = now
+                noteCapsAloneEscapeWindow(from: now)
             }
             return nil
         }
@@ -320,6 +328,10 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                 markHyperSeen(now)
                 setHyperActive(true)
                 return nil
+            }
+            // Physical 4-mod release (Caps up) often precedes Caps-alone Escape.
+            if isHyperActive, !f18Held {
+                noteCapsAloneEscapeWindow(from: now)
             }
             // Soft release via grace (checked on keyDown) — no logging on every blip.
             return Unmanaged.passUnretained(event)
@@ -382,6 +394,7 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             // Only treat Esc as a Hyper chord while Hyper is still physically held.
             if keyCode == KeyCode.escape, !physicallyHeld {
                 HyperLog.event("Escape after Hyper release → pass through (not lock)")
+                noteCapsAloneEscapeWindow(from: now)
                 endStickyHyper()
                 return Unmanaged.passUnretained(event)
             }
@@ -485,6 +498,21 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         lastHyperSeenTime = date
         lastHyperTriggerTime = date
         lastF18KeyDownTime = date
+    }
+
+    /// Karabiner `to_if_alone` Escape arrives just after Hyper release — ignore for UI.
+    private func noteCapsAloneEscapeWindow(from date: Date = Date()) {
+        lock.lock()
+        suppressUIEscapeUntil = date.addingTimeInterval(capsAloneEscapeSuppressSeconds)
+        lock.unlock()
+    }
+
+    /// True while Caps-alone → Escape (or immediate post-Hyper Escape) should not
+    /// dismiss HyperForge chrome. Real Esc key presses outside this window still work.
+    var shouldSuppressEscapeForUI: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return Date() < suppressUIEscapeUntil
     }
 
     /// Drop sticky Hyper without waiting for grace (after a finished chord).

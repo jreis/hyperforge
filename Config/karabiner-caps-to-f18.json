@@ -1,26 +1,16 @@
 {
-    "title": "HyperForge — Caps Lock as Hyper",
-    "rules": [
+  "title": "HyperForge — Caps Lock as Hyper (F18)",
+  "rules": [
+    {
+      "description": "Caps Lock to F18 (Hyper trigger, alone = Escape)",
+      "manipulators": [
         {
-            "description": "Caps Lock to F18 (Hyper trigger)",
-            "manipulators": [
-                {
-                    "from": {
-                        "key_code": "caps_lock"
-                    },
-                    "to": [
-                        {
-                            "key_code": "f18"
-                        }
-                    ],
-                    "to_if_alone": [
-                        {
-                            "key_code": "escape"
-                        }
-                    ],
-                    "type": "basic"
-                }
-            ]
+          "type": "basic",
+          "from": { "key_code": "caps_lock" },
+          "to": [{ "key_code": "f18" }],
+          "to_if_alone": [{ "key_code": "escape" }]
         }
-    ]
+      ]
+    }
+  ]
 }

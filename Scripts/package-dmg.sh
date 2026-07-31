@@ -76,9 +76,11 @@ Install
 2. Open HyperForge once (menu bar flame icon).
 3. System Settings → Privacy & Security → Accessibility → enable HyperForge.
 4. Karabiner-Elements (optional but recommended):
-   • Copy JSON from "Karabiner Rules (optional)" into
-     ~/.config/karabiner/assets/complex_modifications/
-   • Or open HyperForge → Karabiner / Doctor → Install recommended pack
+   • Open HyperForge → Doctor → Install recommended pack
+     (enables Caps→F18 + F19/F20 on your active Karabiner profile)
+   • Or copy JSON from "Karabiner Rules (optional)" into
+     ~/.config/karabiner/assets/complex_modifications/ and
+     enable via Complex Modifications → Add predefined rule
    • Enable Caps→F18 (or your 4-mod Caps rule) + F19/F20 bridges if needed
 
 Launch at login (optional)

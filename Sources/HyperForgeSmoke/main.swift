@@ -60,6 +60,53 @@ struct HyperForgeSmoke {
             KarabinerDetection.parseActiveProfileName(from: profileJSON) == "Work"
         )
 
+        print("\nKarabiner config patch")
+        let emptyProfile = #"""
+        {"profiles":[{"name":"Default profile","selected":true}]}
+        """#
+        let capsAsset = #"""
+        {"title":"T","rules":[{"description":"Caps Lock to F18 (Hyper trigger, alone = Escape)","manipulators":[{"type":"basic","from":{"key_code":"caps_lock"},"to":[{"key_code":"f18"}]}]}]}
+        """#
+        let capsAssetLegacy = #"""
+        {"title":"T","rules":[{"description":"Caps Lock to F18 (Hyper trigger)","manipulators":[{"type":"basic","from":{"key_code":"caps_lock"},"to":[{"key_code":"f18"}],"to_if_alone":[{"key_code":"escape"}]}]}]}
+        """#
+        do {
+            let enabled = try KarabinerConfigPatch.enableAssetPacks(
+                inKarabinerJSON: Data(emptyProfile.utf8),
+                assetJSONStrings: [capsAsset]
+            )
+            check("enable writes 1 rule", enabled.writtenCount == 1)
+            let descs = try KarabinerConfigPatch.enabledRuleDescriptions(
+                inKarabinerJSON: enabled.jsonData
+            )
+            check("enabled description present", descs.count == 1)
+            let again = try KarabinerConfigPatch.enableAssetPacks(
+                inKarabinerJSON: enabled.jsonData,
+                assetJSONStrings: [capsAsset]
+            )
+            check(
+                "re-enable replaces same family",
+                again.writtenCount == 1 && again.removedCount == 1
+            )
+            let renamed = try KarabinerConfigPatch.enableAssetPacks(
+                inKarabinerJSON: again.jsonData,
+                assetJSONStrings: [capsAssetLegacy]
+            )
+            let afterRename = try KarabinerConfigPatch.enabledRuleDescriptions(
+                inKarabinerJSON: renamed.jsonData
+            )
+            check(
+                "legacy description upsert is single rule",
+                renamed.writtenCount == 1 && renamed.removedCount == 1 && afterRename.count == 1
+            )
+            let status = KarabinerDetection.detectRules(
+                in: String(data: enabled.jsonData, encoding: .utf8) ?? ""
+            )
+            check("enabled config detects Caps→F18", status.capsToF18)
+        } catch {
+            check("config patch threw: \(error)", false)
+        }
+
         print("\nHyper chord routing")
         check(
             "nil enable set allows all",

@@ -54,8 +54,13 @@ final class EscapeCoordinator {
             return true
         }
         register(.dashboard) {
-            let visible = AppState.dashboardWindows().contains(where: \.isVisible)
-            guard visible else { return false }
+            let windows = AppState.dashboardWindows().filter(\.isVisible)
+            guard !windows.isEmpty else { return false }
+            // Don't hide a background dashboard when Esc is used in another app
+            // (or Caps-alone Escape while coding).
+            guard NSApp.isActive || windows.contains(where: \.isKeyWindow) else {
+                return false
+            }
             AppState.shared.closeMainWindow()
             return true
         }
@@ -113,6 +118,12 @@ final class EscapeCoordinator {
 
     @discardableResult
     func handleEscape() -> Bool {
+        // Caps alone → Escape (Karabiner to_if_alone) must not dismiss dashboard /
+        // cheat sheet / etc. Real Esc still works outside that short window.
+        if HyperKeyEngine.shared.shouldSuppressEscapeForUI {
+            HyperLog.event("Escape ignored for UI (post-Hyper / Caps-alone)")
+            return false
+        }
         for layer in Layer.allCases.sorted() {
             if handlers[layer]?() == true {
                 HyperLog.event("Escape handled by \(layer)")
