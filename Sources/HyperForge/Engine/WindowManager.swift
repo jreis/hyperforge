@@ -160,7 +160,27 @@ final class WindowManager {
         )
     }
 
-    func center() {
+    /// “Reasonable size” — centered, not full screen (Raycast / Rectangle staple).
+    /// Default ~70% × 78% of the visible frame with balanced margins.
+    func centerNice(
+        widthFraction: CGFloat = 0.70,
+        heightFraction: CGFloat = 0.78
+    ) {
+        let w = max(0.45, min(0.92, widthFraction))
+        let h = max(0.45, min(0.92, heightFraction))
+        let x = (1 - w) / 2
+        let y = (1 - h) / 2
+        snap(x: x, y: y, w: w, h: h)
+        Banner.show(
+            "Centered",
+            subtitle: "\(Int(w * 100))×\(Int(h * 100))% · not full screen",
+            style: .success,
+            symbol: "rectangle.center.inset.filled"
+        )
+    }
+
+    /// Reposition only — keep current width/height, move to screen center.
+    func centerKeepSize() {
         guard let win = frontmostWindow(), let frame = getFrame(win) else { return }
         let sf = screenFrame()
         saveFrame()
@@ -172,6 +192,17 @@ final class WindowManager {
         )
         setFrame(win, next)
         warpMouseToFrame(next)
+        Banner.show(
+            "Centered",
+            subtitle: "Keep size",
+            style: .success,
+            symbol: "rectangle.center.inset.filled"
+        )
+    }
+
+    /// Alias for older call sites.
+    func center() {
+        centerKeepSize()
     }
 
     func moveToNextScreen() {

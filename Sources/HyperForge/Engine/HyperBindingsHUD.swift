@@ -73,7 +73,7 @@ enum HyperBindingsHUD {
             ("←↑↓→ · Num", "Snap halves / pad"),
             ("- = \\", "Thirds · ⇧ for ⅔ / almost"),
             ("[ ] · M", "Prev / next display"),
-            ("6 · Z · C", "Tile · undo · center"),
+            ("6 · Z · C", "Tile · undo · nice center"),
             ("O · ⇧V · P", "OCR · history · pin"),
             ("W · A · B", "Warp · pin · min"),
             ("/ · ` · ,", "Help · sheet · dash"),

@@ -82,7 +82,8 @@ struct HyperAction: Identifiable, Equatable, Codable, Hashable {
         case "win-top": return "↑ · Num8"
         case "win-bottom": return "↓ · Num2"
         case "win-max": return "Return · Num5"
-        case "win-center": return "C · Num0"
+        case "win-center-nice": return "C"
+        case "win-center": return "Num0"
         case "win-third-left": return "-"
         case "win-third-right": return "="
         case "win-two-thirds-left": return "⇧-"
@@ -126,7 +127,8 @@ struct HyperAction: Identifiable, Equatable, Codable, Hashable {
         case "win-top": return "Hyper + ↑  ·  Num 8"
         case "win-bottom": return "Hyper + ↓  ·  Num 2"
         case "win-max": return "Hyper + Return  ·  Num 5"
-        case "win-center": return "Hyper + C  ·  Num 0"
+        case "win-center-nice": return "Hyper + C"
+        case "win-center": return "Hyper + Num 0"
         case "win-third-left": return "Hyper + -"
         case "win-third-right": return "Hyper + ="
         case "win-two-thirds-left": return "Hyper + ⇧-"
@@ -158,7 +160,8 @@ enum ActionCatalog {
         HyperAction(id: "win-bottom", title: "Snap Bottom Half", detail: "Bottom 50% · arrows or Num 2", keyCode: KeyCode.downArrow, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.bottomhalf.filled"),
         HyperAction(id: "win-max", title: "Maximize", detail: "Fill screen · Return or Num 5", keyCode: KeyCode.return, mode: .hyper, category: .window, isEnabled: true, symbol: "arrow.up.left.and.arrow.down.right"),
         HyperAction(id: "win-tile-all", title: "Tile All Windows", detail: "Grid every visible window on this screen", keyCode: KeyCode.six, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.split.3x3"),
-        HyperAction(id: "win-center", title: "Center Window", detail: "Keep size · C or Num 0", keyCode: KeyCode.c, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.center.inset.filled"),
+        HyperAction(id: "win-center-nice", title: "Center (Nice Size)", detail: "~70×78% centered · not full screen · Hyper + C", keyCode: KeyCode.c, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.center.inset.filled"),
+        HyperAction(id: "win-center", title: "Center (Keep Size)", detail: "Reposition only · Hyper + Num 0", keyCode: KeyCode.keypad0, mode: .hyper, category: .window, isEnabled: true, symbol: "dot.scope"),
         HyperAction(id: "win-next-screen", title: "Next Display", detail: "Move window to next screen · M or ]", keyCode: KeyCode.m, mode: .hyper, category: .window, isEnabled: true, symbol: "display.2"),
         HyperAction(id: "win-prev-screen", title: "Previous Display", detail: "Move window to previous screen · [", keyCode: KeyCode.leftBracket, mode: .hyper, category: .window, isEnabled: true, symbol: "display.2"),
         HyperAction(id: "win-undo", title: "Undo Snap", detail: "Restore previous frame", keyCode: KeyCode.z, mode: .hyper, category: .window, isEnabled: true, symbol: "arrow.uturn.backward"),

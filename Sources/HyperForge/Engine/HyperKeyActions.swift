@@ -42,7 +42,7 @@ enum HyperKeyActions {
 
     private static let firstRunSnapIDs: Set<String> = [
         "win-left", "win-right", "win-top", "win-bottom", "win-max",
-        "win-center", "win-tl", "win-tr", "win-bl", "win-br",
+        "win-center", "win-center-nice", "win-tl", "win-tr", "win-bl", "win-br",
         "win-third-left", "win-third-center", "win-third-right",
         "win-two-thirds-left", "win-two-thirds-right", "win-almost-max",
     ]
@@ -66,7 +66,9 @@ enum HyperKeyActions {
         case "win-tile-all":
             onMain { _ = WindowManager.shared.tileAllVisible() }
         case "win-center":
-            onMain { WindowManager.shared.center() }
+            onMain { WindowManager.shared.centerKeepSize() }
+        case "win-center-nice":
+            onMain { WindowManager.shared.centerNice() }
         case "win-next-screen":
             onMain { WindowManager.shared.moveToNextScreen() }
         case "win-prev-screen":
@@ -300,6 +302,7 @@ enum HyperKeyActions {
             "win-always-on-top", "win-minimize", "win-almost-max",
             "win-third-left", "win-third-center", "win-third-right",
             "win-two-thirds-left", "win-two-thirds-right", "win-warp-mouse",
+            "win-center-nice", "win-center",
             "prod-keepalive", "clip-region-pin", "clip-image", "clip-ocr",
             "clip-history", "sys-dashboard", "sys-cheatsheet", "sys-command-bar",
             "sys-shortcuts",

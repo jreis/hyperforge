@@ -125,7 +125,9 @@ public enum HyperBindingResolver {
             requiresExtraShift: true,
             title: "Tile All (⇧Return)"
         ),
-        .init(actionID: "win-center", keyCode: HyperKeyCode.c, title: "Center"),
+        // Hyper+C = nice centered size (not full screen); Num0 = keep-size center
+        .init(actionID: "win-center-nice", keyCode: HyperKeyCode.c, title: "Center Nice"),
+        .init(actionID: "win-center", keyCode: HyperKeyCode.keypad0, title: "Center Keep Size (Num 0)"),
         .init(actionID: "win-next-screen", keyCode: HyperKeyCode.m, title: "Next Display"),
         .init(actionID: "win-next-screen", keyCode: HyperKeyCode.rightBracket, title: "Next Display (])"),
         .init(actionID: "win-prev-screen", keyCode: HyperKeyCode.leftBracket, title: "Previous Display"),
@@ -170,7 +172,6 @@ public enum HyperBindingResolver {
         .init(actionID: "win-bl", keyCode: HyperKeyCode.keypad1, title: "Bottom-Left (Num 1)"),
         .init(actionID: "win-bottom", keyCode: HyperKeyCode.keypad2, title: "Bottom Half (Num 2)"),
         .init(actionID: "win-br", keyCode: HyperKeyCode.keypad3, title: "Bottom-Right (Num 3)"),
-        .init(actionID: "win-center", keyCode: HyperKeyCode.keypad0, title: "Center (Num 0)"),
         .init(actionID: "win-close", keyCode: HyperKeyCode.x, title: "Close Window"),
         .init(actionID: "win-always-on-top", keyCode: HyperKeyCode.a, title: "Always On Top"),
         .init(actionID: "win-minimize", keyCode: HyperKeyCode.b, title: "Minimize"),
@@ -314,6 +315,8 @@ public enum HyperBindingResolver {
             return .action("win-tile-all")
         case HyperKeyCode.c:
             if extraShift, allowed("finder-copy-text") { return .action("finder-copy-text") }
+            // Prefer nice centered size; fall back to keep-size if disabled in profile
+            if allowed("win-center-nice") { return .action("win-center-nice") }
             if allowed("win-center") { return .action("win-center") }
             return .unhandled
         case HyperKeyCode.m:

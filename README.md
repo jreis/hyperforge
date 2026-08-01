@@ -132,6 +132,8 @@ Hold-before-layer (~200 ms default) and blocked apps: **Settings → Engine �
 | Hyper + ←/→/↑/↓ | Snap half |
 | Hyper + Return | Maximize |
 | Hyper + **Numpad** | Full spatial pad (see below) |
+| Hyper + C | **Nice center** (~70×78%, not full screen) |
+| Hyper + Num 0 | Center keep size |
 | Hyper + - / = / \\ | Left / right / center **third** |
 | Hyper + ⇧- / ⇧= / ⇧\\ | Left ⅔ · right ⅔ · **almost max** |
 | Hyper + 6 | Tile all windows |

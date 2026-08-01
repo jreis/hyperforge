@@ -96,7 +96,7 @@ struct HyperProfile: Identifiable, Codable, Equatable {
             notes: "Window snaps + lock only.",
             enabledActionIDs: Set([
                 "win-left", "win-right", "win-top", "win-bottom", "win-max",
-                "win-center", "sys-lock", "app-toggle",
+                "win-center", "win-center-nice", "sys-lock", "app-toggle",
             ]),
             layouts: [],
             karabinerRuleJSON: defaultKarabiner,
