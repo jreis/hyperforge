@@ -37,8 +37,11 @@ ShowDoctor(*) {
     lines.Push("TouchCursor process: " (tc ? "running" : "not detected (OK if you use another Space tool)"))
 
     lines.Push("")
-    lines.Push("Tips: Hyper+[ ] next/prev monitor · Hyper+Z undo snap")
-    lines.Push("Win+Esc pauses Hyper briefly · edit mute.processes in config.ini")
+    lines.Push("Parity with macOS 0.4.x (window pad):")
+    lines.Push("  Hyper+arrows halves · Enter max · 6 tile-all · Z undo")
+    lines.Push("  Numpad full spatial pad · A always-on-top · B minimize · K keep-alive")
+    lines.Push("Tips: Hyper+[ ] next/prev monitor · Win+Esc pauses Hyper")
+    lines.Push("edit mute.processes in config.ini for games / RDP")
 
     msg := ""
     for line in lines

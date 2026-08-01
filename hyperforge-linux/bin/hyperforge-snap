@@ -1,15 +1,27 @@
 #!/usr/bin/env bash
 # hyperforge-snap — window snaps for Hyprland, Sway/i3, or X11.
-# Usage: hyperforge-snap <left|right|top|bottom|max|center|tl|tr|bl|br|min|close|next-mon|undo>
+# Usage: hyperforge-snap <left|right|top|bottom|max|center|tl|tr|bl|br|min|close|next-mon|undo|tile>
+# Muscle memory aligned with macOS HyperForge 0.4.x where the compositor allows.
 set -euo pipefail
 
 action="${1:-}"
 if [[ -z "$action" ]]; then
-  echo "usage: $0 <left|right|top|bottom|max|center|tl|tr|bl|br|min|close|next-mon|undo>" >&2
+  echo "usage: $0 <left|right|top|bottom|max|center|tl|tr|bl|br|min|close|next-mon|undo|tile>" >&2
   exit 2
 fi
 
 have() { command -v "$1" >/dev/null 2>&1; }
+
+UNDO_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/hyperforge-linux"
+UNDO_FILE="$UNDO_DIR/last-layout.json"
+
+save_hypr_layout() {
+  have jq || return 0
+  mkdir -p "$UNDO_DIR"
+  hyprctl clients -j | jq '[.[] | select(.mapped == true and .hidden == false) | {
+    address, at, size, floating, workspace: .workspace.id
+  }]' >"$UNDO_FILE" 2>/dev/null || true
+}
 
 # ── Hyprland (geometry) ───────────────────────────────────────────────
 snap_hypr() {
@@ -21,8 +33,58 @@ snap_hypr() {
     min)   hyprctl dispatch movetoworkspacesilent special:minimized >/dev/null; return ;;
     close) hyprctl dispatch killactive >/dev/null; return ;;
     next-mon) hyprctl dispatch movewindow mon:+1 >/dev/null; return ;;
-    undo)  hyprctl dispatch togglefloating 0 >/dev/null 2>&1 || true; return ;;
+    undo)
+      if [[ -f "$UNDO_FILE" ]]; then
+        # Best-effort restore of last tile/snap batch addresses
+        while read -r addr fx fy fw fh; do
+          [[ -z "$addr" || "$addr" == "null" ]] && continue
+          hyprctl dispatch focuswindow "address:$addr" >/dev/null 2>&1 || continue
+          hyprctl dispatch togglefloating 1 >/dev/null 2>&1 || true
+          hyprctl dispatch resizeactive exact "$fw" "$fh" >/dev/null 2>&1 || true
+          hyprctl dispatch moveactive exact "$fx" "$fy" >/dev/null 2>&1 || true
+        done < <(jq -r '.[] | "\(.address) \(.at[0]) \(.at[1]) \(.size[0]) \(.size[1])"' "$UNDO_FILE" 2>/dev/null)
+        rm -f "$UNDO_FILE"
+      else
+        hyprctl dispatch togglefloating 0 >/dev/null 2>&1 || true
+      fi
+      return
+      ;;
+    tile)
+      save_hypr_layout
+      local mon_id clients n cols rows i
+      mon_id="$(hyprctl activewindow -j | jq -r '.monitor')"
+      read -r mx my mw mh < <(hyprctl monitors -j | jq -r --argjson id "$mon_id" '
+        (map(select(.id == $id)) | .[0] // .[0]) | "\(.x) \(.y) \(.width) \(.height)"
+      ')
+      mapfile -t clients < <(hyprctl clients -j | jq -r --argjson mid "$mon_id" '
+        [.[] | select(.mapped == true and .hidden == false and .monitor == $mid
+          and (.workspace.id // 0) > 0)]
+        | sort_by(.at[1], .at[0])
+        | .[].address
+      ')
+      n="${#clients[@]}"
+      if [[ "$n" -lt 1 ]]; then
+        echo "hyperforge-snap: nothing to tile" >&2
+        return 1
+      fi
+      cols=$(awk -v n="$n" 'BEGIN{print int(sqrt(n)+0.999)}')
+      rows=$(( (n + cols - 1) / cols ))
+      local cellw=$((mw / cols)) cellh=$((mh / rows))
+      i=0
+      for addr in "${clients[@]}"; do
+        local col=$((i % cols)) row=$((i / cols))
+        local nx=$((mx + col * cellw)) ny=$((my + row * cellh))
+        hyprctl dispatch focuswindow "address:$addr" >/dev/null
+        hyprctl dispatch togglefloating 1 >/dev/null 2>&1 || true
+        hyprctl dispatch resizeactive exact "$cellw" "$cellh" >/dev/null
+        hyprctl dispatch moveactive exact "$nx" "$ny" >/dev/null
+        i=$((i + 1))
+      done
+      return
+      ;;
   esac
+
+  save_hypr_layout
 
   local mon_id
   mon_id="$(hyprctl activewindow -j | jq -r '.monitor')"
@@ -38,6 +100,7 @@ snap_hypr() {
     bottom) nw=$mw; nh=$((mh / 2)); nx=$mx; ny=$((my + mh / 2)) ;;
     max)    nw=$mw; nh=$mh; nx=$mx; ny=$my ;;
     center)
+      # Keep-ish size: 2/3 (mac center keeps size; geometry fallback)
       nw=$((mw * 2 / 3)); nh=$((mh * 2 / 3))
       nx=$((mx + (mw - nw) / 2)); ny=$((my + (mh - nh) / 2))
       ;;
@@ -72,6 +135,12 @@ snap_sway() {
     close)  $msg kill ;;
     next-mon) $msg "move workspace to output right" ;;
     undo)   $msg "floating disable" ;;
+    tile)
+      # Best-effort: equal-split tiling on the focused container tree
+      $msg "fullscreen disable; floating disable" >/dev/null
+      $msg "layout splitv" >/dev/null 2>&1 || true
+      $msg "focus parent; layout splith" >/dev/null 2>&1 || true
+      ;;
     *) echo "unknown: $action" >&2; exit 2 ;;
   esac
 }
@@ -102,7 +171,25 @@ snap_x11() {
     br) nw=$((sw / 2)); nh=$((sh / 2)); nx=$((sw / 2)); ny=$((sh / 2)) ;;
     min) xdotool windowminimize "$win"; return ;;
     close) wmctrl -ic "$win"; return ;;
-    next-mon|undo) wmctrl -ir "$win" -b remove,maximized_vert,maximized_horz; return ;;
+    next-mon) wmctrl -ir "$win" -b remove,maximized_vert,maximized_horz; return ;;
+    undo) wmctrl -ir "$win" -b remove,maximized_vert,maximized_horz; return ;;
+    tile)
+      # Simple equal grid of visible windows on root geometry
+      mapfile -t wins < <(wmctrl -l | awk '{print $1}')
+      local n=${#wins[@]}
+      if [[ "$n" -lt 1 ]]; then return 1; fi
+      local cols rows cellw cellh i=0
+      cols=$(awk -v n="$n" 'BEGIN{print int(sqrt(n)+0.999)}')
+      rows=$(( (n + cols - 1) / cols ))
+      cellw=$((sw / cols)); cellh=$((sh / rows))
+      for w in "${wins[@]}"; do
+        local col=$((i % cols)) row=$((i / cols))
+        wmctrl -ir "$w" -b remove,maximized_vert,maximized_horz
+        wmctrl -ir "$w" -e "0,$((col * cellw)),$((row * cellh)),$cellw,$cellh"
+        i=$((i + 1))
+      done
+      return
+      ;;
     *) echo "unknown: $action" >&2; exit 2 ;;
   esac
   wmctrl -ir "$win" -b remove,maximized_vert,maximized_horz

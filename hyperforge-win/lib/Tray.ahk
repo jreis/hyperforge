@@ -19,7 +19,8 @@ InitTray() {
     tray.Add()
     tray.Add("About", (*) => MsgBox(
         "HyperForge for Windows`n"
-        "AHK v2 Hyper Key companion`n"
+        "AHK v2 Hyper Key companion (parity target: macOS 0.4.x)`n"
+        "Caps → Hyper · numpad window pad · tile-all`n"
         "Pairs with TouchCursor for Space-layer nav`n`n"
         "https://github.com/jreis/hyperforge",
         "HyperForge"

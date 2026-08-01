@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # hyperforge-action — small command palette for Hyper chords (kanata cmd targets).
 # Usage: hyperforge-action <id>
+# Aligned with macOS HyperForge 0.4.x core chords where practical.
 set -euo pipefail
 
 ROOT="${HYPERFORGE_LINUX_ROOT:-$HOME/.local/share/hyperforge-linux}"
@@ -14,13 +15,41 @@ notify() {
   fi
 }
 
+type_text() {
+  local t="$1"
+  if have wtype; then wtype "$t"
+  elif have ydotool; then ydotool type "$t"
+  elif have xdotool; then xdotool type --clearmodifiers "$t"
+  else
+    if have wl-copy; then printf '%s' "$t" | wl-copy; notify "Copied (no typer): $t"
+    elif have xclip; then printf '%s' "$t" | xclip -selection clipboard; notify "Copied (no typer): $t"
+    else echo "$t"; fi
+  fi
+}
+
+clip_get() {
+  if have wl-paste; then wl-paste 2>/dev/null || true
+  elif have xclip; then xclip -selection clipboard -o 2>/dev/null || true
+  else echo ""
+  fi
+}
+
+clip_set() {
+  local t="$1"
+  if have wl-copy; then printf '%s' "$t" | wl-copy
+  elif have xclip; then printf '%s' "$t" | xclip -selection clipboard
+  else echo "$t"
+  fi
+}
+
 id="${1:-}"
 case "$id" in
   ""|-h|--help)
     echo "usage: $0 <action-id>"
-    echo "  snaps: win-left win-right win-top win-bottom win-max win-center win-tl win-tr win-bl win-br win-min win-close win-next"
+    echo "  snaps: win-left win-right win-top win-bottom win-max win-center"
+    echo "         win-tl win-tr win-bl win-br win-min win-close win-next win-undo win-tile"
     echo "  apps:  term browser editor files"
-    echo "  sys:   lock hostname date google-clip"
+    echo "  sys:   lock hostname date google-clip plain-paste open-url always-on-top"
     exit 0
     ;;
   win-left)   exec "$SNAP" left ;;
@@ -37,6 +66,7 @@ case "$id" in
   win-close)  exec "$SNAP" close ;;
   win-next)   exec "$SNAP" next-mon ;;
   win-undo)   exec "$SNAP" undo ;;
+  win-tile)   exec "$SNAP" tile ;;
 
   term)
     if have ghostty; then exec ghostty
@@ -82,30 +112,43 @@ case "$id" in
     fi
     ;;
   hostname)
-    if have wl-copy; then hostname | wl-copy
-    elif have xclip; then hostname | xclip -selection clipboard
-    else hostname
-    fi
+    clip_set "$(hostname)"
     notify "Hostname copied"
     ;;
   date)
-    d="$(date +%Y-%m-%d)"
-    if have wtype; then wtype "$d"
-    elif have ydotool; then ydotool type "$d"
-    elif have xdotool; then xdotool type --clearmodifiers "$d"
-    else
-      if have wl-copy; then printf '%s' "$d" | wl-copy; notify "Date copied (no typer)"
-      else echo "$d"; fi
-    fi
+    type_text "$(date +%Y-%m-%d)"
     ;;
   google-clip)
-    q=""
-    if have wl-paste; then q="$(wl-paste 2>/dev/null || true)"
-    elif have xclip; then q="$(xclip -selection clipboard -o 2>/dev/null || true)"
-    fi
+    q="$(clip_get)"
     if [[ -z "$q" ]]; then notify "Clipboard empty"; exit 1; fi
     enc="$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$q")"
     xdg-open "https://www.google.com/search?q=${enc}" >/dev/null 2>&1 &
+    ;;
+  plain-paste)
+    # Strip via round-trip as plain text
+    q="$(clip_get)"
+    clip_set "$q"
+    if have wtype; then wtype -M ctrl v -m ctrl
+    elif have xdotool; then xdotool key --clearmodifiers ctrl+v
+    else notify "Clipboard is plain text (no paste key)"; fi
+    ;;
+  open-url)
+    q="$(clip_get)"
+    url="$(printf '%s' "$q" | grep -Eo 'https?://[^[:space:]]+' | head -1 || true)"
+    if [[ -z "$url" ]]; then notify "No URL in clipboard"; exit 1; fi
+    xdg-open "$url" >/dev/null 2>&1 &
+    ;;
+  always-on-top)
+    if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] && have hyprctl; then
+      hyprctl dispatch pin active >/dev/null 2>&1 || hyprctl dispatch togglefloating >/dev/null
+      notify "Pin / float toggled"
+    elif [[ -n "${SWAYSOCK:-}" ]] && have swaymsg; then
+      swaymsg sticky toggle >/dev/null
+      notify "Sticky toggled"
+    else
+      notify "Always-on-top not supported on this WM"
+      exit 1
+    fi
     ;;
   *)
     echo "unknown action: $id" >&2

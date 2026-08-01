@@ -2,14 +2,14 @@
 
 **Caps → Hyper · Space-layer HJKL · window snaps** for Linux — same muscle memory as the macOS app.
 
-This is **not** a Swift/AppKit port. It is a small, honest stack:
+**Parity target:** macOS HyperForge **0.4.x** (window pad, tile-all, Space nav subset). This is **not** a Swift/AppKit port.
 
 | Piece | Role |
 |-------|------|
-| **[kanata](https://github.com/jtroo/kanata)** (preferred) | Caps Hyper layer + Space nav layer |
+| **[kanata](https://github.com/jtroo/kanata)** (preferred) | Caps Hyper layer + Space nav layer + numpad pad |
 | **[keyd](https://github.com/rvaiya/keyd)** (optional) | Same idea as a system service |
-| **`hyperforge-snap`** | Half / quarter / max for **Hyprland**, **Sway**, or **X11** |
-| **`hyperforge-action`** | Apps, lock, date, google clipboard |
+| **`hyperforge-snap`** | Half / quarter / max / **tile** for **Hyprland**, **Sway**, or **X11** |
+| **`hyperforge-action`** | Apps, lock, date, google clipboard, plain paste, open URL |
 | **`hyperforge-doctor`** | Setup health check |
 
 Sibling of:
@@ -81,25 +81,46 @@ See [kanata Linux docs](https://github.com/jtroo/kanata/blob/main/docs/setup-lin
 |-------|--------|
 | Hyper + ←/→/↑/↓ | Snap half |
 | Hyper + Enter | Maximize |
+| Hyper + **6** | Tile all windows (macOS parity) |
 | Hyper + 7 / 8 / 9 / 0 | Quarters TL TR BL BR |
 | Hyper + C | Center |
+| Hyper + A | Always on top / pin (best-effort) |
+| Hyper + B / S | Minimize |
 | Hyper + X | Close |
-| Hyper + Z | Undo / untile (best-effort) |
+| Hyper + Z | Undo layout (Hyprland restores last snap batch) |
+| Hyper + M | Next monitor / output |
 | Hyper + T | Terminal |
 | Hyper + F | Files |
 | Hyper + 1 / 2 | Browser / Editor |
 | Hyper + Esc | Lock session |
 | Hyper + . | Type ISO date |
 | Hyper + G | Google clipboard |
-| Hyper + M | Copy hostname |
+| Hyper + E | Paste as plain text |
+| Hyper + U | Open first URL in clipboard |
+
+**Numpad (Hyper held)** — full spatial pad (same as macOS):
+
+```text
+7 TL    8 Top    9 TR
+4 Left  5 Max    6 Right
+1 BL    2 Bot    3 BR
+0 Center
+```
 
 ### Space = nav layer (hold) · space (tap)
 
 | Chord | Action |
 |-------|--------|
 | Space + H/J/K/L | ← ↓ ↑ → |
-| Space + B / W | Word back / forward (Ctrl+arrows on nav layer via keyd; kanata: use arrows) |
-| Space + 0 / 4 (home/end keys on layer) | Line edges |
+| Space + B / W | Word back / forward |
+| Space + Y / P / C | Copy / paste / cut |
+| Space + U / R | Undo / redo |
+| Space + X | Kill to end of line (select EOL + backspace) |
+| Space + A | Select line |
+| Space + S / F | Save / find |
+| Space + , / . | Page up / down |
+| Space + 0 / 4 (or Home/End keys on layer) | Line edges |
+| Space + Q / M | Escape / Return |
 
 Hold threshold default **200ms** (same idea as macOS SpaceFN). Edit `$tap` in `kanata/hyperforge.kbd`.
 
@@ -109,9 +130,9 @@ Hold threshold default **200ms** (same idea as macOS SpaceFN). Edit `$tap` in `k
 
 | Environment | Snaps |
 |-------------|--------|
-| **Hyprland** | `hyprctl` + `jq` geometry (primary) |
-| **Sway** | `swaymsg` floating resize |
-| **X11** | `wmctrl` + `xdotool` |
+| **Hyprland** | `hyprctl` + `jq` geometry (primary); tile + undo layout file |
+| **Sway** | `swaymsg` floating resize; tile ≈ exit float / split |
+| **X11** | `wmctrl` + `xdotool`; equal grid tile |
 | GNOME / KDE Wayland | Limited — use kanata for keys; snaps may need extensions |
 
 Wayland will never match macOS `CGEvent` globally in a portable way. This stack stays below the compositor (kanata) and talks to **one** WM API for windows.
@@ -125,11 +146,11 @@ hyperforge-linux/
 ├── README.md
 ├── install.sh
 ├── bin/
-│   ├── hyperforge-snap      # window geometry
+│   ├── hyperforge-snap      # window geometry + tile
 │   ├── hyperforge-action    # Hyper command targets
 │   └── hyperforge-doctor
 ├── kanata/
-│   └── hyperforge.kbd       # primary config
+│   └── hyperforge.kbd       # primary config (numpad + Space nav)
 ├── keyd/
 │   └── hyperforge.conf      # optional system keyd
 └── systemd/
@@ -157,18 +178,19 @@ Adjust `HF_BIN` paths if you install elsewhere (install.sh rewrites them).
 | | macOS | Linux |
 |--|-------|--------|
 | Input | CGEvent + Karabiner | **kanata** / keyd |
-| Space layer | Built into app | kanata `nav` layer |
+| Space layer | Built into app | kanata `nav` layer (subset) |
+| Window pad | Arrows · numpad · 6 tile · Z undo | **Same chords** |
 | Windows | AX / AppKit | hyprctl / sway / wmctrl |
 | UI | SwiftUI + Infernal skin | CLI + notify-send |
-| Goal | Same chords | Same chords |
+| Goal | Full companion | Same muscle memory |
 
 ---
 
 ## Privacy
 
-- No network by default (except optional `google-clip` → browser).  
+- No network by default (except optional `google-clip` / `open-url` → browser).  
 - No telemetry.  
-- Configs live under `~/.config` and `~/.local/share`.
+- Configs live under `~/.config` and `~/.local/share`. Undo layout cache under `~/.cache/hyperforge-linux`.
 
 ---
 
@@ -178,6 +200,7 @@ Adjust `HF_BIN` paths if you install elsewhere (install.sh rewrites them).
 |---------|-----|
 | kanata can’t open devices | input group, uinput udev, log out |
 | Snaps do nothing on Hyprland | install `jq`; run `hyperforge-snap left` in a terminal |
+| Numpad pad silent | ensure keyboard sends `kp0`–`kp9`; laptop may need Fn |
 | Space layer feels sticky | lower `$tap` (e.g. 120) in `hyperforge.kbd` |
 | Want 4-mod Hyper for apps | use a separate kanata alias with `(multi lctl lalt lmet lsft)` instead of a layer |
 

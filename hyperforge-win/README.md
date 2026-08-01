@@ -2,6 +2,8 @@
 
 **AHK v2 Hyper Key companion** — Caps → Hyper, window snaps, apps, paste transforms, Explorer power moves.
 
+**Parity target:** macOS HyperForge **0.4.x** for window pad / tile-all / undo / monitors. App launch chords stay Windows-native (letter keys differ by design).
+
 Pairs with **[TouchCursor](https://code.google.com/archive/p/touchcursor/)** (or similar) for Space-layer navigation. This project **does not** reimplement SpaceFN.
 
 Evolved from a long-running personal AutoHotkey toolkit; core is open and config-driven. Work-specific automation stays in a private `work/` module.
@@ -26,6 +28,31 @@ Evolved from a long-running personal AutoHotkey toolkit; core is open and config
 
 Caps is held as **Ctrl+Alt+Shift+Win** (same chord family as 4-mod Hyper on macOS).
 
+### Window pad (macOS-aligned)
+
+| Chord | Action |
+|-------|--------|
+| Hyper + ←/→/↑/↓ | Snap half |
+| Hyper + Enter | Maximize |
+| Hyper + **6** | Tile all windows on this monitor |
+| Hyper + 7 / 8 / 9 / 0 | Quarters TL / TR / BL / BR |
+| Hyper + . | Center window (keep size) |
+| Hyper + Z | Undo last snap or tile layout |
+| Hyper + ] / [ | Next / previous monitor |
+| Hyper + A | Always on top (also Ctrl+Shift+Space) |
+| Hyper + B | Minimize (also XButton1) |
+
+**Numpad (Hyper held)** — full spatial pad (same as macOS):
+
+```text
+7 TL    8 Top    9 TR
+4 Left  5 Max    6 Right
+1 BL    2 Bot    3 BR
+0 Center
+```
+
+### Apps & utilities (Windows-native)
+
 | Chord | Action |
 |-------|--------|
 | Hyper + N / V / C / T / E / 4 | Notepad / VS Code / Chrome / Teams / Explorer / Outlook |
@@ -36,21 +63,14 @@ Caps is held as **Ctrl+Alt+Shift+Win** (same chord family as 4-mod Hyper on macO
 | Hyper + H | Edit `edit_target` or this script in VS Code |
 | Hyper + M | Copy hostname |
 | Hyper + W | ARIN whois on clipboard |
-| Hyper + ←/→/↑/↓ / Enter | Snap half / maximize |
-| Hyper + 7 / 8 / 9 / 0 | Quarters (TL / TR / BL / BR) |
-| Hyper + . | Center window (keep size) |
-| Hyper + Z | Undo last snap for this window |
-| Hyper + ] / [ | Move window to next / previous monitor |
-| Win + J | Keep-alive toggle |
+| Hyper + K | Keep-alive toggle (also Win + J) |
 | Win + Esc | Pause / resume Hyper (default 30s) |
-| Ctrl+Shift+Space | Always on top |
 | Ctrl+Alt+Shift+V | Paste transform menu |
 | XButton2 | Quick menu (windows + favorites) |
-| XButton1 | Minimize |
 
-**Per-app mute:** Hyper is off in RDP and processes listed under `[mute]` in `config.ini` (games-friendly). Caps→Hyper is muted there too when `mute.caps_too=1`.
+**Per-app mute:** Hyper is off in RDP and processes listed under `[mute]` in `config.ini` (game-friendly). Caps→Hyper is muted there too when `mute.caps_too=1`.
 
-**Doctor:** tray → **Doctor — health check** (AHK version, config, TouchCursor process, mute list).
+**Doctor:** tray → **Doctor — health check** (AHK version, config, TouchCursor process, mute list, macOS-parity tips).
 
 Snippets: configure under `[snippets]` in `config.ini` (`@@`, `tj`, `,v`, …).
 
@@ -79,9 +99,11 @@ hyperforge-win/
 | | macOS | Windows |
 |--|-------|---------|
 | Hyper | F18 / 4-mod + Karabiner | Caps → `#^!+` in AHK |
+| Window pad | Arrows · numpad · 6 tile · Z undo | **Same** |
 | Space layer | Built-in (TouchCursor-style) | **TouchCursor** (external) |
-| UI | SwiftUI dashboard / Doctor | Tray + config.ini |
+| UI | SwiftUI dashboard / Doctor | Tray + config.ini + Doctor |
 | Engine | Swift CGEvent | AutoHotkey v2 |
+| App keys | 1–5, T, F, … | Letter chords (N/V/C/T/E…) — intentional |
 
 ## License
 

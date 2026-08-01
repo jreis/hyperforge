@@ -1,10 +1,15 @@
-; KeepAlive.ahk — Hyper+J toggle idle nudge (Teams-safe-ish)
+; KeepAlive.ahk — idle nudge (Teams-safe-ish)
+; macOS: Hyper+K · Windows also keeps Win+J (legacy / game-safe)
 
 global HF_KeepAliveOn := false
 
 RegisterKeepAlive() {
     ; Win+J — not full Hyper (avoids fighting game binds); still listed in README
     Hotkey "#j", ToggleKeepAlive
+    ; Hyper+K — macOS muscle memory (muted in games via HyperAllowed)
+    HotIf HyperAllowed
+    Hotkey "#^!+k", ToggleKeepAlive
+    HotIf
 }
 
 ToggleKeepAlive(*) {

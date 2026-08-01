@@ -1,5 +1,6 @@
 ;; HyperForge for Linux — kanata config
 ;; Caps → Hyper layer (tap Esc) · Space → nav layer (tap space)
+;; Parity target: macOS HyperForge 0.4.x core chords + full numpad window pad
 ;;
 ;; Install: ./install.sh  (rewrites HF_BIN)
 ;; Run:    kanata -c ~/.config/kanata/hyperforge.kbd
@@ -10,7 +11,7 @@
   concurrent-tap-hold yes
 )
 
-;; US ANSI subset — every layer must match this length/order
+;; US ANSI + numpad — every layer must match this length/order
 (defsrc
   grv 1    2    3 4 5 6 7  8  9  0  - =
   tab q    w    e r t y u  i  o  p  [ ] \
@@ -20,6 +21,7 @@
   left down up right
   esc bspc
   home end
+  kp0 kp1 kp2 kp3 kp4 kp5 kp6 kp7 kp8 kp9
 )
 
 (defvar
@@ -44,6 +46,8 @@
   scls (cmd HF_BIN/hyperforge-action win-close)
   snx  (cmd HF_BIN/hyperforge-action win-next)
   sund (cmd HF_BIN/hyperforge-action win-undo)
+  stil (cmd HF_BIN/hyperforge-action win-tile)
+  aot  (cmd HF_BIN/hyperforge-action always-on-top)
   term (cmd HF_BIN/hyperforge-action term)
   brws (cmd HF_BIN/hyperforge-action browser)
   edit (cmd HF_BIN/hyperforge-action editor)
@@ -52,6 +56,21 @@
   host (cmd HF_BIN/hyperforge-action hostname)
   date (cmd HF_BIN/hyperforge-action date)
   goog (cmd HF_BIN/hyperforge-action google-clip)
+  ourl (cmd HF_BIN/hyperforge-action open-url)
+  plain (cmd HF_BIN/hyperforge-action plain-paste)
+
+  ;; Space-layer helpers (macOS-ish)
+  wback (multi lctl left)
+  wfwd  (multi lctl right)
+  copy  (multi lctl c)
+  paste (multi lctl v)
+  cutk  (multi lctl x)
+  undo  (multi lctl z)
+  redo  (multi lctl lsft z)
+  save  (multi lctl s)
+  find  (multi lctl f)
+  killx (multi lsft end bspc)
+  sline (multi home lsft end)
 )
 
 (deflayer base
@@ -63,29 +82,39 @@
   left down up right
   esc bspc
   home end
+  kp0 kp1 kp2 kp3 kp4 kp5 kp6 kp7 kp8 kp9
 )
 
 ;; Hold Caps — Hyper
-;; 1 browser · 2 editor · 6 max · 7–0 quarters · arrows halves · t term · f files · x close · esc lock
+;; Main: arrows halves · Enter/Num5 max · 6 tile-all · 7–0 quarters
+;; Numpad full spatial pad (macOS 0.4.x):
+;;   7 TL   8 Top   9 TR
+;;   4 Left 5 Max   6 Right
+;;   1 BL   2 Bot   3 BR
+;;   0 Center
 (deflayer hyper
-  _   @brws @edit _ _ _ @sm @stl @str @sbl @sbr _ _
-  _   _     _     _ @sund @term _ _ @host _ _ _ _ _
-  _   _     @smin _ @files _ _ _ _ _ _ _ @sm
-  _   @sund @scls @sc _ _ _ @snx @date _ _
+  _   @brws @edit _ _ _ @stil @stl @str @sbl @sbr _ _
+  _   _     _     @plain @sund @term _ @ourl _ _ _ _ _ _
+  _   @aot  @smin _ @files @goog _ _ _ _ _ _ @sm
+  _   @sund @scls @sc _ @smin _ @snx _ @date _
   _   _     _     _ _ _
   @sl @sb   @st   @sr
   @lock _
   _ _
+  @sc @sbl @sb @sbr @sl @sm @sr @stl @st @str
 )
 
-;; Hold Space — arrows (TouchCursor)
+;; Hold Space — TouchCursor-style nav (macOS Space layer subset)
+;; HJKL arrows · B/W words · Y/P/C clipboard · U undo · R redo · X kill-EOL
+;; A select line · S save · F find · ,/. page · 0/4 line edges · M enter · Q esc
 (deflayer nav
-  _ _ _ _ _ _ _ _ _ _ _ _ _
-  _ _ _ _ _ _ _ _ _ _ _ _ _ _
-  _ _ _ _ _ _ left down up right _ _ _
-  _ _ _ _ _ home _ _ _ end _
+  _ _ _ _ _ home end _ _ _ _ _ _
+  _ esc @wfwd _ @redo _ @copy @undo _ _ @paste _ _ _
+  _ @sline @save _ @find _ left down up right _ _ ret
+  _ _ @killx @cutk _ @wback _ _ pgup pgdn _
   _ _ _ _ _ _
   left down up right
   _ _
   home end
+  _ _ _ _ _ _ _ _ _ _
 )
