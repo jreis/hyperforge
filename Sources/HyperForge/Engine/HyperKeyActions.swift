@@ -43,6 +43,8 @@ enum HyperKeyActions {
     private static let firstRunSnapIDs: Set<String> = [
         "win-left", "win-right", "win-top", "win-bottom", "win-max",
         "win-center", "win-tl", "win-tr", "win-bl", "win-br",
+        "win-third-left", "win-third-center", "win-third-right",
+        "win-two-thirds-left", "win-two-thirds-right", "win-almost-max",
     ]
 
     /// Side effects for a resolved Hyper action id (engine path).
@@ -67,6 +69,8 @@ enum HyperKeyActions {
             onMain { WindowManager.shared.center() }
         case "win-next-screen":
             onMain { WindowManager.shared.moveToNextScreen() }
+        case "win-prev-screen":
+            onMain { WindowManager.shared.moveToPreviousScreen() }
         case "win-undo":
             // undo() always shows its own rich HUD (success or empty)
             onMain { _ = WindowManager.shared.undo() }
@@ -78,6 +82,20 @@ enum HyperKeyActions {
             onMain { WindowManager.shared.snap(x: 0, y: 0.5, w: 0.5, h: 0.5) }
         case "win-br":
             onMain { WindowManager.shared.snap(x: 0.5, y: 0.5, w: 0.5, h: 0.5) }
+        case "win-third-left":
+            onMain { WindowManager.shared.snapThird(column: 0) }
+        case "win-third-center":
+            onMain { WindowManager.shared.snapThird(column: 1) }
+        case "win-third-right":
+            onMain { WindowManager.shared.snapThird(column: 2) }
+        case "win-two-thirds-left":
+            onMain { WindowManager.shared.snapTwoThirds(leading: true) }
+        case "win-two-thirds-right":
+            onMain { WindowManager.shared.snapTwoThirds(leading: false) }
+        case "win-almost-max":
+            onMain { WindowManager.shared.almostMaximize() }
+        case "win-warp-mouse":
+            onMain { WindowManager.shared.warpMouseToFrontWindow() }
         case "win-close":
             EventSynthesizer.postCommandKey(KeyCode.w)
         case "win-always-on-top":
@@ -124,6 +142,8 @@ enum HyperKeyActions {
             SystemActions.typeDateISO()
         case "prod-pomodoro":
             onMain { PomodoroService.shared.toggle() }
+        case "clip-ocr":
+            onMain { RegionPinService.shared.beginOCRSelection() }
         case "prod-google":
             DispatchQueue.global().async { SystemActions.googleSelection() }
         case "sys-net":
@@ -142,6 +162,8 @@ enum HyperKeyActions {
             DispatchQueue.global().async { SystemActions.openClipboardInNvim() }
         case "clip-paste-menu":
             onMain { PasteTransformService.showMenu() }
+        case "clip-history":
+            onMain { ClipboardService.shared.showHistoryMenu() }
         case "clip-region-pin":
             onMain { RegionPinService.shared.beginSelection() }
         case "clip-image":
@@ -198,11 +220,17 @@ enum HyperKeyActions {
         case "clip-paste-menu":
             PasteTransformService.showMenu()
             return
+        case "clip-history":
+            ClipboardService.shared.showHistoryMenu()
+            return
         case "clip-region-pin":
             RegionPinService.shared.beginSelection()
             return
         case "clip-image":
             ClipboardImagePreview.shared.showManual()
+            return
+        case "clip-ocr":
+            RegionPinService.shared.beginOCRSelection()
             return
         case "sys-quick-menu":
             QuickMenuService.show()
@@ -221,6 +249,15 @@ enum HyperKeyActions {
             return
         case "win-tile-all":
             _ = WindowManager.shared.tileAllVisible()
+            return
+        case "win-prev-screen":
+            WindowManager.shared.moveToPreviousScreen()
+            return
+        case "win-almost-max":
+            WindowManager.shared.almostMaximize()
+            return
+        case "win-warp-mouse":
+            WindowManager.shared.warpMouseToFrontWindow()
             return
         case "app-terminal-here":
             FinderActions.terminalInFrontFolder()
@@ -259,9 +296,13 @@ enum HyperKeyActions {
 
         // Actions that already show a rich HUD — avoid a second toast.
         let hasOwnBanner: Set<String> = [
-            "win-next-screen", "win-tile-all", "win-undo", "win-always-on-top",
-            "win-minimize", "prod-keepalive", "clip-region-pin", "clip-image",
-            "sys-dashboard", "sys-cheatsheet", "sys-command-bar", "sys-shortcuts",
+            "win-next-screen", "win-prev-screen", "win-tile-all", "win-undo",
+            "win-always-on-top", "win-minimize", "win-almost-max",
+            "win-third-left", "win-third-center", "win-third-right",
+            "win-two-thirds-left", "win-two-thirds-right", "win-warp-mouse",
+            "prod-keepalive", "clip-region-pin", "clip-image", "clip-ocr",
+            "clip-history", "sys-dashboard", "sys-cheatsheet", "sys-command-bar",
+            "sys-shortcuts",
         ]
 
         if action.mode == .hyper {

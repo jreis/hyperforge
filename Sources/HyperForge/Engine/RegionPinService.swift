@@ -1,12 +1,13 @@
 // RegionPinService.swift
 // Drag a screen region → capture → stay-on-top floating pin (Snipaste-style).
-// Hyper + P starts selection; Esc cancels.
+// Hyper + P pin · Hyper + O OCR → clipboard. Esc cancels selection.
 
 import AppKit
 import ApplicationServices
 import CoreGraphics
 import Foundation
 import ScreenCaptureKit
+import Vision
 
 @MainActor
 final class RegionPinService {
@@ -21,21 +22,11 @@ final class RegionPinService {
 
     /// Begin interactive region selection across all displays.
     func beginSelection() {
-        cancelSelection()
-
-        // Hide dashboard quietly so it isn't under the dim overlay.
-        for w in AppState.dashboardWindows() { w.orderOut(nil) }
-
-        Banner.show(
-            "Pin region",
-            subtitle: "Drag to select · Esc cancels",
-            style: .info,
+        startSelection(
+            bannerTitle: "Pin region",
+            bannerSubtitle: "Drag to select · Esc cancels",
             symbol: "crop"
-        )
-
-        let session = RegionSelectionSession { [weak self] result in
-            self?.selection = nil
-            self?.refreshEscapeHandlers()
+        ) { [weak self] result in
             switch result {
             case .cancelled:
                 Banner.show(
@@ -55,9 +46,127 @@ final class RegionPinService {
                 )
             }
         }
+    }
+
+    /// Drag-select → on-device Vision OCR → pasteboard (local only).
+    func beginOCRSelection() {
+        startSelection(
+            bannerTitle: "OCR region",
+            bannerSubtitle: "Drag text area · Esc cancels",
+            symbol: "text.viewfinder"
+        ) { result in
+            switch result {
+            case .cancelled:
+                Banner.show(
+                    "OCR cancelled",
+                    subtitle: "No capture",
+                    style: .neutral,
+                    symbol: "text.viewfinder"
+                )
+            case .captured(let image, _):
+                Banner.show(
+                    "Recognizing…",
+                    subtitle: "On-device Vision",
+                    style: .info,
+                    symbol: "text.viewfinder"
+                )
+                Task {
+                    let text = await Self.recognizeText(in: image)
+                    await MainActor.run {
+                        guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        else {
+                            Banner.show(
+                                "No text found",
+                                subtitle: "Try a larger / clearer region",
+                                style: .warning,
+                                symbol: "text.viewfinder"
+                            )
+                            return
+                        }
+                        PasteTransformService.setClipboard(text)
+                        ClipboardService.shared.record(text)
+                        let preview = text
+                            .replacingOccurrences(of: "\n", with: " ")
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        let short =
+                            preview.count > 48 ? String(preview.prefix(45)) + "…" : preview
+                        Banner.show(
+                            "OCR → clipboard",
+                            subtitle: short,
+                            style: .success,
+                            symbol: "text.viewfinder"
+                        )
+                    }
+                }
+            case .failed(let message):
+                Banner.show(
+                    "Capture failed",
+                    subtitle: message,
+                    style: .warning,
+                    symbol: "text.viewfinder"
+                )
+            }
+        }
+    }
+
+    private func startSelection(
+        bannerTitle: String,
+        bannerSubtitle: String,
+        symbol: String,
+        completion: @escaping (RegionSelectionResult) -> Void
+    ) {
+        cancelSelection()
+
+        // Hide dashboard quietly so it isn't under the dim overlay.
+        for w in AppState.dashboardWindows() { w.orderOut(nil) }
+
+        Banner.show(
+            bannerTitle,
+            subtitle: bannerSubtitle,
+            style: .info,
+            symbol: symbol
+        )
+
+        let session = RegionSelectionSession { [weak self] result in
+            self?.selection = nil
+            self?.refreshEscapeHandlers()
+            completion(result)
+        }
         selection = session
         refreshEscapeHandlers()
         session.start()
+    }
+
+    /// On-device text recognition (no network).
+    nonisolated private static func recognizeText(in image: NSImage) async -> String? {
+        guard let cgImage = cgImage(from: image) else { return nil }
+        return await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let request = VNRecognizeTextRequest()
+                request.recognitionLevel = .accurate
+                request.usesLanguageCorrection = true
+                if #available(macOS 13.0, *) {
+                    request.revision = VNRecognizeTextRequestRevision3
+                }
+                let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+                do {
+                    try handler.perform([request])
+                    let lines =
+                        (request.results ?? [])
+                        .compactMap { $0.topCandidates(1).first?.string }
+                    let joined = lines.joined(separator: "\n")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    cont.resume(returning: joined.isEmpty ? nil : joined)
+                } catch {
+                    cont.resume(returning: nil)
+                }
+            }
+        }
+    }
+
+    nonisolated private static func cgImage(from image: NSImage) -> CGImage? {
+        var rect = NSRect(origin: .zero, size: image.size)
+        return image.cgImage(forProposedRect: &rect, context: nil, hints: nil)
     }
 
     func cancelSelection() {

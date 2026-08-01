@@ -141,13 +141,13 @@ final class ClipboardService: ObservableObject {
     static let shared = ClipboardService()
 
     @Published private(set) var history: [String] = []
-    var maxItems = 15
+    var maxItems = 20
     private var lastChangeCount = NSPasteboard.general.changeCount
 
     private init() {}
 
     /// Snapshot current plain-text pasteboard into history if it changed.
-    /// Called from the Clipboard panel (on appear / refresh) — not a background timer.
+    /// Called from the Clipboard panel / Hyper history menu — not a background timer.
     @discardableResult
     func poll() -> Bool {
         let current = NSPasteboard.general.changeCount
@@ -157,12 +157,21 @@ final class ClipboardService: ObservableObject {
         guard let content = NSPasteboard.general.string(forType: .string), !content.isEmpty else {
             return false
         }
-        history.removeAll { $0 == content }
-        history.insert(content, at: 0)
-        if history.count > maxItems {
-            history.removeLast()
-        }
+        record(content)
         return true
+    }
+
+    /// Insert text at the front of history (deduped). Used when HyperForge writes the pasteboard.
+    func record(_ content: String) {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        // Cap stored length so the menu stays snappy
+        let stored = content.count > 8_000 ? String(content.prefix(8_000)) : content
+        history.removeAll { $0 == stored }
+        history.insert(stored, at: 0)
+        if history.count > maxItems {
+            history.removeLast(history.count - maxItems)
+        }
     }
 
     func clearHistory() {
@@ -177,7 +186,120 @@ final class ClipboardService: ObservableObject {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)
+        record(text)
         EventSynthesizer.postKey(KeyCode.v, flags: .maskCommand)
+    }
+
+    /// Paste a history entry (set pasteboard + ⌘V).
+    func pasteHistoryItem(at index: Int) {
+        guard history.indices.contains(index) else { return }
+        let text = history[index]
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(text, forType: .string)
+        lastChangeCount = pb.changeCount
+        // Move to front
+        record(text)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) {
+            EventSynthesizer.postCommandKey(KeyCode.v)
+            Banner.show(
+                "Pasted history",
+                subtitle: "#\(index + 1)",
+                style: .success,
+                symbol: "list.clipboard"
+            )
+        }
+    }
+
+    /// Hyper + ⇧V — local history stack + paste transforms (no network).
+    func showHistoryMenu() {
+        _ = poll()
+        let menu = NSMenu(title: "Clipboard")
+        menu.autoenablesItems = false
+
+        if history.isEmpty {
+            let empty = NSMenuItem(
+                title: "No history yet — copy text, then ⇧V again",
+                action: nil,
+                keyEquivalent: ""
+            )
+            empty.isEnabled = false
+            menu.addItem(empty)
+        } else {
+            let header = NSMenuItem(title: "History", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+            for (i, item) in history.prefix(12).enumerated() {
+                let preview = Self.menuPreview(item)
+                let mi = NSMenuItem(
+                    title: "\(i + 1).  \(preview)",
+                    action: #selector(ClipboardMenuTarget.pasteHistory(_:)),
+                    keyEquivalent: i < 9 ? "\(i + 1)" : ""
+                )
+                mi.tag = i
+                mi.target = ClipboardMenuTarget.shared
+                mi.toolTip = item
+                mi.image = NSImage(
+                    systemSymbolName: "doc.on.clipboard",
+                    accessibilityDescription: nil
+                )
+                menu.addItem(mi)
+            }
+            menu.addItem(.separator())
+            let clear = NSMenuItem(
+                title: "Clear history",
+                action: #selector(ClipboardMenuTarget.clearHistory(_:)),
+                keyEquivalent: ""
+            )
+            clear.target = ClipboardMenuTarget.shared
+            menu.addItem(clear)
+        }
+
+        menu.addItem(.separator())
+        let transforms = NSMenuItem(title: "Paste transforms", action: nil, keyEquivalent: "")
+        transforms.isEnabled = false
+        menu.addItem(transforms)
+        for kind in PasteTransform.allCases {
+            let item = NSMenuItem(
+                title: kind.title,
+                action: #selector(PasteMenuTarget.performTransform(_:)),
+                keyEquivalent: ""
+            )
+            item.representedObject = kind.rawValue
+            item.target = PasteMenuTarget.shared
+            item.image = NSImage(
+                systemSymbolName: kind.symbol,
+                accessibilityDescription: kind.title
+            )
+            menu.addItem(item)
+        }
+
+        let loc = NSEvent.mouseLocation
+        menu.popUp(positioning: nil, at: loc, in: nil)
+    }
+
+    private static func menuPreview(_ text: String) -> String {
+        let oneLine = text
+            .replacingOccurrences(of: "\r\n", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\t", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if oneLine.count <= 56 { return oneLine }
+        return String(oneLine.prefix(53)) + "…"
+    }
+}
+
+@MainActor
+private final class ClipboardMenuTarget: NSObject {
+    static let shared = ClipboardMenuTarget()
+
+    @objc func pasteHistory(_ sender: NSMenuItem) {
+        ClipboardService.shared.pasteHistoryItem(at: sender.tag)
+    }
+
+    @objc func clearHistory(_ sender: NSMenuItem) {
+        ClipboardService.shared.clearHistory()
+        Banner.show("History cleared", style: .neutral, symbol: "trash")
     }
 }
 

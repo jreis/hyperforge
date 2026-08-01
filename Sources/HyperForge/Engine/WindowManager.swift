@@ -103,14 +103,60 @@ final class WindowManager {
         guard let win = frontmostWindow() else { return }
         saveFrame()
         let sf = screenFrame()
-        setFrame(
-            win,
-            NSRect(
-                x: sf.origin.x + sf.width * x,
-                y: sf.origin.y + sf.height * y,
-                width: sf.width * w,
-                height: sf.height * h
+        let frame = NSRect(
+            x: sf.origin.x + sf.width * x,
+            y: sf.origin.y + sf.height * y,
+            width: sf.width * w,
+            height: sf.height * h
+        )
+        setFrame(win, frame)
+        warpMouseToFrame(frame)
+    }
+
+    /// Left / center / right third of the screen (Raycast / Rectangle staple).
+    func snapThird(column: Int) {
+        // column 0 left, 1 center, 2 right
+        let col = max(0, min(2, column))
+        snap(x: CGFloat(col) / 3, y: 0, w: 1.0 / 3, h: 1)
+        let labels = ["Left third", "Center third", "Right third"]
+        Banner.show(
+            labels[col],
+            subtitle: "⅓ screen",
+            style: .success,
+            symbol: "rectangle.split.3x1"
+        )
+    }
+
+    /// Left or right two-thirds.
+    func snapTwoThirds(leading: Bool) {
+        if leading {
+            snap(x: 0, y: 0, w: 2.0 / 3, h: 1)
+            Banner.show(
+                "Left two-thirds",
+                subtitle: "⅔ screen",
+                style: .success,
+                symbol: "rectangle.lefthalf.inset.filled"
             )
+        } else {
+            snap(x: 1.0 / 3, y: 0, w: 2.0 / 3, h: 1)
+            Banner.show(
+                "Right two-thirds",
+                subtitle: "⅔ screen",
+                style: .success,
+                symbol: "rectangle.righthalf.inset.filled"
+            )
+        }
+    }
+
+    /// ~90% centered — coding / docs “almost max” without full-bleed.
+    func almostMaximize(inset: CGFloat = 0.05) {
+        let m = max(0.02, min(0.2, inset))
+        snap(x: m, y: m, w: 1 - 2 * m, h: 1 - 2 * m)
+        Banner.show(
+            "Almost maximize",
+            subtitle: "\(Int((1 - 2 * m) * 100))% centered",
+            style: .success,
+            symbol: "rectangle.inset.filled"
         )
     }
 
@@ -118,18 +164,25 @@ final class WindowManager {
         guard let win = frontmostWindow(), let frame = getFrame(win) else { return }
         let sf = screenFrame()
         saveFrame()
-        setFrame(
-            win,
-            NSRect(
-                x: sf.origin.x + (sf.width - frame.width) / 2,
-                y: sf.origin.y + (sf.height - frame.height) / 2,
-                width: frame.width,
-                height: frame.height
-            )
+        let next = NSRect(
+            x: sf.origin.x + (sf.width - frame.width) / 2,
+            y: sf.origin.y + (sf.height - frame.height) / 2,
+            width: frame.width,
+            height: frame.height
         )
+        setFrame(win, next)
+        warpMouseToFrame(next)
     }
 
     func moveToNextScreen() {
+        moveToAdjacentScreen(delta: 1, label: "Next display")
+    }
+
+    func moveToPreviousScreen() {
+        moveToAdjacentScreen(delta: -1, label: "Previous display")
+    }
+
+    private func moveToAdjacentScreen(delta: Int, label: String) {
         guard let win = frontmostWindow() else {
             Banner.show(
                 "No front window",
@@ -161,26 +214,57 @@ final class WindowManager {
             ?? screens[0]
 
         let idx = screens.firstIndex(of: current) ?? 0
-        let next = screens[(idx + 1) % screens.count]
+        let count = screens.count
+        let nextIdx = ((idx + delta) % count + count) % count
+        let next = screens[nextIdx]
         let axDest = screenFrame(for: next)
         saveFrame()
-        setFrame(
-            win,
-            NSRect(
-                x: axDest.origin.x,
-                y: axDest.origin.y,
-                width: axDest.width,
-                height: axDest.height
-            )
+        let frame = NSRect(
+            x: axDest.origin.x,
+            y: axDest.origin.y,
+            width: axDest.width,
+            height: axDest.height
         )
+        setFrame(win, frame)
+        warpMouseToFrame(frame)
 
         let name = next.localizedName
         Banner.show(
-            "Next display",
+            label,
             subtitle: name.isEmpty ? "Moved window" : name,
             style: .success,
             symbol: "display.2",
             screen: next
+        )
+    }
+
+    /// Warp cursor to the center of an AX frame (top-left origin). Opt-out in Settings.
+    func warpMouseToFrame(_ axFrame: NSRect) {
+        let enabled = UserDefaults.standard.object(forKey: "hf.warpMouseOnSnap") as? Bool ?? true
+        guard enabled, axFrame.width > 1, axFrame.height > 1 else { return }
+        let point = CGPoint(x: axFrame.midX, y: axFrame.midY)
+        CGWarpMouseCursorPosition(point)
+        // Nudge event system so the new location is noticed immediately.
+        CGAssociateMouseAndMouseCursorPosition(boolean_t(1))
+    }
+
+    /// Warp cursor into the frontmost window (Hyper chord / live test).
+    func warpMouseToFrontWindow() {
+        guard let win = frontmostWindow(), let frame = getFrame(win) else {
+            Banner.show(
+                "No front window",
+                subtitle: "Focus a window first",
+                style: .warning,
+                symbol: "cursorarrow"
+            )
+            return
+        }
+        warpMouseToFrame(frame)
+        Banner.show(
+            "Mouse warped",
+            subtitle: "Cursor → window center",
+            style: .success,
+            symbol: "cursorarrow.rays"
         )
     }
 

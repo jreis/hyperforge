@@ -74,6 +74,11 @@ enum KeyCode {
     static let period: CGKeyCode = 0x2F
     static let slash: CGKeyCode = 0x2C
     static let grave: CGKeyCode = 0x32
+    static let minus: CGKeyCode = 0x1B
+    static let equal: CGKeyCode = 0x18
+    static let leftBracket: CGKeyCode = 0x21
+    static let rightBracket: CGKeyCode = 0x1E
+    static let backslash: CGKeyCode = 0x2A
     static let home: CGKeyCode = 0x73
     static let end: CGKeyCode = 0x77
     static let pageUp: CGKeyCode = 0x74
@@ -108,6 +113,11 @@ enum KeyCode {
         case period: return "."
         case slash: return "/"
         case grave: return "`"
+        case minus: return "-"
+        case equal: return "="
+        case leftBracket: return "["
+        case rightBracket: return "]"
+        case backslash: return "\\"
         case f19: return "F19"
         case f20: return "F20"
         case f18, hidF18: return "F18"

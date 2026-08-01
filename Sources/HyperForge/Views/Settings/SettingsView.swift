@@ -260,6 +260,20 @@ struct SettingsView: View {
         }
     }
 
+    private var hyperBindingsHUDBinding: Binding<Bool> {
+        Binding(
+            get: { UserDefaults.standard.object(forKey: "hf.showHyperBindingsHUD") as? Bool ?? true },
+            set: { UserDefaults.standard.set($0, forKey: "hf.showHyperBindingsHUD") }
+        )
+    }
+
+    private var warpMouseBinding: Binding<Bool> {
+        Binding(
+            get: { UserDefaults.standard.object(forKey: "hf.warpMouseOnSnap") as? Bool ?? true },
+            set: { UserDefaults.standard.set($0, forKey: "hf.warpMouseOnSnap") }
+        )
+    }
+
     private var engineTab: some View {
         Form {
             Section("Startup") {
@@ -271,6 +285,17 @@ struct SettingsView: View {
                 Toggle("Auto keep-alive", isOn: $appState.autoKeepAlive)
                 Toggle("Menu bar only (no Dock icon)", isOn: $appState.menuBarOnly)
             }
+            Section("Hyper hold") {
+                Toggle("Show bindings HUD while Hyper is held", isOn: hyperBindingsHUDBinding)
+                Text("Compact key map in the corner after a short hold (HyperKey.spoon-style). Full list: Hyper + / or `.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(HFTheme.textTertiary)
+                Toggle("Warp mouse to window after snaps", isOn: warpMouseBinding)
+                Text("Moves the cursor to the center of the window after snap / display moves. Hyper + W warps on demand.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(HFTheme.textTertiary)
+            }
+
             Section("Space navigation") {
                 Toggle("Space-layer nav (TouchCursor-style)", isOn: $spaceNav.isEnabled)
                 Text("Hold Space + H/J/K/L for arrows and other motions. Tap Space alone still types a space. Hyper+Space is still the command bar.")
@@ -447,8 +472,8 @@ struct SettingsView: View {
                         .textCase(appearance.style == .infernal ? .uppercase : nil)
                     Text(
                         appearance.style == .infernal
-                            ? "v0.4.0 · Built for the beautiful and the damned"
-                            : "v0.4.0 · Local-first automation forge"
+                            ? "v0.5.0 · Built for the beautiful and the damned"
+                            : "v0.5.0 · Local-first automation forge"
                     )
                         .foregroundStyle(HFTheme.textSecondary)
                 }

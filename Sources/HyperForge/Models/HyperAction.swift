@@ -83,6 +83,18 @@ struct HyperAction: Identifiable, Equatable, Codable, Hashable {
         case "win-bottom": return "↓ · Num2"
         case "win-max": return "Return · Num5"
         case "win-center": return "C · Num0"
+        case "win-third-left": return "-"
+        case "win-third-right": return "="
+        case "win-two-thirds-left": return "⇧-"
+        case "win-two-thirds-right": return "⇧="
+        case "win-third-center": return "\\"
+        case "win-almost-max": return "⇧\\"
+        case "win-prev-screen": return "["
+        case "win-next-screen": return "M · ]"
+        case "win-warp-mouse": return "W"
+        case "clip-history": return "⇧V"
+        case "clip-ocr": return "O"
+        case "prod-pomodoro": return "⇧O"
         default: return KeyCode.displayName(CGKeyCode(keyCode))
         }
     }
@@ -91,9 +103,12 @@ struct HyperAction: Identifiable, Equatable, Codable, Hashable {
         switch id {
         case "sys-cheatsheet": return "Hyper + /  ·  Hyper + `  (4-mod: via F19)"
         case "sys-dashboard": return "Hyper + ,  ·  ⌘⇧D  (4-mod: via F20)"
-        case "clip-paste-menu": return "Hyper + ⇧V"
+        case "clip-paste-menu": return "Hyper + ⇧V  (via history menu)"
+        case "clip-history": return "Hyper + ⇧V"
         case "clip-region-pin": return "Hyper + P"
         case "clip-image": return "Hyper + ⇧P  (F18 extra Shift)"
+        case "clip-ocr": return "Hyper + O"
+        case "prod-pomodoro": return "Hyper + ⇧O"
         case "app-terminal-here": return "Hyper + ⇧T"
         case "finder-copy-text": return "Hyper + ⇧C"
         case "finder-open-editor": return "Hyper + ⇧F"
@@ -112,6 +127,15 @@ struct HyperAction: Identifiable, Equatable, Codable, Hashable {
         case "win-bottom": return "Hyper + ↓  ·  Num 2"
         case "win-max": return "Hyper + Return  ·  Num 5"
         case "win-center": return "Hyper + C  ·  Num 0"
+        case "win-third-left": return "Hyper + -"
+        case "win-third-right": return "Hyper + ="
+        case "win-two-thirds-left": return "Hyper + ⇧-"
+        case "win-two-thirds-right": return "Hyper + ⇧="
+        case "win-third-center": return "Hyper + \\"
+        case "win-almost-max": return "Hyper + ⇧\\"
+        case "win-prev-screen": return "Hyper + ["
+        case "win-next-screen": return "Hyper + M  ·  Hyper + ]"
+        case "win-warp-mouse": return "Hyper + W"
         default: break
         }
         switch mode {
@@ -135,12 +159,20 @@ enum ActionCatalog {
         HyperAction(id: "win-max", title: "Maximize", detail: "Fill screen · Return or Num 5", keyCode: KeyCode.return, mode: .hyper, category: .window, isEnabled: true, symbol: "arrow.up.left.and.arrow.down.right"),
         HyperAction(id: "win-tile-all", title: "Tile All Windows", detail: "Grid every visible window on this screen", keyCode: KeyCode.six, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.split.3x3"),
         HyperAction(id: "win-center", title: "Center Window", detail: "Keep size · C or Num 0", keyCode: KeyCode.c, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.center.inset.filled"),
-        HyperAction(id: "win-next-screen", title: "Next Display", detail: "Move window to next screen", keyCode: KeyCode.m, mode: .hyper, category: .window, isEnabled: true, symbol: "display.2"),
+        HyperAction(id: "win-next-screen", title: "Next Display", detail: "Move window to next screen · M or ]", keyCode: KeyCode.m, mode: .hyper, category: .window, isEnabled: true, symbol: "display.2"),
+        HyperAction(id: "win-prev-screen", title: "Previous Display", detail: "Move window to previous screen · [", keyCode: KeyCode.leftBracket, mode: .hyper, category: .window, isEnabled: true, symbol: "display.2"),
         HyperAction(id: "win-undo", title: "Undo Snap", detail: "Restore previous frame", keyCode: KeyCode.z, mode: .hyper, category: .window, isEnabled: true, symbol: "arrow.uturn.backward"),
         HyperAction(id: "win-tl", title: "Top-Left Quarter", detail: "25% top-left · 7 or Num 7", keyCode: KeyCode.seven, mode: .hyper, category: .window, isEnabled: true, symbol: "square.grid.2x2"),
         HyperAction(id: "win-tr", title: "Top-Right Quarter", detail: "25% top-right · 8 or Num 9", keyCode: KeyCode.eight, mode: .hyper, category: .window, isEnabled: true, symbol: "square.grid.2x2"),
         HyperAction(id: "win-bl", title: "Bottom-Left Quarter", detail: "25% bottom-left · 9 or Num 1", keyCode: KeyCode.nine, mode: .hyper, category: .window, isEnabled: true, symbol: "square.grid.2x2"),
         HyperAction(id: "win-br", title: "Bottom-Right Quarter", detail: "25% bottom-right · 0 or Num 3", keyCode: KeyCode.zero, mode: .hyper, category: .window, isEnabled: true, symbol: "square.grid.2x2"),
+        HyperAction(id: "win-third-left", title: "Left Third", detail: "⅓ left · Hyper + -", keyCode: KeyCode.minus, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.split.3x1"),
+        HyperAction(id: "win-third-center", title: "Center Third", detail: "⅓ center · Hyper + \\", keyCode: KeyCode.backslash, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.split.3x1"),
+        HyperAction(id: "win-third-right", title: "Right Third", detail: "⅓ right · Hyper + =", keyCode: KeyCode.equal, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.split.3x1"),
+        HyperAction(id: "win-two-thirds-left", title: "Left Two-Thirds", detail: "⅔ left · Hyper + ⇧-", keyCode: KeyCode.minus, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.lefthalf.inset.filled"),
+        HyperAction(id: "win-two-thirds-right", title: "Right Two-Thirds", detail: "⅔ right · Hyper + ⇧=", keyCode: KeyCode.equal, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.righthalf.inset.filled"),
+        HyperAction(id: "win-almost-max", title: "Almost Maximize", detail: "~90% centered · Hyper + ⇧\\", keyCode: KeyCode.backslash, mode: .hyper, category: .window, isEnabled: true, symbol: "rectangle.inset.filled"),
+        HyperAction(id: "win-warp-mouse", title: "Warp Mouse to Window", detail: "Cursor → front window center · Hyper + W", keyCode: KeyCode.w, mode: .hyper, category: .window, isEnabled: true, symbol: "cursorarrow.rays"),
         // Hide-others is available via Live Test / Command Bar (Hyper+H is scroll left in the engine).
         HyperAction(id: "win-hide-others", title: "Hide Other Apps", detail: "Hide every non-front app (command bar)", keyCode: KeyCode.h, mode: .hyper, category: .window, isEnabled: true, symbol: "eye.slash"),
         HyperAction(id: "win-close", title: "Close Window", detail: "⌘W on front window", keyCode: KeyCode.x, mode: .hyper, category: .window, isEnabled: true, symbol: "xmark"),
@@ -171,7 +203,7 @@ enum ActionCatalog {
         HyperAction(id: "prod-note", title: "Quick Note", detail: "Capture a thought to today's markdown", keyCode: KeyCode.n, mode: .hyper, category: .productivity, isEnabled: true, symbol: "note.text"),
         HyperAction(id: "prod-today", title: "Open Today’s Notes", detail: "Preferred terminal + nvim on daily note", keyCode: KeyCode.d, mode: .hyper, category: .productivity, isEnabled: true, symbol: "calendar"),
         HyperAction(id: "prod-date", title: "Type Date", detail: "Insert yyyy-MM-dd", keyCode: KeyCode.period, mode: .hyper, category: .productivity, isEnabled: true, symbol: "calendar.badge.clock"),
-        HyperAction(id: "prod-pomodoro", title: "Pomodoro", detail: "25-minute focus timer", keyCode: KeyCode.o, mode: .hyper, category: .productivity, isEnabled: true, symbol: "timer"),
+        HyperAction(id: "prod-pomodoro", title: "Pomodoro", detail: "25-minute focus timer · Hyper + ⇧O", keyCode: KeyCode.o, mode: .hyper, category: .productivity, isEnabled: true, symbol: "timer"),
         HyperAction(id: "prod-google", title: "Google Selection", detail: "Search selected text", keyCode: KeyCode.g, mode: .hyper, category: .productivity, isEnabled: true, symbol: "magnifyingglass"),
         HyperAction(id: "prod-shell", title: "Focus Terminal", detail: "Preferred terminal (Settings → Apps)", keyCode: KeyCode.s, mode: .hyper, category: .productivity, isEnabled: true, symbol: "terminal"),
 
@@ -179,9 +211,11 @@ enum ActionCatalog {
         HyperAction(id: "clip-url", title: "Open Clipboard URL", detail: "Extract & open first URL", keyCode: KeyCode.u, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "link"),
         HyperAction(id: "clip-plain", title: "Paste Plain Text", detail: "Strip rich formatting", keyCode: KeyCode.e, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "doc.plaintext"),
         HyperAction(id: "clip-nvim", title: "Clipboard → nvim", detail: "Edit pasteboard in preferred terminal", keyCode: KeyCode.v, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "doc.text"),
-        HyperAction(id: "clip-paste-menu", title: "Paste Transform Menu", detail: "CSV, Base64, URL, timestamps…", keyCode: KeyCode.v, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "arrow.triangle.2.circlepath"),
+        HyperAction(id: "clip-history", title: "Clipboard History", detail: "Local stack · paste or transforms · Hyper + ⇧V", keyCode: KeyCode.v, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "list.clipboard"),
+        HyperAction(id: "clip-paste-menu", title: "Paste Transform Menu", detail: "CSV, Base64, URL… · also under ⇧V history menu", keyCode: KeyCode.v, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "arrow.triangle.2.circlepath"),
         HyperAction(id: "clip-region-pin", title: "Pin Screen Region", detail: "Drag-select region → stay-on-top window", keyCode: KeyCode.p, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "crop"),
         HyperAction(id: "clip-image", title: "Clipboard Image", detail: "Manual pin of pasteboard image (Hyper+⇧P) · not auto", keyCode: KeyCode.p, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "photo"),
+        HyperAction(id: "clip-ocr", title: "OCR Region → Text", detail: "Drag-select → Vision OCR → clipboard · Hyper + O", keyCode: KeyCode.o, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "text.viewfinder"),
 
         // System
         HyperAction(id: "sys-net", title: "Network Info", detail: "Wi-Fi + IP + hostname", keyCode: KeyCode.i, mode: .hyper, category: .system, isEnabled: true, symbol: "wifi"),

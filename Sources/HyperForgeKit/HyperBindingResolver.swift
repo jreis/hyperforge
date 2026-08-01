@@ -69,6 +69,16 @@ public enum HyperKeyCode {
     public static let quote: UInt16 = 0x27
     public static let `return`: UInt16 = 0x24
     public static let escape: UInt16 = 0x35
+    /// `-` / `_` — left third / left two-thirds
+    public static let minus: UInt16 = 0x1B
+    /// `=` / `+` — right third / right two-thirds
+    public static let equal: UInt16 = 0x18
+    /// `[` — previous display
+    public static let leftBracket: UInt16 = 0x21
+    /// `]` — next display (alias of Hyper+M)
+    public static let rightBracket: UInt16 = 0x1E
+    /// `\` / `|` — center third / almost maximize
+    public static let backslash: UInt16 = 0x2A
     public static let leftArrow: UInt16 = 0x7B
     public static let rightArrow: UInt16 = 0x7C
     public static let downArrow: UInt16 = 0x7D
@@ -117,11 +127,35 @@ public enum HyperBindingResolver {
         ),
         .init(actionID: "win-center", keyCode: HyperKeyCode.c, title: "Center"),
         .init(actionID: "win-next-screen", keyCode: HyperKeyCode.m, title: "Next Display"),
+        .init(actionID: "win-next-screen", keyCode: HyperKeyCode.rightBracket, title: "Next Display (])"),
+        .init(actionID: "win-prev-screen", keyCode: HyperKeyCode.leftBracket, title: "Previous Display"),
         .init(actionID: "win-undo", keyCode: HyperKeyCode.z, title: "Undo Snap"),
         .init(actionID: "win-tl", keyCode: HyperKeyCode.seven, title: "Top-Left"),
         .init(actionID: "win-tr", keyCode: HyperKeyCode.eight, title: "Top-Right"),
         .init(actionID: "win-bl", keyCode: HyperKeyCode.nine, title: "Bottom-Left"),
         .init(actionID: "win-br", keyCode: HyperKeyCode.zero, title: "Bottom-Right"),
+        // Thirds / almost-max (Raycast / Rectangle staples)
+        .init(actionID: "win-third-left", keyCode: HyperKeyCode.minus, title: "Left Third"),
+        .init(actionID: "win-third-right", keyCode: HyperKeyCode.equal, title: "Right Third"),
+        .init(
+            actionID: "win-two-thirds-left",
+            keyCode: HyperKeyCode.minus,
+            requiresExtraShift: true,
+            title: "Left Two-Thirds"
+        ),
+        .init(
+            actionID: "win-two-thirds-right",
+            keyCode: HyperKeyCode.equal,
+            requiresExtraShift: true,
+            title: "Right Two-Thirds"
+        ),
+        .init(actionID: "win-third-center", keyCode: HyperKeyCode.backslash, title: "Center Third"),
+        .init(
+            actionID: "win-almost-max",
+            keyCode: HyperKeyCode.backslash,
+            requiresExtraShift: true,
+            title: "Almost Maximize"
+        ),
         // Numpad full pad — spatial window layout (Hyper held)
         //  7 TL   8 Top   9 TR
         //  4 Left 5 Max   6 Right
@@ -140,6 +174,7 @@ public enum HyperBindingResolver {
         .init(actionID: "win-close", keyCode: HyperKeyCode.x, title: "Close Window"),
         .init(actionID: "win-always-on-top", keyCode: HyperKeyCode.a, title: "Always On Top"),
         .init(actionID: "win-minimize", keyCode: HyperKeyCode.b, title: "Minimize"),
+        .init(actionID: "win-warp-mouse", keyCode: HyperKeyCode.w, title: "Warp Mouse to Window"),
         // Scroll / keep-alive
         .init(actionID: "scroll-left", keyCode: HyperKeyCode.h, title: "Scroll Left"),
         .init(actionID: "scroll-down", keyCode: HyperKeyCode.j, title: "Scroll Down"),
@@ -184,17 +219,23 @@ public enum HyperBindingResolver {
         .init(actionID: "prod-note", keyCode: HyperKeyCode.n, title: "Quick Note"),
         .init(actionID: "prod-today", keyCode: HyperKeyCode.d, title: "Today Notes"),
         .init(actionID: "prod-date", keyCode: HyperKeyCode.period, title: "Type Date"),
-        .init(actionID: "prod-pomodoro", keyCode: HyperKeyCode.o, title: "Pomodoro"),
+        .init(actionID: "clip-ocr", keyCode: HyperKeyCode.o, title: "OCR Region → Text"),
+        .init(
+            actionID: "prod-pomodoro",
+            keyCode: HyperKeyCode.o,
+            requiresExtraShift: true,
+            title: "Pomodoro (⇧O)"
+        ),
         .init(actionID: "prod-google", keyCode: HyperKeyCode.g, title: "Google Selection"),
         // Clipboard
         .init(actionID: "clip-url", keyCode: HyperKeyCode.u, title: "Open URL"),
         .init(actionID: "clip-plain", keyCode: HyperKeyCode.e, title: "Paste Plain"),
         .init(actionID: "clip-nvim", keyCode: HyperKeyCode.v, title: "Clipboard nvim"),
         .init(
-            actionID: "clip-paste-menu",
+            actionID: "clip-history",
             keyCode: HyperKeyCode.v,
             requiresExtraShift: true,
-            title: "Paste Transform"
+            title: "Clipboard History (⇧V)"
         ),
         .init(actionID: "clip-region-pin", keyCode: HyperKeyCode.p, title: "Pin Screen Region"),
         .init(
@@ -279,6 +320,22 @@ public enum HyperBindingResolver {
             if extraShift, allowed("sys-copy-hostname") { return .action("sys-copy-hostname") }
             if allowed("win-next-screen") { return .action("win-next-screen") }
             return .unhandled
+        case HyperKeyCode.rightBracket where allowed("win-next-screen"):
+            return .action("win-next-screen")
+        case HyperKeyCode.leftBracket where allowed("win-prev-screen"):
+            return .action("win-prev-screen")
+        case HyperKeyCode.minus:
+            if extraShift, allowed("win-two-thirds-left") { return .action("win-two-thirds-left") }
+            if allowed("win-third-left") { return .action("win-third-left") }
+            return .unhandled
+        case HyperKeyCode.equal:
+            if extraShift, allowed("win-two-thirds-right") { return .action("win-two-thirds-right") }
+            if allowed("win-third-right") { return .action("win-third-right") }
+            return .unhandled
+        case HyperKeyCode.backslash:
+            if extraShift, allowed("win-almost-max") { return .action("win-almost-max") }
+            if allowed("win-third-center") { return .action("win-third-center") }
+            return .unhandled
         case HyperKeyCode.z where allowed("win-undo"):
             return .action("win-undo")
         case HyperKeyCode.seven where allowed("win-tl"),
@@ -358,17 +415,16 @@ public enum HyperBindingResolver {
             return .action("win-close")
         case HyperKeyCode.semicolon where allowed("sys-mic"):
             return .action("sys-mic")
-        case HyperKeyCode.v where allowed("clip-nvim") || allowed("clip-paste-menu"):
-            if extraShift, allowed("clip-paste-menu") { return .action("clip-paste-menu") }
-            if allowed("clip-nvim") { return .action("clip-nvim") }
-            return .unhandled
         case HyperKeyCode.p where allowed("clip-region-pin") || allowed("clip-image"):
             if extraShift, allowed("clip-image") { return .action("clip-image") }
             if allowed("clip-region-pin") { return .action("clip-region-pin") }
             if allowed("clip-image") { return .action("clip-image") }
             return .unhandled
-        case HyperKeyCode.o where allowed("prod-pomodoro"):
-            return .action("prod-pomodoro")
+        case HyperKeyCode.o:
+            if extraShift, allowed("prod-pomodoro") { return .action("prod-pomodoro") }
+            if allowed("clip-ocr") { return .action("clip-ocr") }
+            if allowed("prod-pomodoro") { return .action("prod-pomodoro") }
+            return .unhandled
         case HyperKeyCode.e where allowed("clip-plain"):
             return .action("clip-plain")
         case HyperKeyCode.g where allowed("prod-google"):
@@ -402,8 +458,17 @@ public enum HyperBindingResolver {
             return .action("sys-quick-menu")
         case HyperKeyCode.y where allowed("sys-recipes"):
             return .action("sys-recipes")
-        case HyperKeyCode.w where extraShift && allowed("sys-reverse-dns"):
-            return .action("sys-reverse-dns")
+        case HyperKeyCode.w:
+            if extraShift, allowed("sys-reverse-dns") { return .action("sys-reverse-dns") }
+            if allowed("win-warp-mouse") { return .action("win-warp-mouse") }
+            return .unhandled
+        case HyperKeyCode.v where allowed("clip-nvim") || allowed("clip-history") || allowed("clip-paste-menu"):
+            if extraShift {
+                if allowed("clip-history") { return .action("clip-history") }
+                if allowed("clip-paste-menu") { return .action("clip-paste-menu") }
+            }
+            if allowed("clip-nvim") { return .action("clip-nvim") }
+            return .unhandled
         default:
             return .unhandled
         }

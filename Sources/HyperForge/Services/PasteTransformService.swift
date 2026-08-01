@@ -64,6 +64,9 @@ enum PasteTransformService {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)
+        Task { @MainActor in
+            ClipboardService.shared.record(text)
+        }
     }
 
     static func transform(_ kind: PasteTransform, input: String) -> String? {

@@ -90,6 +90,7 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         runLoopSource = nil
         isRunning = false
         setHyperActive(false)
+        setPhysicalHyperHold(false)
         VimNavigation.shared.cancelSpaceLayer()
         applySpaceLayerUI(held: false, armed: false)
         statusMessage = "Stopped"
@@ -214,9 +215,11 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                     f18Held = true
                     markHyperSeen(now)
                     setHyperActive(true)
+                    setPhysicalHyperHold(true)
                 } else if type == .keyUp {
                     f18Held = false
                     setHyperActive(false)
+                    setPhysicalHyperHold(false)
                     lastHyperTriggerTime = now
                     // Caps-alone → Escape follows this keyUp; don't treat it as UI Esc.
                     noteCapsAloneEscapeWindow(from: now)
@@ -225,8 +228,10 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                     if f18Held {
                         markHyperSeen(now)
                         setHyperActive(true)
+                        setPhysicalHyperHold(true)
                     } else {
                         setHyperActive(false)
+                        setPhysicalHyperHold(false)
                         noteCapsAloneEscapeWindow(from: now)
                     }
                 }
@@ -327,11 +332,13 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             if looksLikeQuadHyper || looksLikeTripleHyper {
                 markHyperSeen(now)
                 setHyperActive(true)
+                setPhysicalHyperHold(true)
                 return nil
             }
             // Physical 4-mod release (Caps up) often precedes Caps-alone Escape.
             if isHyperActive, !f18Held {
                 noteCapsAloneEscapeWindow(from: now)
+                setPhysicalHyperHold(false)
             }
             // Soft release via grace (checked on keyDown) — no logging on every blip.
             return Unmanaged.passUnretained(event)
@@ -494,6 +501,13 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Hold-Hyper live bindings HUD (physical F18 / 4-mod only — not sticky grace).
+    private func setPhysicalHyperHold(_ held: Bool) {
+        DispatchQueue.main.async {
+            HyperBindingsHUD.setHyperHeld(held)
+        }
+    }
+
     private func markHyperSeen(_ date: Date = Date()) {
         lastHyperSeenTime = date
         lastHyperTriggerTime = date
@@ -519,6 +533,7 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
     private func endStickyHyper() {
         f18Held = false
         setHyperActive(false)
+        setPhysicalHyperHold(false)
         lastHyperSeenTime = .distantPast
     }
 

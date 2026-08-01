@@ -107,6 +107,62 @@ struct HyperForgeSmoke {
             check("config patch threw: \(error)", false)
         }
 
+        print("\nHyper binding resolver (0.5 features)")
+        check(
+            "left third on minus",
+            HyperBindingResolver.resolve(keyCode: HyperKeyCode.minus) == .action("win-third-left")
+        )
+        check(
+            "left two-thirds on ⇧minus",
+            HyperBindingResolver.resolve(
+                keyCode: HyperKeyCode.minus,
+                shiftDown: true,
+                hyperConsumesShift: false
+            ) == .action("win-two-thirds-left")
+        )
+        check(
+            "almost max on ⇧backslash",
+            HyperBindingResolver.resolve(
+                keyCode: HyperKeyCode.backslash,
+                shiftDown: true,
+                hyperConsumesShift: false
+            ) == .action("win-almost-max")
+        )
+        check(
+            "prev display on [",
+            HyperBindingResolver.resolve(keyCode: HyperKeyCode.leftBracket)
+                == .action("win-prev-screen")
+        )
+        check(
+            "OCR on O",
+            HyperBindingResolver.resolve(keyCode: HyperKeyCode.o) == .action("clip-ocr")
+        )
+        check(
+            "history on ⇧V",
+            HyperBindingResolver.resolve(
+                keyCode: HyperKeyCode.v,
+                shiftDown: true,
+                hyperConsumesShift: false
+            ) == .action("clip-history")
+        )
+        check(
+            "warp mouse on W",
+            HyperBindingResolver.resolve(keyCode: HyperKeyCode.w) == .action("win-warp-mouse")
+        )
+        check(
+            "every spec still resolves",
+            HyperBindingResolver.specs.allSatisfy { spec in
+                if case .action(let id) = HyperBindingResolver.resolve(
+                    keyCode: spec.keyCode,
+                    shiftDown: spec.requiresExtraShift,
+                    hyperConsumesShift: false
+                ) {
+                    return id == spec.actionID
+                }
+                return false
+            }
+        )
+
         print("\nHyper chord routing")
         check(
             "nil enable set allows all",

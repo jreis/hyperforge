@@ -78,12 +78,16 @@ swift run   # launch the app from the build product
 - **First-run challenge** — prove Hyper, Space+HJKL, and a window snap in ~10 seconds  
 - **Space navigation** — hold Space for vim-style motions + edit/clipboard chords; tap Space still types a space  
 - **NAV pill + menu bar mode** — floating indicator while Space layer is armed; menu icon switches to arrows  
+- **Hold-Hyper HUD** — compact bindings overlay while Caps/Hyper is held (Settings → Engine)  
 - **Per-app Space block list** — e.g. keep Terminal normal; allow Ghostty (editable in Settings)  
 - **Profiles & auto-triggers** — Coding / Browsing / Music / Minimal; Wi‑Fi, app, or time  
 - **Per-app Hyper overrides** — disable or remap chords per bundle ID  
 - **Snippets** — local hotstrings; `{{date}}` with custom formats; clipboard / hostname tokens  
 - **Shortcuts** — Hyper + `'` or ⇧S → run installed macOS Shortcuts  
-- **Window tools** — snap, tile, undo, next display, always-on-top, region pin  
+- **Window tools** — halves, quarters, **thirds / two-thirds**, almost-max, tile, undo, next/prev display, mouse warp  
+- **Clipboard history** — local stack on Hyper + ⇧V (plus paste transforms); no background polling  
+- **OCR region** — Hyper + O drag-select → on-device Vision text → clipboard  
+- **Region pin** — Hyper + P stay-on-top capture  
 - **Command bar** — Hyper + Space; offline router + optional local Ollama  
 - **Config backup** — Settings → Privacy → export/import JSON (profiles, snippets, Space nav, prefs)  
 - **Cheat sheet** — Hyper + / or `` ` ``; Space bindings grouped (Move / Kill / Clipboard / Mac)
@@ -128,10 +132,16 @@ Hold-before-layer (~200 ms default) and blocked apps: **Settings → Engine �
 | Hyper + ←/→/↑/↓ | Snap half |
 | Hyper + Return | Maximize |
 | Hyper + **Numpad** | Full spatial pad (see below) |
+| Hyper + - / = / \\ | Left / right / center **third** |
+| Hyper + ⇧- / ⇧= / ⇧\\ | Left ⅔ · right ⅔ · **almost max** |
 | Hyper + 6 | Tile all windows |
+| Hyper + [ / ] · M | Previous / next display |
+| Hyper + W | Warp mouse to front window |
 | Hyper + H/J/L | Scroll |
 | Hyper + K | Keep-alive |
 | Hyper + Space | Command bar |
+| Hyper + O | OCR region → clipboard |
+| Hyper + ⇧V | Clipboard history + paste transforms |
 | Hyper + P | Pin screen region |
 | Hyper + T / ⇧T | Terminal · terminal in Finder folder |
 | Hyper + , | Dashboard |
@@ -260,7 +270,7 @@ A full CGEvent-tap engine fits **direct download / open source** better than the
 
 ## Status
 
-**Done:** Doctor, dual Hyper style, Space nav + per-app blocks, snippets, Shortcuts, region pin, profiles, overrides, config backup, Ollama model-fit, smoke tests.
+**Done:** Doctor, dual Hyper style, Space nav + per-app blocks, snippets, Shortcuts, region pin, OCR region, clipboard history, thirds / almost-max, hold-Hyper HUD, profiles, overrides, config backup, Ollama model-fit, smoke tests.
 
 **Maybe later:** MLX without Ollama, demo GIF capture, Sparkle updates.
 

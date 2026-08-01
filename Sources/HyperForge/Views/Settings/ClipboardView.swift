@@ -15,7 +15,7 @@ struct ClipboardView: View {
                         Text("Clipboard")
                             .font(.system(size: 26, weight: .bold, design: .rounded))
                             .foregroundStyle(HFTheme.textPrimary)
-                        Text("Local plain-text history. Snapshots when you open this panel or tap Refresh — no background polling.")
+                        Text("Local plain-text history. Hyper + ⇧V opens the quick menu. Snapshots on open / refresh — no background polling.")
                             .font(.system(size: 13))
                             .foregroundStyle(HFTheme.textSecondary)
                     }
