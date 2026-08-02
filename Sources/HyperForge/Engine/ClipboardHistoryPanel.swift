@@ -12,8 +12,8 @@ import Foundation
 enum ClipboardHistoryPanel {
     private static var window: NSPanel?
     private static var localMonitor: Any?
-    /// Atomic for event-tap reads (HyperKeyEngine is not MainActor).
-    private static let visibleLock = NSLock()
+    /// Shared with the CGEvent tap (non-MainActor).
+    nonisolated private static let visibleLock = NSLock()
     nonisolated(unsafe) private static var visibleFlag = false
 
     /// Safe from the CGEvent tap thread.
@@ -23,7 +23,7 @@ enum ClipboardHistoryPanel {
         return visibleFlag
     }
 
-    private static func setVisible(_ v: Bool) {
+    nonisolated private static func setVisible(_ v: Bool) {
         visibleLock.lock()
         visibleFlag = v
         visibleLock.unlock()
