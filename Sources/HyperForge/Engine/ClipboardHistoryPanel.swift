@@ -1,6 +1,5 @@
 // ClipboardHistoryPanel.swift
-// Hyper+V → big floating panel (not a status-item flash). Esc closes.
-// Opened after Caps release so the menu isn't killed by Hyper modifiers.
+// Hyper+V → large floating panel. Esc closes. Never blocks on pasteboard.
 
 import AppKit
 import Foundation
@@ -11,7 +10,6 @@ enum ClipboardHistoryPanel {
     nonisolated(unsafe) private static var tracking = false
     private static var window: NSPanel?
     private static var localMonitor: Any?
-    private static var globalMonitor: Any?
 
     nonisolated static var isShowing: Bool {
         lock.lock(); defer { lock.unlock() }
@@ -23,175 +21,169 @@ enum ClipboardHistoryPanel {
     }
 
     static func show() {
+        HyperDebug.log("clipboard.show 1 enter")
+
         if isShowing {
-            HyperDebug.log("clipboard.show ignored (already open)")
-            bringToFront()
+            HyperDebug.log("clipboard.show already open → front")
+            window?.orderFrontRegardless()
             return
         }
 
-        HyperDebug.log("clipboard.show begin")
-        EventSynthesizer.clearCapsLockIfLatched()
-
-        _ = ClipboardService.shared.poll()
-        // Always include current pasteboard text even if poll thought nothing changed.
-        if let cur = NSPasteboard.general.string(forType: .string), !cur.isEmpty {
-            ClipboardService.shared.record(cur)
-        }
+        // In-memory history only — never block the main thread on NSPasteboard.
         let items = Array(ClipboardService.shared.history.prefix(15))
+        HyperDebug.log("clipboard.show 2 items=\(items.count)")
 
-        let panel = buildPanel(items: items)
+        let panel: NSPanel
+        do {
+            panel = makePanel(items: items)
+        } catch {
+            HyperDebug.log("clipboard.show BUILD FAIL \(error)")
+            Banner.show("Clipboard menu failed", subtitle: "\(error)", style: .danger)
+            return
+        }
+        HyperDebug.log("clipboard.show 3 panel built")
+
         window = panel
         setTracking(true)
         HyperKeyEngine.shared.noteClipboardPanelVisible(true)
 
-        // Center on main screen — impossible to miss (status-item menus were easy to miss).
         if let screen = NSScreen.main ?? NSScreen.screens.first {
-            let f = panel.frame
-            let x = screen.visibleFrame.midX - f.width / 2
-            let y = screen.visibleFrame.midY - f.height / 2
-            panel.setFrameOrigin(NSPoint(x: x, y: y))
+            let size = panel.frame.size
+            let x = screen.visibleFrame.midX - size.width / 2
+            let y = screen.visibleFrame.midY - size.height / 2
+            panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
         }
+        HyperDebug.log("clipboard.show 4 positioned")
 
+        // No NSApp.activate — can hang / steal focus badly for LSUIElement apps.
         panel.orderFrontRegardless()
-        panel.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        HyperDebug.log("clipboard.show 5 ordered front")
 
-        installKeyMonitors()
+        installEscMonitor()
+        HyperDebug.log("clipboard.show 6 monitors")
 
         Banner.show(
             "Clipboard history",
-            subtitle: items.isEmpty ? "Empty — copy text first · Esc closes" : "Click a row or 1–9 · Esc closes",
-            style: .info,
+            subtitle: items.isEmpty
+                ? "Empty list · copy text, then Hyper+V again · Esc closes"
+                : "Pick a row · Esc closes",
+            style: .success,
             symbol: "list.clipboard",
-            duration: 2.0
+            duration: 2.5
         )
-        HyperDebug.log("clipboard.show finished items=\(items.count)")
+        HyperDebug.log("clipboard.show DONE items=\(items.count)")
+
+        // Fill history off the hot path (pasteboard can block).
+        DispatchQueue.global(qos: .userInitiated).async {
+            let text = NSPasteboard.general.string(forType: .string)
+            guard let text, !text.isEmpty else { return }
+            DispatchQueue.main.async {
+                ClipboardService.shared.record(text)
+            }
+        }
     }
 
     static func hide() {
-        guard isShowing || window != nil else { return }
-        teardown()
-        HyperKeyEngine.shared.noteClipboardPanelVisible(false)
-        HyperKeyEngine.shared.resyncHyperAfterMenu()
         HyperDebug.log("clipboard.hide")
-    }
-
-    private static func bringToFront() {
-        window?.orderFrontRegardless()
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
-    private static func teardown() {
         setTracking(false)
         if let mon = localMonitor {
             NSEvent.removeMonitor(mon)
             localMonitor = nil
         }
-        if let mon = globalMonitor {
-            NSEvent.removeMonitor(mon)
-            globalMonitor = nil
-        }
         window?.orderOut(nil)
         window?.close()
         window = nil
+        HyperKeyEngine.shared.noteClipboardPanelVisible(false)
+        HyperKeyEngine.shared.resyncHyperAfterMenu()
     }
 
-    private static func installKeyMonitors() {
+    private static func installEscMonitor() {
+        if let mon = localMonitor {
+            NSEvent.removeMonitor(mon)
+            localMonitor = nil
+        }
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            handleKey(event, global: false)
-        }
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
-            _ = handleKey(event, global: true)
-        }
-    }
-
-    @discardableResult
-    private static func handleKey(_ event: NSEvent, global: Bool) -> NSEvent? {
-        guard isShowing else { return event }
-        if event.keyCode == KeyCode.escape {
-            hide()
-            return global ? event : nil
-        }
-        let digits: [UInt16: Int] = [
-            0x12: 0, 0x13: 1, 0x14: 2, 0x15: 3, 0x17: 4,
-            0x16: 5, 0x1A: 6, 0x1C: 7, 0x19: 8,
-        ]
-        if let idx = digits[event.keyCode],
-           event.modifierFlags.intersection([.command, .control, .option]).isEmpty
-        {
-            if ClipboardService.shared.history.indices.contains(idx) {
+            guard isShowing else { return event }
+            if event.keyCode == KeyCode.escape {
+                hide()
+                return nil
+            }
+            let map: [UInt16: Int] = [
+                0x12: 0, 0x13: 1, 0x14: 2, 0x15: 3, 0x17: 4,
+                0x16: 5, 0x1A: 6, 0x1C: 7, 0x19: 8,
+            ]
+            if let idx = map[event.keyCode],
+               ClipboardService.shared.history.indices.contains(idx)
+            {
                 hide()
                 ClipboardService.shared.pasteHistoryItem(at: idx)
-                return global ? event : nil
+                return nil
             }
+            return event
         }
-        return event
     }
 
-    private static func buildPanel(items: [String]) -> NSPanel {
-        let width: CGFloat = 440
-        let rowH: CGFloat = 34
-        let headerH: CGFloat = 48
-        let footerH: CGFloat = 36
-        let rows = max(1, min(items.count, 12))
-        let height = headerH + CGFloat(rows) * rowH + footerH + 16
+    private static func makePanel(items: [String]) -> NSPanel {
+        let width: CGFloat = 460
+        let rowH: CGFloat = 36
+        let headerH: CGFloat = 52
+        let footerH: CGFloat = 40
+        let n = max(1, min(items.count, 12))
+        let height = headerH + CGFloat(n) * rowH + footerH
 
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
-        panel.title = "HyperForge Clipboard"
+        panel.title = "HyperForge — Clipboard"
         panel.isFloatingPanel = true
-        panel.level = .floating
-        panel.hidesOnDeactivate = false
+        panel.level = .screenSaver // above almost everything
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.isReleasedWhenClosed = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .moveToActiveSpace]
-        panel.backgroundColor = NSColor.windowBackgroundColor
+        panel.hidesOnDeactivate = false
 
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
 
         let title = NSTextField(labelWithString: "Clipboard history")
-        title.font = .systemFont(ofSize: 16, weight: .bold)
-        title.frame = NSRect(x: 16, y: height - 36, width: width - 50, height: 24)
-        root.addSubview(title)
+        title.font = .boldSystemFont(ofSize: 15)
+        title.frame = NSRect(x: 16, y: height - 40, width: width - 40, height: 24)
+        content.addSubview(title)
 
         if items.isEmpty {
             let empty = NSTextField(
-                wrappingLabelWithString: "Nothing saved yet.\nCopy some text, then press Hyper+V again."
+                wrappingLabelWithString: "No clips saved yet.\nCopy text somewhere, then press Hyper+V again.\n\n(Esc closes this window)"
             )
             empty.font = .systemFont(ofSize: 13)
             empty.textColor = .secondaryLabelColor
-            empty.frame = NSRect(x: 16, y: footerH + 20, width: width - 32, height: 60)
-            root.addSubview(empty)
+            empty.frame = NSRect(x: 16, y: 50, width: width - 32, height: 100)
+            content.addSubview(empty)
         } else {
             for (i, text) in items.enumerated() {
-                let y = height - headerH - CGFloat(i + 1) * rowH
-                let btn = NSButton(frame: NSRect(x: 12, y: y, width: width - 24, height: rowH - 4))
+                let y = height - headerH - CGFloat(i + 1) * rowH + 4
+                let btn = NSButton(
+                    frame: NSRect(x: 12, y: y, width: width - 24, height: rowH - 6)
+                )
                 btn.bezelStyle = .rounded
-                btn.setButtonType(.momentaryPushIn)
                 btn.title = "\(i + 1).  \(preview(text))"
                 btn.alignment = .left
                 btn.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
                 btn.tag = i
-                btn.target = Target.shared
-                btn.action = #selector(Target.paste(_:))
+                btn.target = PanelTarget.shared
+                btn.action = #selector(PanelTarget.paste(_:))
                 btn.toolTip = text
-                root.addSubview(btn)
+                content.addSubview(btn)
             }
         }
 
-        let hint = NSTextField(labelWithString: "Esc to close  ·  1–9 to paste")
+        let hint = NSTextField(labelWithString: "Esc to close")
         hint.font = .systemFont(ofSize: 11)
         hint.textColor = .tertiaryLabelColor
-        hint.frame = NSRect(x: 16, y: 10, width: width - 32, height: 18)
-        root.addSubview(hint)
+        hint.frame = NSRect(x: 16, y: 12, width: width - 32, height: 18)
+        content.addSubview(hint)
 
-        panel.contentView = root
-        panel.standardWindowButton(.closeButton)?.target = Target.shared
-        panel.standardWindowButton(.closeButton)?.action = #selector(Target.close)
+        panel.contentView = content
         return panel
     }
 
@@ -199,29 +191,19 @@ enum ClipboardHistoryPanel {
         let one = text
             .replacingOccurrences(of: "\r\n", with: " ")
             .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\t", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        if one.count <= 52 { return one }
-        return String(one.prefix(49)) + "…"
+        if one.count <= 54 { return one }
+        return String(one.prefix(51)) + "…"
     }
 }
 
 @MainActor
-private final class Target: NSObject {
-    static let shared = Target()
+private final class PanelTarget: NSObject {
+    static let shared = PanelTarget()
 
     @objc func paste(_ sender: NSButton) {
         let idx = sender.tag
         ClipboardHistoryPanel.hide()
         ClipboardService.shared.pasteHistoryItem(at: idx)
-    }
-
-    @objc func close() {
-        ClipboardHistoryPanel.hide()
-    }
-
-    @objc func clear(_ sender: Any?) {
-        ClipboardService.shared.clearHistory()
-        Banner.show("History cleared", style: .neutral, symbol: "trash")
     }
 }
