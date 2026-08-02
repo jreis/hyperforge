@@ -62,6 +62,9 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
     private var pendingMenuOpener: (() -> Void)?
     private var pendingMenuTimeout: DispatchWorkItem?
     private let pendingMenuTimeoutSeconds: TimeInterval = 0.40
+    /// Hyper+V while Caps still held → show menu on Caps release (menus die if opened mid-hold).
+    private var pendingClipboardMenu = false
+    private var pendingClipboardTimeout: DispatchWorkItem?
     private var enabledIDsCopy: Set<String>?
 
     private var eventTap: CFMachPort?
@@ -243,6 +246,9 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                     lastHyperTriggerTime = now
                     noteCapsAloneEscapeWindow(from: now)
                     flushPendingMenu(force: false)
+                    // Hyper+V while Caps held: open clipboard only after release
+                    // (NSMenu dismisses instantly if modifiers are still down).
+                    flushPendingClipboardMenu()
                     HyperDebug.log("CAPS/F18 up key=\(keyCode) f18Held=0")
                 }
             }
@@ -444,23 +450,15 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                 return nil
             }
 
-            // Hyper+V / ⇧V → clipboard menu always (swallow V so it never types into Ghostty).
+            // Hyper+V / ⇧V → clipboard menu (swallow V). Open on Caps *release* so the
+            // menu is not dismissed by the still-held Hyper modifiers (see debug log).
             if keyCode == KeyCode.v {
                 HyperDebug.log(
-                    "HYPER+V swallow f18Held=\(f18Held) physical=\(physicallyHeld) grace=\(withinGrace)"
+                    "HYPER+V swallow f18Held=\(f18Held) physical=\(physicallyHeld) grace=\(withinGrace) → defer menu until Caps up"
                 )
-                HyperLog.event("HYPER+V → clipboard history (hardwired)")
+                HyperLog.event("HYPER+V → clipboard history (defer until Caps release)")
                 SnippetEngine.shared.resetBuffer()
-                DispatchQueue.main.async {
-                    Banner.show(
-                        "Clipboard",
-                        subtitle: "Opening history…",
-                        style: .info,
-                        symbol: "list.clipboard",
-                        duration: 1.0
-                    )
-                    ClipboardHistoryPanel.show()
-                }
+                scheduleClipboardMenuAfterCapsRelease()
                 return nil
             }
 
@@ -519,6 +517,11 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                 HyperDebug.log(
                     "V LEAKED to typing f18Held=\(f18Held) hyperActive=\(isHyperActive) alphaShift=\(alpha) flags=\(flags.rawValue)"
                 )
+                // Caps Lock LED stuck ON (Karabiner blocks normal Caps toggle).
+                if alpha {
+                    EventSynthesizer.clearCapsLockIfLatched()
+                    HyperDebug.log("cleared latched Caps Lock after V leak")
+                }
             }
             if SnippetEngine.shared.handleTypedKey(
                 character: chars,
@@ -621,6 +624,47 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         }
         lock.unlock()
         HyperLog.event("clipboardPanelVisible=\(visible)")
+    }
+
+    /// Hyper+V while Caps held: queue menu, open on Caps keyUp (or short timeout).
+    private func scheduleClipboardMenuAfterCapsRelease() {
+        pendingClipboardTimeout?.cancel()
+        pendingClipboardMenu = true
+        HyperDebug.log("clipboard menu scheduled (waiting for Caps release)")
+
+        DispatchQueue.main.async {
+            Banner.show(
+                "Clipboard",
+                subtitle: "Release Caps to open menu",
+                style: .info,
+                symbol: "list.clipboard",
+                duration: 1.4
+            )
+        }
+
+        // If Caps already up (sticky Hyper only), open next turn.
+        if !f18Held {
+            flushPendingClipboardMenu()
+            return
+        }
+
+        // Safety: if user keeps holding Caps, open after a beat anyway.
+        let work = DispatchWorkItem { [weak self] in
+            self?.flushPendingClipboardMenu()
+        }
+        pendingClipboardTimeout = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55, execute: work)
+    }
+
+    private func flushPendingClipboardMenu() {
+        guard pendingClipboardMenu else { return }
+        pendingClipboardMenu = false
+        pendingClipboardTimeout?.cancel()
+        pendingClipboardTimeout = nil
+        HyperDebug.log("clipboard menu flush → show")
+        DispatchQueue.main.async {
+            ClipboardHistoryPanel.show()
+        }
     }
 
     /// After NSMenu.popUp returns: Caps keyUp was often eaten — treat Hyper as released.

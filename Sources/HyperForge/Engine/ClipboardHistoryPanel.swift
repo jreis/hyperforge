@@ -23,6 +23,12 @@ enum ClipboardHistoryPanel {
     }
 
     static func show() {
+        // Avoid re-entrancy if already open.
+        if isShowing {
+            HyperDebug.log("clipboard.show ignored (already open)")
+            return
+        }
+
         HyperDebug.log("clipboard.show begin")
 
         _ = ClipboardService.shared.poll()
@@ -66,21 +72,23 @@ enum ClipboardHistoryPanel {
         HyperKeyEngine.shared.noteClipboardPanelVisible(true)
 
         // Temporary status item → performClick is the reliable LSUIElement popup path.
+        // Call only when Caps is already up (see scheduleClipboardMenuAfterCapsRelease).
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem = item
         if let button = item.button {
-            button.title = "📋"
+            button.image = NSImage(
+                systemSymbolName: "list.clipboard",
+                accessibilityDescription: "Clipboard"
+            )
             button.toolTip = "HyperForge clipboard"
             item.menu = menu
-            // Open immediately.
             button.performClick(nil)
         } else {
-            // Fallback: classic popUp
             menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
             menuDidClose()
         }
 
-        HyperDebug.log("clipboard.show requested items=\(items.count)")
+        HyperDebug.log("clipboard.show finished items=\(items.count)")
     }
 
     static func hide() {
