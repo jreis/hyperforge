@@ -155,7 +155,9 @@ enum ClipboardHistoryPanel {
         panel.title = "HyperForge — Clipboard"
         panel.isFloatingPanel = true
         panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .moveToActiveSpace]
+        // canJoinAllSpaces + moveToActiveSpace are mutually exclusive; combining them
+        // triggers NSWindow._validateCollectionBehavior: → SIGABRT (Hyper+V crash).
+        panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = false
