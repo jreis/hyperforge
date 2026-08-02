@@ -231,12 +231,13 @@ public enum HyperBindingResolver {
         // Clipboard
         .init(actionID: "clip-url", keyCode: HyperKeyCode.u, title: "Open URL"),
         .init(actionID: "clip-plain", keyCode: HyperKeyCode.e, title: "Paste Plain"),
-        .init(actionID: "clip-nvim", keyCode: HyperKeyCode.v, title: "Clipboard nvim"),
+        // Hyper+V = history (works for F18 and 4-mod; 4-mod cannot distinguish ⇧V)
+        .init(actionID: "clip-history", keyCode: HyperKeyCode.v, title: "Clipboard History"),
         .init(
-            actionID: "clip-history",
+            actionID: "clip-nvim",
             keyCode: HyperKeyCode.v,
             requiresExtraShift: true,
-            title: "Clipboard History (⇧V)"
+            title: "Clipboard nvim (⇧V · F18 only)"
         ),
         .init(actionID: "clip-region-pin", keyCode: HyperKeyCode.p, title: "Pin Screen Region"),
         .init(
@@ -466,10 +467,13 @@ public enum HyperBindingResolver {
             if allowed("win-warp-mouse") { return .action("win-warp-mouse") }
             return .unhandled
         case HyperKeyCode.v where allowed("clip-nvim") || allowed("clip-history") || allowed("clip-paste-menu"):
+            // F18 + physical Shift → nvim (or paste menu fallback).
+            // Plain Hyper+V (and all 4-mod V) → clipboard history — 4-mod cannot do ⇧V.
             if extraShift {
-                if allowed("clip-history") { return .action("clip-history") }
+                if allowed("clip-nvim") { return .action("clip-nvim") }
                 if allowed("clip-paste-menu") { return .action("clip-paste-menu") }
             }
+            if allowed("clip-history") { return .action("clip-history") }
             if allowed("clip-nvim") { return .action("clip-nvim") }
             return .unhandled
         default:

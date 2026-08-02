@@ -211,7 +211,7 @@ final class ClipboardService: ObservableObject {
         }
     }
 
-    /// Hyper + ⇧V — local history (non-modal panel; never NSMenu.popUp).
+    /// Hyper + V — local history (non-modal panel).
     func showHistoryMenu() {
         ClipboardHistoryPanel.show()
     }

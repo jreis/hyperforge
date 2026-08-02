@@ -37,7 +37,7 @@ enum HyperKeyActions {
                     return false
                 }
                 if HyperKeyEngine.shared.shouldSuppressSysLock {
-                    HyperLog.event("sys-lock suppressed (menu session / post-menu Esc)")
+                    HyperLog.event("sys-lock suppressed (menu / clipboard panel)")
                     return true // consume without locking
                 }
             }
@@ -172,7 +172,11 @@ enum HyperKeyActions {
             // Defer popUp until Caps/Hyper released (see openMenuAfterHyperRelease).
             onMain { PasteTransformService.showMenu() }
         case "clip-history":
-            onMain { ClipboardService.shared.showHistoryMenu() }
+            onMain {
+                // End sticky Hyper after chord so Esc isn't Hyper+Esc; Caps keyUp still works.
+                HyperKeyEngine.shared.softClearHyperHold(reason: "clip-history-chord")
+                ClipboardHistoryPanel.show()
+            }
         case "clip-region-pin":
             onMain { RegionPinService.shared.beginSelection() }
         case "clip-image":

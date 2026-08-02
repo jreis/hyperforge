@@ -80,6 +80,14 @@ struct MenuBarPopover: View {
             }
 
             Button {
+                DispatchQueue.main.async {
+                    HyperKeyEngine.shared.resetHyperState()
+                }
+            } label: {
+                Label("Reset Hyper / Caps latch", systemImage: "arrow.clockwise")
+            }
+
+            Button {
                 DispatchQueue.main.async { KeepAliveService.shared.toggle() }
             } label: {
                 Label(
