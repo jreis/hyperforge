@@ -506,34 +506,41 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         }
 
         // Text expansions — lock-based matcher, never block the tap waiting for MainActor.
-        // (Previously: main.async + semaphore.wait up to 150ms *per keystroke* → system-wide lag.)
         if !flags.contains(.maskCommand)
             && !flags.contains(.maskControl)
             && !flags.contains(.maskAlternate)
             && !VimNavigation.shared.isActive
         {
             let chars = event.keyboardGetUnicodeString()
-            // Diagnose: V reached typing path = Hyper was NOT active for this key.
-            if keyCode == KeyCode.v {
+
+            // ── Stuck Caps Lock LED + V (your debug log) ─────────────────
+            // With Karabiner Caps→F18, Caps never toggles the LED. If the LED is
+            // latched ON, users think "Hyper is on" and press ⇧V — but f18Held is
+            // false, so V types as capital V. Treat that as Hyper+V: swallow V,
+            // clear the LED, open the clipboard menu.
+            if keyCode == KeyCode.v, type == .keyDown {
                 let alpha = flags.contains(.maskAlphaShift)
                 HyperDebug.log(
-                    "V LEAKED to typing f18Held=\(f18Held) hyperActive=\(isHyperActive) alphaShift=\(alpha) flags=\(flags.rawValue)"
+                    "V without Hyper f18Held=\(f18Held) hyperActive=\(isHyperActive) alphaShift=\(alpha) flags=\(flags.rawValue)"
                 )
-                // Caps Lock LED stuck ON → capital V. Clear + tell the user to hold Caps.
                 if alpha {
                     EventSynthesizer.clearCapsLockIfLatched()
-                    HyperDebug.log("cleared latched Caps Lock after V leak")
+                    HyperDebug.log("stuck CapsLock+V → treat as Hyper+V (swallow + menu)")
+                    SnippetEngine.shared.resetBuffer()
+                    scheduleClipboardMenuAfterCapsRelease()
                     DispatchQueue.main.async {
                         Banner.show(
-                            "Hold Caps for Hyper",
-                            subtitle: "Caps Lock LED was stuck — cleared. Hyper+V needs Caps held.",
+                            "Caps Lock was stuck on",
+                            subtitle: "Opened clipboard · next time hold Caps (Hyper) + V",
                             style: .warning,
-                            symbol: "capslock",
-                            duration: 2.5
+                            symbol: "list.clipboard",
+                            duration: 2.4
                         )
                     }
+                    return nil
                 }
             }
+
             if SnippetEngine.shared.handleTypedKey(
                 character: chars,
                 keyCode: keyCode,
