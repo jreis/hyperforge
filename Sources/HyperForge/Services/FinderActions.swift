@@ -30,6 +30,7 @@ enum FinderActions {
 
     /// Target folder of frontmost Finder window (or desktop / selection parent).
     /// Tries several AppleScript strategies — modern Finder views often break `target of`.
+    /// Works even when Finder is not frontmost (uses Finder’s front window).
     static func frontFolderPath() -> String? {
         // 1) Primary: front window target → insertion location → desktop
         let script = """
@@ -44,6 +45,19 @@ enum FinderActions {
                     end try
                     try
                         return POSIX path of (insertion location as alias)
+                    end try
+                    try
+                        -- Column / gallery views sometimes only expose the folder via selection
+                        set sel to selection as alias list
+                        if (count of sel) > 0 then
+                            set p to item 1 of sel
+                            try
+                                if class of p is folder then
+                                    return POSIX path of p
+                                end if
+                            end try
+                            return POSIX path of (container of p as alias)
+                        end if
                     end try
                     return POSIX path of (path to desktop folder as alias)
                 on error errMsg
@@ -66,9 +80,13 @@ enum FinderActions {
                     return POSIX path of (target of front window as text)
                 on error
                     try
-                        return POSIX path of (desktop as alias)
+                        return POSIX path of (insertion location as alias)
                     on error
-                        return ""
+                        try
+                            return POSIX path of (desktop as alias)
+                        on error
+                            return ""
+                        end try
                     end try
                 end try
             end tell
@@ -77,7 +95,7 @@ enum FinderActions {
             return normalizeDirectory(raw)
         }
 
-        // 3) If a folder is selected, use it; if a file, use its parent (no AppleScript)
+        // 3) If a folder is selected, use it; if a file, use its parent
         if let fromSel = directoryFromSelectionViaScript(), isUsableDirectory(fromSel) {
             return normalizeDirectory(fromSel)
         }
@@ -136,7 +154,7 @@ enum FinderActions {
         guard let folder = frontFolderPath() else {
             Banner.show(
                 "No Finder folder",
-                subtitle: "Open a Finder window · allow Automation if prompted",
+                subtitle: "Open a Finder window · allow Automation (System Settings → Privacy → Automation)",
                 style: .warning,
                 symbol: "folder.badge.questionmark"
             )
@@ -144,6 +162,13 @@ enum FinderActions {
             return
         }
         HyperLog.event("terminalInFrontFolder → \(folder)")
+        Banner.show(
+            "Opening terminal…",
+            subtitle: URL(fileURLWithPath: folder).lastPathComponent,
+            style: .info,
+            symbol: "terminal",
+            duration: 1.2
+        )
         TerminalPreference.shared.openInDirectory(folder)
     }
 

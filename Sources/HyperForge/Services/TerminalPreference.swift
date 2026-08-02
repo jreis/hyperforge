@@ -3,6 +3,7 @@
 
 import AppKit
 import Combine
+import Darwin
 import Foundation
 
 /// Built-in presets + custom bundle ID support.
@@ -384,18 +385,26 @@ final class TerminalPreference: ObservableObject {
         let folderName = URL(fileURLWithPath: path).lastPathComponent
         // Single-quoted path for shell (handles spaces; escape embedded ')
         let shellQuoted = "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        HyperLog.event("openInDirectory \(id) → \(path)")
 
         switch id {
         case "com.apple.Terminal":
-            // Terminal accepts a folder via `open -a` and cds there.
-            if openFolderWithApp(path: path) || runAppleScript(
-                """
-                tell application "Terminal"
-                    activate
-                    do script "cd \(shellQuoted)"
-                end tell
-                """
-            ) {
+            // Services → open folder → AppleScript. Never claim success from a fire-and-forget only.
+            if performOpenHereService(
+                names: reuseMode == .newTab
+                    ? ["New Terminal Tab at Folder", "New Terminal at Folder"]
+                    : ["New Terminal at Folder", "New Terminal Tab at Folder"],
+                path: path
+            ) || openFolderWithApp(path: path)
+                || runAppleScript(
+                    """
+                    tell application "Terminal"
+                        activate
+                        do script "cd \(shellQuoted)"
+                    end tell
+                    """
+                )
+            {
                 Banner.show("Terminal → \(folderName)", style: .success, symbol: "folder")
             } else {
                 openAndTypeCD(path: path, alreadyRunningDelay: 0.25, launchDelay: 0.8)
@@ -426,20 +435,30 @@ final class TerminalPreference: ObservableObject {
             return
 
         case "com.mitchellh.ghostty":
-            // Prefer CLI with working-directory when cold; if running, new tab + cd
-            // (CLI while running can spawn a second Ghostty instance).
-            if findRunning() == nil,
-               openViaCLI(["ghostty"], args: ["--working-directory=\(path)"])
-            {
+            // Ghostty on macOS: CLI launch is unsupported. Prefer Finder Services
+            // (works with a running instance), then open-as-folder / open -na --args.
+            // Do NOT use openViaCLI — Process.run succeeds while Ghostty exits immediately.
+            let serviceNames =
+                reuseMode == .newTab
+                ? ["New Ghostty Tab Here", "New Ghostty Window Here"]
+                : ["New Ghostty Window Here", "New Ghostty Tab Here"]
+            if performOpenHereService(names: serviceNames, path: path) {
                 Banner.show("Ghostty → \(folderName)", style: .success, symbol: "folder")
+                HyperLog.event("Ghostty open here via Service")
                 return
             }
-            // Also try: open -na Ghostty --args --working-directory=…
-            if findRunning() == nil, openGhosttyWorkingDirectory(path) {
+            if openFolderWithApp(path: path) {
                 Banner.show("Ghostty → \(folderName)", style: .success, symbol: "folder")
+                HyperLog.event("Ghostty open here via openFolderWithApp")
                 return
             }
-            openAndTypeCD(path: path, alreadyRunningDelay: 0.25, launchDelay: 0.85)
+            if openGhosttyWorkingDirectory(path) {
+                Banner.show("Ghostty → \(folderName)", style: .success, symbol: "folder")
+                HyperLog.event("Ghostty open here via open -na --working-directory")
+                return
+            }
+            HyperLog.event("Ghostty open here falling back to typed cd")
+            openAndTypeCD(path: path, alreadyRunningDelay: 0.35, launchDelay: 0.9)
             return
 
         case "dev.warp.Warp-Stable", "dev.warp.Warp":
@@ -471,11 +490,41 @@ final class TerminalPreference: ObservableObject {
             return
 
         default:
+            if openFolderWithApp(path: path) {
+                Banner.show("\(current.name) → \(folderName)", style: .success, symbol: "folder")
+                return
+            }
             openAndTypeCD(path: path, alreadyRunningDelay: 0.35, launchDelay: 0.9)
         }
     }
 
-    /// `open -a Terminal /path` style handoff (works well for Terminal.app).
+    /// macOS Services: "New Ghostty Window Here", "New Terminal at Folder", etc.
+    /// Requires a file URL on the pasteboard (plain text uses the parent — Ghostty bug).
+    @discardableResult
+    private func performOpenHereService(names: [String], path: String) -> Bool {
+        let url = URL(fileURLWithPath: path, isDirectory: true) as NSURL
+        let pb = NSPasteboard(name: NSPasteboard.Name(UUID().uuidString))
+        pb.clearContents()
+        guard pb.writeObjects([url]) else { return false }
+
+        typealias NSPerformServiceFunc = @convention(c) (CFString, CFTypeRef?) -> DarwinBoolean
+        guard let handle = dlopen(
+            "/System/Library/Frameworks/AppKit.framework/AppKit",
+            RTLD_LAZY
+        ),
+            let sym = dlsym(handle, "NSPerformService")
+        else { return false }
+        let fn = unsafeBitCast(sym, to: NSPerformServiceFunc.self)
+
+        for name in names {
+            if fn(name as CFString, pb).boolValue {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// `open -a App /path` — works for Terminal.app and Ghostty (public.directory).
     @discardableResult
     private func openFolderWithApp(path: String) -> Bool {
         guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
@@ -483,6 +532,7 @@ final class TerminalPreference: ObservableObject {
         let dir = URL(fileURLWithPath: path, isDirectory: true)
         let config = NSWorkspace.OpenConfiguration()
         config.activates = true
+        // Fire-and-forget — do not wait on main (completion is also main-queue → deadlock).
         NSWorkspace.shared.open([dir], withApplicationAt: appURL, configuration: config) { _, err in
             if let err {
                 HyperLog.event("openFolderWithApp error: \(err.localizedDescription)")
@@ -491,6 +541,7 @@ final class TerminalPreference: ObservableObject {
         return true
     }
 
+    /// `open -na Ghostty --args --working-directory=…` (macOS-supported launch path).
     @discardableResult
     private func openGhosttyWorkingDirectory(_ path: String) -> Bool {
         guard let appURL = NSWorkspace.shared.urlForApplication(
@@ -498,6 +549,7 @@ final class TerminalPreference: ObservableObject {
         ) else { return false }
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        // -n: new instance so --working-directory is applied (args ignored for already-open apps).
         proc.arguments = [
             "-na", appURL.path,
             "--args", "--working-directory=\(path)",
@@ -579,6 +631,8 @@ final class TerminalPreference: ObservableObject {
         // Prefer single quotes for shell safety (spaces, $, etc.)
         let typed = "cd " + "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
         let folderName = URL(fileURLWithPath: path).lastPathComponent
+        // Drop held Hyper/Caps modifiers so injected keys aren't swallowed by the event tap.
+        EventSynthesizer.releaseStuckHyperKeys()
 
         if let app = findRunning() {
             activateOnly(app)
@@ -601,7 +655,7 @@ final class TerminalPreference: ObservableObject {
                         command: true
                     )
                 }
-                let typeDelay: TimeInterval = useNewTab || self.reuseMode == .newWindow ? 0.28 : 0.12
+                let typeDelay: TimeInterval = useNewTab || self.reuseMode == .newWindow ? 0.35 : 0.15
                 DispatchQueue.main.asyncAfter(deadline: .now() + typeDelay) {
                     // Ensure terminal is frontmost before typing
                     if let running = self.findRunning() {
