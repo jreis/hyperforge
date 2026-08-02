@@ -380,6 +380,17 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             return Unmanaged.passUnretained(event)
         }
 
+        // Clipboard panel Esc works even when Caps is released (panel not key).
+        if keyCode == KeyCode.escape,
+           clipboardPanelVisible || ClipboardHistoryPanel.isShowing
+        {
+            noteCapsAloneEscapeWindow(from: now)
+            DispatchQueue.main.async {
+                ClipboardHistoryPanel.hide()
+            }
+            return nil
+        }
+
         // Physical Hyper still held? (not merely sticky/grace)
         // NOTE: Do NOT treat .maskAlphaShift (Caps Lock LED) as Hyper.
         let physicallyHeld =
@@ -418,20 +429,25 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             // Handle Esc for panels/menus *before* re-asserting Hyper active / grace.
             // (Previously setHyperActive(true) ran first and could race the UI clear.)
             if keyCode == KeyCode.escape {
-                // Menu open → let Esc dismiss the menu. Never lock. Never clear Caps latch.
-                if clipboardPanelVisible || ClipboardHistoryPanel.isShowing || shouldSuppressSysLock {
-                    HyperLog.event("Hyper+Esc → pass to menu (no lock, no latch clear)")
+                // Clipboard panel: always close on Esc even when the panel is not key
+                // (user shouldn't need to click the window first).
+                if clipboardPanelVisible || ClipboardHistoryPanel.isShowing {
+                    noteCapsAloneEscapeWindow(from: now)
+                    DispatchQueue.main.async {
+                        ClipboardHistoryPanel.hide()
+                    }
+                    return nil
+                }
+                // Other NSMenus: pass Esc through so the menu dismisses; never lock.
+                if shouldSuppressSysLock {
                     noteCapsAloneEscapeWindow(from: now)
                     if hasPendingMenu {
                         cancelPendingMenu()
                     }
-                    // Pass through so NSMenu receives Esc and closes itself.
                     return Unmanaged.passUnretained(event)
                 }
                 if !physicallyHeld {
-                    HyperLog.event("Escape after Hyper release → pass through (not lock)")
                     noteCapsAloneEscapeWindow(from: now)
-                    // Sticky only — do not clear f18Held (already not physical).
                     softClearHyperHold(reason: "esc-after-release")
                     return Unmanaged.passUnretained(event)
                 }
@@ -657,30 +673,19 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         HyperLog.event("clipboardPanelVisible=\(visible)")
     }
 
-    /// Hyper+V while Caps held: queue menu, open on Caps keyUp only.
-    /// (A short timeout used to open while Caps was still down — menu was flaky.)
+    /// Hyper+V while Caps held: queue panel, open on Caps keyUp only.
     private func scheduleClipboardMenuAfterCapsRelease() {
         pendingClipboardTimeout?.cancel()
         pendingClipboardMenu = true
         HyperDebug.log("clipboard menu scheduled (waiting for Caps release)")
 
-        DispatchQueue.main.async {
-            Banner.show(
-                "Clipboard",
-                subtitle: "Release Caps to open menu",
-                style: .info,
-                symbol: "list.clipboard",
-                duration: 1.6
-            )
-        }
-
-        // Caps already up (sticky Hyper only) → open next turn.
+        // Caps already up → open next turn.
         if !f18Held {
             flushPendingClipboardMenu()
             return
         }
 
-        // Long fallback only if Caps keyUp is lost (modal ate it, etc.).
+        // Fallback if Caps keyUp is lost.
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.pendingClipboardMenu else { return }
             HyperDebug.log("clipboard menu fallback timeout (Caps keyUp missing?)")
