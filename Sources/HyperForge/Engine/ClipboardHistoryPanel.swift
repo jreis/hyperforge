@@ -1,11 +1,8 @@
 // ClipboardHistoryPanel.swift
-// Hyper+V / Hyper+⇧V → NSMenu at cursor. Esc closes (not lock). That's it.
+// Hyper+V → show history. Esc closes. Swallow V so Ghostty never sees it.
 //
-// Rules:
-//   • Swallow V via the engine (handle returns true → return nil). Never clear f18Held on open.
-//   • While menu is open, Hyper+Esc is suppressed (pass Esc through to NSMenu).
-//   • After popUp returns, resync Hyper released (modal menus often drop Caps keyUp).
-//   • Clear latched Caps Lock LED on open if needed (Karabiner blocks normal Caps toggle).
+// Uses a temporary NSStatusItem to present the menu. That is the reliable way
+// for LSUIElement (menu-bar-only) apps — plain NSMenu.popUp often never appears.
 
 import AppKit
 import Foundation
@@ -14,6 +11,7 @@ import Foundation
 enum ClipboardHistoryPanel {
     nonisolated private static let lock = NSLock()
     nonisolated(unsafe) private static var tracking = false
+    private static var statusItem: NSStatusItem?
 
     nonisolated static var isShowing: Bool {
         lock.lock(); defer { lock.unlock() }
@@ -25,19 +23,18 @@ enum ClipboardHistoryPanel {
     }
 
     static func show() {
-        // If Caps Lock LED is stuck ON (common after earlier bugs), clear it so
-        // the next non-Hyper keystroke isn't capitalised. Does not affect F18 hold.
-        EventSynthesizer.clearCapsLockIfLatched()
+        HyperDebug.log("clipboard.show begin")
 
         _ = ClipboardService.shared.poll()
         let items = Array(ClipboardService.shared.history.prefix(15))
 
         let menu = NSMenu(title: "Clipboard")
         menu.autoenablesItems = false
+        menu.delegate = MenuLifecycle.shared
 
         if items.isEmpty {
             let empty = NSMenuItem(
-                title: "No history yet — copy some text first",
+                title: "No history — copy text, then Hyper+V again",
                 action: nil,
                 keyEquivalent: ""
             )
@@ -48,7 +45,7 @@ enum ClipboardHistoryPanel {
                 let item = NSMenuItem(
                     title: "\(i + 1).  \(preview(text))",
                     action: #selector(Target.paste(_:)),
-                    keyEquivalent: i < 9 ? "\(i + 1)" : ""
+                    keyEquivalent: ""
                 )
                 item.tag = i
                 item.target = Target.shared
@@ -68,20 +65,40 @@ enum ClipboardHistoryPanel {
         setTracking(true)
         HyperKeyEngine.shared.noteClipboardPanelVisible(true)
 
-        // popUp is modal; when it returns the menu is gone.
-        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+        // Temporary status item → performClick is the reliable LSUIElement popup path.
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem = item
+        if let button = item.button {
+            button.title = "📋"
+            button.toolTip = "HyperForge clipboard"
+            item.menu = menu
+            // Open immediately.
+            button.performClick(nil)
+        } else {
+            // Fallback: classic popUp
+            menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+            menuDidClose()
+        }
 
-        setTracking(false)
-        HyperKeyEngine.shared.noteClipboardPanelVisible(false)
-        // Caps keyUp was often eaten by the modal menu — treat Hyper as released.
-        HyperKeyEngine.shared.resyncHyperAfterMenu()
-
-        HyperLog.event("clipboard menu finished items=\(items.count)")
+        HyperDebug.log("clipboard.show requested items=\(items.count)")
     }
 
     static func hide() {
+        menuDidClose()
+    }
+
+    fileprivate static func menuDidClose() {
+        guard isShowing || statusItem != nil else { return }
         setTracking(false)
         HyperKeyEngine.shared.noteClipboardPanelVisible(false)
+        if let item = statusItem {
+            item.menu = nil
+            NSStatusBar.system.removeStatusItem(item)
+            statusItem = nil
+        }
+        // Modal/status menu often eats Caps keyUp — resync Hyper as released.
+        HyperKeyEngine.shared.resyncHyperAfterMenu()
+        HyperDebug.log("clipboard.menuDidClose")
     }
 
     private static func preview(_ text: String) -> String {
@@ -106,5 +123,38 @@ private final class Target: NSObject {
     @objc func clear(_ sender: NSMenuItem) {
         ClipboardService.shared.clearHistory()
         Banner.show("History cleared", style: .neutral, symbol: "trash")
+    }
+}
+
+@MainActor
+private final class MenuLifecycle: NSObject, NSMenuDelegate {
+    static let shared = MenuLifecycle()
+
+    func menuDidClose(_ menu: NSMenu) {
+        ClipboardHistoryPanel.menuDidClose()
+    }
+}
+
+// MARK: - Always-on debug log (local diagnosis; no network)
+
+enum HyperDebug {
+    private static let path = "/tmp/hyperforge-debug.log"
+    private static let lock = NSLock()
+
+    static func log(_ message: String) {
+        let line = "\(ISO8601DateFormatter().string(from: Date()))  \(message)\n"
+        lock.lock()
+        defer { lock.unlock() }
+        if let data = line.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: path) {
+                if let h = try? FileHandle(forWritingTo: URL(fileURLWithPath: path)) {
+                    defer { try? h.close() }
+                    _ = try? h.seekToEnd()
+                    try? h.write(contentsOf: data)
+                }
+            } else {
+                try? data.write(to: URL(fileURLWithPath: path))
+            }
+        }
     }
 }

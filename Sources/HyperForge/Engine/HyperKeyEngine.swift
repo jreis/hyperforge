@@ -82,9 +82,7 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         menuSessionDepth = 0
         clipboardPanelVisible = false
         ClipboardHistoryPanel.setTracking(false)
-        // Caps→F18 means the user cannot toggle Caps Lock LED off with Caps —
-        // clear a latched LED so typing isn't stuck in ALL CAPS.
-        EventSynthesizer.clearCapsLockIfLatched()
+        HyperDebug.log("engine.start useF18=\(useF18AsHyper)")
         startEventTap()
         startAuxTimers()
         // Keep Space-nav per-app gate in sync with the frontmost app.
@@ -230,8 +228,6 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         let now = Date()
 
         // ── F18 / raw Caps as Hyper (keyUp must clear held state) ────────
-        // Always latch on keyDown — never ignore F18 because a menu flag is stuck.
-        // (Ignoring F18 keyDown left Hyper dead: V typed into apps, Caps felt stuck.)
         if keyCode == KeyCode.f18 || keyCode == KeyCode.hidF18 || keyCode == KeyCode.capsLock {
             if useF18AsHyper {
                 if type == .keyDown {
@@ -239,6 +235,7 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                     markHyperSeen(now)
                     setHyperActive(true)
                     setPhysicalHyperHold(true)
+                    HyperDebug.log("CAPS/F18 down key=\(keyCode) f18Held=1")
                 } else if type == .keyUp {
                     f18Held = false
                     setHyperActive(false)
@@ -246,6 +243,7 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                     lastHyperTriggerTime = now
                     noteCapsAloneEscapeWindow(from: now)
                     flushPendingMenu(force: false)
+                    HyperDebug.log("CAPS/F18 up key=\(keyCode) f18Held=0")
                 }
             }
             // Swallow so Caps never toggles system Caps Lock while we own Hyper.
@@ -447,14 +445,22 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             }
 
             // Hyper+V / ⇧V → clipboard menu always (swallow V so it never types into Ghostty).
-            // Kept here (not only in the resolver) so profile/override quirks can't leak a V.
             if keyCode == KeyCode.v {
+                HyperDebug.log(
+                    "HYPER+V swallow f18Held=\(f18Held) physical=\(physicallyHeld) grace=\(withinGrace)"
+                )
                 HyperLog.event("HYPER+V → clipboard history (hardwired)")
                 SnippetEngine.shared.resetBuffer()
                 DispatchQueue.main.async {
+                    Banner.show(
+                        "Clipboard",
+                        subtitle: "Opening history…",
+                        style: .info,
+                        symbol: "list.clipboard",
+                        duration: 1.0
+                    )
                     ClipboardHistoryPanel.show()
                 }
-                // Do not clear f18Held — Caps may still be held.
                 return nil
             }
 
@@ -507,6 +513,13 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             && !VimNavigation.shared.isActive
         {
             let chars = event.keyboardGetUnicodeString()
+            // Diagnose: V reached typing path = Hyper was NOT active for this key.
+            if keyCode == KeyCode.v {
+                let alpha = flags.contains(.maskAlphaShift)
+                HyperDebug.log(
+                    "V LEAKED to typing f18Held=\(f18Held) hyperActive=\(isHyperActive) alphaShift=\(alpha) flags=\(flags.rawValue)"
+                )
+            }
             if SnippetEngine.shared.handleTypedKey(
                 character: chars,
                 keyCode: keyCode,
@@ -634,21 +647,18 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
     }
 
     /// Call when dismissing dashboard / chrome with Esc so Hyper+V works afterwards.
-    /// Clears leaked menu flags and a stuck Caps Lock LED (cannot be toggled via Caps under Karabiner).
     func prepareAfterUIDismiss(reason: String) {
         lock.lock()
         menuSessionDepth = 0
         clipboardPanelVisible = false
         pendingMenuOpener = nil
-        // Do not clear f18Held here — user might still be holding Caps for the next chord.
-        // Only clear sticky grace so bare keys aren't treated as Hyper.
         lastHyperSeenTime = .distantPast
         lock.unlock()
         pendingMenuTimeout?.cancel()
         pendingMenuTimeout = nil
         ClipboardHistoryPanel.setTracking(false)
-        // Caps Lock LED stuck ON → every letter is capital (user sees "V" not hyper-V).
-        EventSynthesizer.clearCapsLockIfLatched()
+        // Do NOT auto-pulse Caps Lock here — incorrect pulses were leaving LED stuck ON.
+        HyperDebug.log("prepareAfterUIDismiss: \(reason)")
         HyperLog.event("prepareAfterUIDismiss: \(reason)")
     }
 
