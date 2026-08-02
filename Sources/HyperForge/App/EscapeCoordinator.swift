@@ -62,7 +62,7 @@ final class EscapeCoordinator {
             guard NSApp.isActive || windows.contains(where: \.isKeyWindow) else {
                 return false
             }
-            AppState.shared.closeMainWindow()
+            AppState.shared.closeMainWindow() // also prepareAfterUIDismiss
             return true
         }
 

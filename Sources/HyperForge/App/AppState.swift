@@ -169,6 +169,9 @@ final class AppState: ObservableObject {
             window.orderOut(nil)
         }
         restoreAccessoryIfSafe()
+        // Esc after startup dashboard left Caps Lock / menu flags sticky for some users
+        // (Hyper+V then typed a capital V). Reset that state without killing a held Caps.
+        HyperKeyEngine.shared.prepareAfterUIDismiss(reason: "closeMainWindow")
         Banner.show(
             "Dashboard hidden",
             subtitle: "Hyper + ,  to show again",

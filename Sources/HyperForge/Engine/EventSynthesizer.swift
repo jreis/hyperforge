@@ -119,12 +119,27 @@ enum EventSynthesizer {
     /// Critical with Karabiner Caps→F18: the physical Caps key never reaches the OS, so
     /// a latched Caps Lock LED can only be cleared by injecting caps_lock. Otherwise the
     /// user is stuck typing CAPITALS forever and Hyper+V looks like a capital V.
+    ///
+    /// Posts at **session** level (not HID) so Karabiner does not re-map the pulse to F18.
     static func clearCapsLockIfLatched() {
         let flags = CGEventSource.flagsState(.hidSystemState)
         guard flags.contains(.maskAlphaShift) else { return }
-        // Our event tap swallows real caps_lock — mark as synthetic so it passes through.
-        postKey(0x39 /* caps_lock */)
-        HyperLog.event("clearCapsLockIfLatched: pulsed Caps Lock to clear LED")
+
+        for keyDown in [true, false] {
+            guard
+                let ev = CGEvent(
+                    keyboardEventSource: source,
+                    virtualKey: 0x39, /* caps_lock */
+                    keyDown: keyDown
+                )
+            else { continue }
+            ev.flags = []
+            ev.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
+            ev.setIntegerValueField(.eventSourceUserData, value: syntheticMarker)
+            // Session tap: reaches system Caps Lock state; less likely to re-enter Karabiner.
+            ev.post(tap: .cgSessionEventTap)
+        }
+        HyperLog.event("clearCapsLockIfLatched: session-level Caps Lock pulse")
     }
 
     /// ⌘W-style close: press Command, press W, release W, release Command.

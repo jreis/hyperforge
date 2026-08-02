@@ -446,6 +446,18 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                 return nil
             }
 
+            // Hyper+V / ⇧V → clipboard menu always (swallow V so it never types into Ghostty).
+            // Kept here (not only in the resolver) so profile/override quirks can't leak a V.
+            if keyCode == KeyCode.v {
+                HyperLog.event("HYPER+V → clipboard history (hardwired)")
+                SnippetEngine.shared.resetBuffer()
+                DispatchQueue.main.async {
+                    ClipboardHistoryPanel.show()
+                }
+                // Do not clear f18Held — Caps may still be held.
+                return nil
+            }
+
             let ids = enabledIDsSnapshot()
             let shiftDown = flags.contains(.maskShift)
             // Shift is only “part of Hyper” while 4-mod is physically held (not grace-only).
@@ -619,6 +631,25 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             self.hyperKeyActive = false
             HyperBindingsHUD.setHyperHeld(false)
         }
+    }
+
+    /// Call when dismissing dashboard / chrome with Esc so Hyper+V works afterwards.
+    /// Clears leaked menu flags and a stuck Caps Lock LED (cannot be toggled via Caps under Karabiner).
+    func prepareAfterUIDismiss(reason: String) {
+        lock.lock()
+        menuSessionDepth = 0
+        clipboardPanelVisible = false
+        pendingMenuOpener = nil
+        // Do not clear f18Held here — user might still be holding Caps for the next chord.
+        // Only clear sticky grace so bare keys aren't treated as Hyper.
+        lastHyperSeenTime = .distantPast
+        lock.unlock()
+        pendingMenuTimeout?.cancel()
+        pendingMenuTimeout = nil
+        ClipboardHistoryPanel.setTracking(false)
+        // Caps Lock LED stuck ON → every letter is capital (user sees "V" not hyper-V).
+        EventSynthesizer.clearCapsLockIfLatched()
+        HyperLog.event("prepareAfterUIDismiss: \(reason)")
     }
 
     /// Modal NSMenu session (quick menu / shortcuts / transforms).
