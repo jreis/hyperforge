@@ -189,6 +189,8 @@ final class AXRecipeStore: ObservableObject {
             item.image = NSImage(systemSymbolName: r.symbol, accessibilityDescription: r.name)
             menu.addItem(item)
         }
+        HyperKeyEngine.shared.beginMenuSession()
+        defer { HyperKeyEngine.shared.endMenuSession() }
         menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
     }
 

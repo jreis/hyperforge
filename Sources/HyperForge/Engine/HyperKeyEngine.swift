@@ -48,6 +48,12 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
     /// `to_if_alone`. That must not dismiss HyperForge UI (dashboard, etc.).
     private var suppressUIEscapeUntil = Date.distantPast
     private let capsAloneEscapeSuppressSeconds: TimeInterval = 0.45
+    /// While an NSMenu (clipboard history, transforms, quick menu, …) is open,
+    /// Hyper+Esc must not lock the screen — Esc only dismisses the menu.
+    private var menuSessionDepth = 0
+    /// Grace after menu closes so Esc that closes the menu can't still lock.
+    private var suppressSysLockUntil = Date.distantPast
+    private let menuDismissLockSuppressSeconds: TimeInterval = 0.55
     private var enabledIDsCopy: Set<String>?
 
     private var eventTap: CFMachPort?
@@ -399,11 +405,26 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             // Karabiner Caps→Hyper usually maps “tap Caps alone → Escape”. That Escape
             // must NEVER become Hyper+Esc (was: sys-lock → display sleep → black screen).
             // Only treat Esc as a Hyper chord while Hyper is still physically held.
-            if keyCode == KeyCode.escape, !physicallyHeld {
-                HyperLog.event("Escape after Hyper release → pass through (not lock)")
-                noteCapsAloneEscapeWindow(from: now)
-                endStickyHyper()
-                return Unmanaged.passUnretained(event)
+            // Also: Esc while a HyperForge menu is open (or just closed) dismisses the
+            // menu — never lock (Hyper+⇧V → Esc was locking + leaving Caps stuck).
+            if keyCode == KeyCode.escape {
+                if shouldSuppressSysLock {
+                    HyperLog.event(
+                        "Hyper+Esc suppressed (menu session / post-menu dismiss)"
+                    )
+                    noteCapsAloneEscapeWindow(from: now)
+                    // Pass through so NSMenu can cancel; do not route to sys-lock.
+                    if !physicallyHeld {
+                        endStickyHyper()
+                    }
+                    return Unmanaged.passUnretained(event)
+                }
+                if !physicallyHeld {
+                    HyperLog.event("Escape after Hyper release → pass through (not lock)")
+                    noteCapsAloneEscapeWindow(from: now)
+                    endStickyHyper()
+                    return Unmanaged.passUnretained(event)
+                }
             }
 
             // Help keys by keycode first (avoid NSEvent conversion on every Hyper key).
@@ -527,6 +548,42 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return Date() < suppressUIEscapeUntil
+    }
+
+    /// True while a HyperForge NSMenu is tracking, or briefly after it closes.
+    /// Prevents Hyper+⇧V → Esc from becoming Hyper+Esc (lock) + stuck Caps.
+    var shouldSuppressSysLock: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return menuSessionDepth > 0 || Date() < suppressSysLockUntil
+    }
+
+    /// Wrap `NSMenu.popUp` so Esc dismisses the menu instead of locking.
+    func beginMenuSession() {
+        lock.lock()
+        menuSessionDepth += 1
+        let depth = menuSessionDepth
+        lock.unlock()
+        HyperLog.event("menu session begin depth=\(depth)")
+    }
+
+    func endMenuSession() {
+        lock.lock()
+        menuSessionDepth = max(0, menuSessionDepth - 1)
+        suppressSysLockUntil = Date().addingTimeInterval(menuDismissLockSuppressSeconds)
+        let depth = menuSessionDepth
+        let physicalHeld = f18Held
+        lock.unlock()
+        HyperLog.event("menu session end depth=\(depth)")
+        // Clear sticky Hyper grace after menu so the next bare key isn't Hyper-scoped.
+        // Physical Caps/F18 hold is unchanged.
+        if depth == 0 {
+            lastHyperSeenTime = .distantPast
+            setHyperActive(physicalHeld)
+            if !physicalHeld {
+                setPhysicalHyperHold(false)
+            }
+        }
     }
 
     /// Drop sticky Hyper without waiting for grace (after a finished chord).

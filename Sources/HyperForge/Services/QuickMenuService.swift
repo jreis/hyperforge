@@ -38,6 +38,8 @@ enum QuickMenuService {
         menu.addItem(.separator())
         menu.addItem(item("Open dashboard", "rectangle.center.inset.filled", #selector(QuickMenuTarget.dashboard)))
 
+        HyperKeyEngine.shared.beginMenuSession()
+        defer { HyperKeyEngine.shared.endMenuSession() }
         menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
     }
 }

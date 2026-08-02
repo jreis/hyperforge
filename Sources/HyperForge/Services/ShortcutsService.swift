@@ -148,6 +148,8 @@ enum ShortcutsService {
                 accessibilityDescription: nil
             )
             menu.addItem(open)
+            HyperKeyEngine.shared.beginMenuSession()
+            defer { HyperKeyEngine.shared.endMenuSession() }
             menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
             return
         }
@@ -201,6 +203,8 @@ enum ShortcutsService {
         )
         menu.addItem(open)
 
+        HyperKeyEngine.shared.beginMenuSession()
+        defer { HyperKeyEngine.shared.endMenuSession() }
         menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
     }
 

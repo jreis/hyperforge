@@ -30,10 +30,16 @@ enum HyperKeyActions {
             return false
         case .action(let id):
             // Belt-and-suspenders: never lock from sticky Hyper + Escape
-            // (Caps-alone → Esc after release).
-            if id == "sys-lock", !physicallyHyperHeld {
-                HyperLog.event("sys-lock suppressed (Hyper not physically held)")
-                return false
+            // (Caps-alone → Esc after release), or while dismissing a HyperForge menu.
+            if id == "sys-lock" {
+                if !physicallyHyperHeld {
+                    HyperLog.event("sys-lock suppressed (Hyper not physically held)")
+                    return false
+                }
+                if HyperKeyEngine.shared.shouldSuppressSysLock {
+                    HyperLog.event("sys-lock suppressed (menu session / post-menu Esc)")
+                    return true // consume without locking
+                }
             }
             executeRouted(actionID: id)
             return true
