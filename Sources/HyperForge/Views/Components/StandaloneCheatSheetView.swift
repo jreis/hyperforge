@@ -58,12 +58,18 @@ struct StandaloneCheatSheetView: View {
             else { return }
             focusSearchSoon()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .hfCheatSheetBecameKey)) { _ in
+            focusSearchSoon()
+        }
     }
 
     private func focusSearchSoon() {
+        // SwiftUI focus + AppKit first-responder (controller also retries).
         searchFocused = true
         DispatchQueue.main.async { searchFocused = true }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { searchFocused = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { searchFocused = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { searchFocused = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { searchFocused = true }
     }
 
     private var header: some View {
@@ -105,6 +111,9 @@ struct StandaloneCheatSheetView: View {
                 TextField("Search…", text: $query)
                     .textFieldStyle(.plain)
                     .focused($searchFocused)
+                    .accessibilityIdentifier("hf.cheatsheet.search")
+                    // Tag the underlying NSTextField so AppKit can makeFirstResponder.
+                    .background(SearchFieldTagger())
             }
             .padding(8)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.06)))
@@ -187,5 +196,42 @@ struct StandaloneCheatSheetView: View {
                 .background(Capsule().fill(selected ? Color.blue.opacity(0.25) : Color.primary.opacity(0.06)))
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Tag NSTextField for AppKit first-responder focus
+
+/// Finds the sibling/parent NSTextField created by SwiftUI TextField and sets its identifier
+/// so CheatSheetPanelController.focusSearchField can target it reliably.
+private struct SearchFieldTagger: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.isHidden = true
+        DispatchQueue.main.async { tagNearbyTextField(from: view) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { tagNearbyTextField(from: nsView) }
+    }
+
+    private func tagNearbyTextField(from view: NSView) {
+        var current: NSView? = view.superview
+        for _ in 0..<8 {
+            guard let node = current else { break }
+            if let tf = findEditableTextField(in: node) {
+                tf.identifier = NSUserInterfaceItemIdentifier("hf.cheatsheet.search")
+                return
+            }
+            current = node.superview
+        }
+    }
+
+    private func findEditableTextField(in view: NSView) -> NSTextField? {
+        if let tf = view as? NSTextField, tf.isEditable { return tf }
+        for sub in view.subviews {
+            if let found = findEditableTextField(in: sub) { return found }
+        }
+        return nil
     }
 }
