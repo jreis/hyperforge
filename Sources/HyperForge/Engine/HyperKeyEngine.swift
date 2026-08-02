@@ -529,7 +529,7 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         guard changed else { return }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            // Drop stale activations after forceClearHyperHold.
+            // Drop stale activations after softClearHyperHold.
             self.lock.lock()
             let currentGen = self.hyperUIGeneration
             self.lock.unlock()
@@ -633,13 +633,12 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         lock.unlock()
         pendingMenuTimeout?.cancel()
         pendingMenuTimeout = nil
-        softClearHyperHold(reason: "manual-reset")
-        EventSynthesizer.releaseStuckHyperKeys()
+        hardClearHyperHold(reason: "manual-reset", releaseHardware: true)
         DispatchQueue.main.async {
             ClipboardHistoryPanel.hide()
             Banner.show(
                 "Hyper reset",
-                subtitle: "Caps/Hyper latch cleared",
+                subtitle: "Caps/Hyper latch cleared — tap Caps once if LED still on",
                 style: .success,
                 symbol: "arrow.clockwise"
             )
@@ -718,8 +717,35 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         return quad || triple
     }
 
-    /// Clear Hyper latch + sticky grace + HUD. Does **not** block the next Caps press.
+    /// Clear *sticky grace* only. Never clears `f18Held` while Caps may still be down —
+    /// that was the Hyper+⇧V → literal "V" bug (engine thought Hyper was off mid-hold).
     func softClearHyperHold(reason: String) {
+        lock.lock()
+        // Only drop sticky/grace — physical Caps/F18 latch is owned by keyUp.
+        lastHyperSeenTime = .distantPast
+        let stillHeld = f18Held
+        if !stillHeld {
+            _hyperActive = false
+            hyperUIGeneration &+= 1
+        }
+        let gen = hyperUIGeneration
+        lock.unlock()
+        HyperLog.event("softClearHyperHold: \(reason) f18Held=\(stillHeld)")
+        if !stillHeld {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.lock.lock()
+                let currentGen = self.hyperUIGeneration
+                self.lock.unlock()
+                guard gen == currentGen else { return }
+                self.hyperKeyActive = false
+                HyperBindingsHUD.setHyperHeld(false)
+            }
+        }
+    }
+
+    /// Full latch clear — only when Caps is known up, or user asked for Reset Hyper.
+    func hardClearHyperHold(reason: String, releaseHardware: Bool = false) {
         lock.lock()
         f18Held = false
         _hyperActive = false
@@ -728,7 +754,11 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         hyperUIGeneration &+= 1
         let gen = hyperUIGeneration
         lock.unlock()
-        HyperLog.event("softClearHyperHold: \(reason)")
+        HyperLog.event("hardClearHyperHold: \(reason) hardware=\(releaseHardware)")
+        if releaseHardware {
+            EventSynthesizer.releaseStuckHyperKeys()
+            EventSynthesizer.clearCapsLockIfLatched()
+        }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.lock.lock()

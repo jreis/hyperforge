@@ -213,8 +213,8 @@ enum ActionCatalog {
         // Clipboard
         HyperAction(id: "clip-url", title: "Open Clipboard URL", detail: "Extract & open first URL", keyCode: KeyCode.u, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "link"),
         HyperAction(id: "clip-plain", title: "Paste Plain Text", detail: "Strip rich formatting", keyCode: KeyCode.e, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "doc.plaintext"),
-        HyperAction(id: "clip-history", title: "Clipboard History", detail: "Local stack panel · Hyper + V (Esc closes)", keyCode: KeyCode.v, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "list.clipboard"),
-        HyperAction(id: "clip-nvim", title: "Clipboard → nvim", detail: "Edit pasteboard in preferred terminal · Hyper + ⇧V (F18)", keyCode: KeyCode.v, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "doc.text"),
+        HyperAction(id: "clip-history", title: "Clipboard History", detail: "Local stack panel · Hyper + V or ⇧V · Esc closes", keyCode: KeyCode.v, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "list.clipboard"),
+        HyperAction(id: "clip-nvim", title: "Clipboard → nvim", detail: "Edit pasteboard in preferred terminal (command bar)", keyCode: KeyCode.v, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "doc.text"),
         HyperAction(id: "clip-paste-menu", title: "Paste Transform Menu", detail: "CSV, Base64, URL… · command bar / quick menu", keyCode: KeyCode.v, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "arrow.triangle.2.circlepath"),
         HyperAction(id: "clip-region-pin", title: "Pin Screen Region", detail: "Drag-select region → stay-on-top window", keyCode: KeyCode.p, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "crop"),
         HyperAction(id: "clip-image", title: "Clipboard Image", detail: "Manual pin of pasteboard image (Hyper+⇧P) · not auto", keyCode: KeyCode.p, mode: .hyper, category: .clipboard, isEnabled: true, symbol: "photo"),

@@ -231,13 +231,14 @@ public enum HyperBindingResolver {
         // Clipboard
         .init(actionID: "clip-url", keyCode: HyperKeyCode.u, title: "Open URL"),
         .init(actionID: "clip-plain", keyCode: HyperKeyCode.e, title: "Paste Plain"),
-        // Hyper+V = history (works for F18 and 4-mod; 4-mod cannot distinguish ⇧V)
+        // Hyper+V and Hyper+⇧V both open history (4-mod always has Shift; F18 users
+        // also hit ⇧V out of habit). Nvim is command-bar only.
         .init(actionID: "clip-history", keyCode: HyperKeyCode.v, title: "Clipboard History"),
         .init(
-            actionID: "clip-nvim",
+            actionID: "clip-history",
             keyCode: HyperKeyCode.v,
             requiresExtraShift: true,
-            title: "Clipboard nvim (⇧V · F18 only)"
+            title: "Clipboard History (⇧V)"
         ),
         .init(actionID: "clip-region-pin", keyCode: HyperKeyCode.p, title: "Pin Screen Region"),
         .init(
@@ -466,14 +467,10 @@ public enum HyperBindingResolver {
             if extraShift, allowed("sys-reverse-dns") { return .action("sys-reverse-dns") }
             if allowed("win-warp-mouse") { return .action("win-warp-mouse") }
             return .unhandled
-        case HyperKeyCode.v where allowed("clip-nvim") || allowed("clip-history") || allowed("clip-paste-menu"):
-            // F18 + physical Shift → nvim (or paste menu fallback).
-            // Plain Hyper+V (and all 4-mod V) → clipboard history — 4-mod cannot do ⇧V.
-            if extraShift {
-                if allowed("clip-nvim") { return .action("clip-nvim") }
-                if allowed("clip-paste-menu") { return .action("clip-paste-menu") }
-            }
+        case HyperKeyCode.v where allowed("clip-history") || allowed("clip-nvim") || allowed("clip-paste-menu"):
+            // Always prefer history for V / ⇧V so the key never falls through to typing.
             if allowed("clip-history") { return .action("clip-history") }
+            if extraShift, allowed("clip-paste-menu") { return .action("clip-paste-menu") }
             if allowed("clip-nvim") { return .action("clip-nvim") }
             return .unhandled
         default:

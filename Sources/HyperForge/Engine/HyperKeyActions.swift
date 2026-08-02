@@ -172,11 +172,9 @@ enum HyperKeyActions {
             // Defer popUp until Caps/Hyper released (see openMenuAfterHyperRelease).
             onMain { PasteTransformService.showMenu() }
         case "clip-history":
-            onMain {
-                // End sticky Hyper after chord so Esc isn't Hyper+Esc; Caps keyUp still works.
-                HyperKeyEngine.shared.softClearHyperHold(reason: "clip-history-chord")
-                ClipboardHistoryPanel.show()
-            }
+            // Do NOT clear f18Held here — that made Caps still-down look like Hyper was off,
+            // so the next key (or key repeat) typed a literal "V" into the front app.
+            onMain { ClipboardHistoryPanel.show() }
         case "clip-region-pin":
             onMain { RegionPinService.shared.beginSelection() }
         case "clip-image":
@@ -234,7 +232,7 @@ enum HyperKeyActions {
             PasteTransformService.showMenu()
             return
         case "clip-history":
-            ClipboardService.shared.showHistoryMenu()
+            ClipboardHistoryPanel.show()
             return
         case "clip-region-pin":
             RegionPinService.shared.beginSelection()

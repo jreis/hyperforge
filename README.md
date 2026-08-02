@@ -143,7 +143,7 @@ Hold-before-layer (~200 ms default) and blocked apps: **Settings → Engine �
 | Hyper + K | Keep-alive |
 | Hyper + Space | Command bar |
 | Hyper + O | OCR region → clipboard |
-| Hyper + V | Clipboard history panel (Esc closes) |
+| Hyper + V / ⇧V | Clipboard history panel (Esc closes; never types a V) |
 | Hyper + P | Pin screen region |
 | Hyper + T / ⇧T | Terminal · terminal in Finder folder |
 | Hyper + , | Dashboard |

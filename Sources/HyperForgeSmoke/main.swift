@@ -142,20 +142,20 @@ struct HyperForgeSmoke {
             HyperBindingResolver.resolve(keyCode: HyperKeyCode.v) == .action("clip-history")
         )
         check(
-            "history on V with 4-mod (shift consumed)",
+            "history on ⇧V (F18)",
+            HyperBindingResolver.resolve(
+                keyCode: HyperKeyCode.v,
+                shiftDown: true,
+                hyperConsumesShift: false
+            ) == .action("clip-history")
+        )
+        check(
+            "history on V with 4-mod",
             HyperBindingResolver.resolve(
                 keyCode: HyperKeyCode.v,
                 shiftDown: true,
                 hyperConsumesShift: true
             ) == .action("clip-history")
-        )
-        check(
-            "nvim on F18 ⇧V",
-            HyperBindingResolver.resolve(
-                keyCode: HyperKeyCode.v,
-                shiftDown: true,
-                hyperConsumesShift: false
-            ) == .action("clip-nvim")
         )
         check(
             "warp mouse on W",

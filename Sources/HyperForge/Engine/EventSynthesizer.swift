@@ -99,8 +99,7 @@ enum EventSynthesizer {
         deliver(up)
     }
 
-    /// Unstick ⌘⌥⌃⇧ + F18 after a bad latch. Never synthesizes Caps Lock down/up —
-    /// that *toggles* the Caps Lock LED and was leaving Caps stuck ON.
+    /// Unstick ⌘⌥⌃⇧ + F18 after a bad latch. Does not touch Caps Lock by default.
     static func releaseStuckHyperKeys() {
         let ups: [CGKeyCode] = [
             0x37, 0x36, // ⌘ left / right
@@ -112,7 +111,21 @@ enum EventSynthesizer {
         for code in ups {
             postKeyUp(code)
         }
-        HyperLog.event("releaseStuckHyperKeys: modifier + F18 keyUps posted (no Caps pulse)")
+        HyperLog.event("releaseStuckHyperKeys: modifier + F18 keyUps posted")
+    }
+
+    /// If the Caps Lock *toggle* (LED) is latched ON, pulse Caps once to turn it off.
+    /// Safe only as recovery: Karabiner Caps→F18 never reaches the system, so a latched
+    /// LED can only be cleared by injecting caps_lock (or the user using another path).
+    static func clearCapsLockIfLatched() {
+        let flags = CGEventSource.flagsState(.hidSystemState)
+        guard flags.contains(.maskAlphaShift) else {
+            HyperLog.event("clearCapsLockIfLatched: alphaShift already off")
+            return
+        }
+        // Full down+up toggles Caps Lock off when it was ON.
+        postKey(0x39 /* caps_lock */)
+        HyperLog.event("clearCapsLockIfLatched: pulsed Caps Lock to clear LED")
     }
 
     /// ⌘W-style close: press Command, press W, release W, release Command.
