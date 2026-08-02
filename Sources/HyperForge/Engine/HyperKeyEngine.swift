@@ -36,6 +36,11 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
     private var _hyperActive = false
     /// True only while F18/Caps physical hyper key is held (strict).
     private var f18Held = false
+    /// After force-clear while Caps may still be down, ignore F18 keyDown until a keyUp.
+    /// Prevents “Hyper stuck on” when we clear latch mid-hold (clipboard Esc, menus).
+    private var blockHyperUntilKeyUp = false
+    /// Bumps on force-clear so a stale `setHyperActive(true)` async can’t re-light the UI.
+    private var hyperUIGeneration: UInt64 = 0
     private var lastF18KeyDownTime = Date.distantPast
     private var lastHyperTriggerTime = Date.distantPast
     /// Last time we observed Hyper-like modifier flags or F18.
@@ -224,9 +229,15 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         if keyCode == KeyCode.f18 || keyCode == KeyCode.hidF18 || keyCode == KeyCode.capsLock {
             if useF18AsHyper {
                 if type == .keyDown {
-                    // While a menu is open, ignore new Hyper latch (modal often desyncs keyUp).
+                    // While a menu/panel is open, ignore new Hyper latch.
                     if isInMenuSession {
                         HyperLog.event("F18/Caps keyDown ignored during menu session")
+                        return nil
+                    }
+                    // Mid-hold force-clear (Esc on clipboard panel): Caps may still be down.
+                    // Do not re-arm Hyper until the user fully releases and presses again.
+                    if blockHyperUntilKeyUp {
+                        HyperLog.event("F18/Caps keyDown ignored (awaiting keyUp after force-clear)")
                         return nil
                     }
                     f18Held = true
@@ -234,7 +245,8 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                     setHyperActive(true)
                     setPhysicalHyperHold(true)
                 } else if type == .keyUp {
-                    // Always honor keyUp even during menu — prevents sticky latch.
+                    // Always honor keyUp — clears latch and arms the next press.
+                    blockHyperUntilKeyUp = false
                     f18Held = false
                     setHyperActive(false)
                     setPhysicalHyperHold(false)
@@ -361,16 +373,20 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         }
 
         // Physical Hyper still held? (not merely sticky/grace)
-        let physicallyHeld =
-            f18Held
-            || looksLikeQuadHyper
-            || looksLikeTripleHyper
-            || flags.contains(hyperFlags)
-            || (useF18AsHyper && flags.contains(.maskAlphaShift))
+        // NOTE: Do NOT treat .maskAlphaShift (Caps Lock LED) as Hyper. A latched Caps Lock
+        // toggle made every key act as Hyper forever after Esc / bad recovery synthesis.
+        let physicallyHeld: Bool = {
+            if blockHyperUntilKeyUp { return false }
+            if f18Held { return true }
+            if looksLikeQuadHyper || looksLikeTripleHyper { return true }
+            if flags.contains(hyperFlags) { return true }
+            return false
+        }()
 
         // Sticky hyper if: physically held, or brief grace after last physical Hyper sighting
         let withinGrace =
-            now.timeIntervalSince(lastHyperSeenTime) < hyperGraceSeconds
+            !blockHyperUntilKeyUp
+            && now.timeIntervalSince(lastHyperSeenTime) < hyperGraceSeconds
         let shouldTreatAsHyper =
             physicallyHeld
             || (isHyperActive && withinGrace)
@@ -396,32 +412,16 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             }
             // Unmapped key while Space held: let it through (typing mid-hold).
         } else if shouldTreatAsHyper {
-            // Only extend grace from real Hyper hold — not from every chord keyDown.
-            // Extending on each key made a following bare “7” into Hyper+7 (top-left).
-            if physicallyHeld {
-                markHyperSeen(now)
-            }
-            setHyperActive(true)
-
-            // Ignore key-repeat while Hyper is held (avoids double snaps / odd overrides).
-            if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
-                return nil
-            }
-
-            // Karabiner Caps→Hyper usually maps “tap Caps alone → Escape”. That Escape
-            // must NEVER become Hyper+Esc (was: sys-lock → display sleep → black screen).
-            // Only treat Esc as a Hyper chord while Hyper is still physically held.
-            // Also: Esc while a HyperForge menu is open (or just closed) dismisses the
-            // menu — never lock (Hyper+⇧V → Esc was locking + leaving Caps stuck).
+            // Handle Esc for panels/menus *before* re-asserting Hyper active / grace.
+            // (Previously setHyperActive(true) ran first and could race the UI clear.)
             if keyCode == KeyCode.escape {
-                // Clipboard history panel owns Esc — never lock while it's up.
                 if ClipboardHistoryPanel.isShowing {
                     HyperLog.event("Hyper+Esc → close clipboard panel (no lock)")
                     noteCapsAloneEscapeWindow(from: now)
+                    forceClearHyperHold(reason: "esc-clipboard-panel", releaseHardware: true)
                     DispatchQueue.main.async {
                         ClipboardHistoryPanel.hide(clearHyper: true)
                     }
-                    forceClearHyperHold(reason: "esc-clipboard-panel", releaseHardware: true)
                     return nil
                 }
                 if shouldSuppressSysLock {
@@ -444,6 +444,18 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                     endStickyHyper()
                     return Unmanaged.passUnretained(event)
                 }
+            }
+
+            // Only extend grace from real Hyper hold — not from every chord keyDown.
+            // Extending on each key made a following bare “7” into Hyper+7 (top-left).
+            if physicallyHeld {
+                markHyperSeen(now)
+            }
+            setHyperActive(true)
+
+            // Ignore key-repeat while Hyper is held (avoids double snaps / odd overrides).
+            if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
+                return nil
             }
 
             // Help keys by keycode first (avoid NSEvent conversion on every Hyper key).
@@ -531,10 +543,17 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         lock.lock()
         let changed = _hyperActive != value
         _hyperActive = value
+        let gen = hyperUIGeneration
         lock.unlock()
         guard changed else { return }
         DispatchQueue.main.async { [weak self] in
-            self?.hyperKeyActive = value
+            guard let self else { return }
+            // Drop stale activations after forceClearHyperHold.
+            self.lock.lock()
+            let currentGen = self.hyperUIGeneration
+            self.lock.unlock()
+            guard gen == currentGen else { return }
+            self.hyperKeyActive = value
             if value {
                 FirstRunChallengeStore.shared.noteHyper()
             }
@@ -688,7 +707,7 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         }
     }
 
-    /// OS-level check: 4-mod still down or Caps Lock toggle latched.
+    /// OS-level check: 4-mod still down (not Caps Lock LED — that is not Hyper).
     private func systemLooksLikeHyperHeld() -> Bool {
         let flags = CGEventSource.flagsState(.hidSystemState)
         let quad =
@@ -700,33 +719,58 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             flags.contains(.maskCommand)
             && flags.contains(.maskAlternate)
             && flags.contains(.maskControl)
-        return quad || triple || flags.contains(.maskAlphaShift)
+        return quad || triple
     }
 
     /// Hard reset Hyper latch + sticky grace + hold HUD (safe after menus / Esc).
-    /// - Parameter releaseHardware: also synthesize key-ups for stuck ⌘⌥⌃⇧ / F18 / Caps.
+    /// - Parameter releaseHardware: also synthesize key-ups for stuck ⌘⌥⌃⇧ / F18.
     func forceClearHyperHold(reason: String, releaseHardware: Bool = false) {
         lock.lock()
         f18Held = false
         _hyperActive = false
+        // Caps may still be physically down — ignore keyDown until a real keyUp.
+        blockHyperUntilKeyUp = true
         lastHyperSeenTime = .distantPast
         lastHyperTriggerTime = Date()
+        hyperUIGeneration &+= 1
+        let gen = hyperUIGeneration
         lock.unlock()
         HyperLog.event(
-            "forceClearHyperHold: \(reason) hardware=\(releaseHardware)"
+            "forceClearHyperHold: \(reason) hardware=\(releaseHardware) blockUntilKeyUp=true"
         )
         if releaseHardware {
             EventSynthesizer.releaseStuckHyperKeys()
         }
         DispatchQueue.main.async { [weak self] in
-            self?.hyperKeyActive = false
+            guard let self else { return }
+            self.lock.lock()
+            let currentGen = self.hyperUIGeneration
+            self.lock.unlock()
+            guard gen == currentGen else { return }
+            self.hyperKeyActive = false
             HyperBindingsHUD.setHyperHeld(false)
         }
     }
 
     /// Drop sticky Hyper without waiting for grace (after a finished chord).
     private func endStickyHyper() {
-        forceClearHyperHold(reason: "end-sticky", releaseHardware: false)
+        // Soft end: do not block next press or blast hardware key-ups.
+        lock.lock()
+        f18Held = false
+        _hyperActive = false
+        lastHyperSeenTime = .distantPast
+        hyperUIGeneration &+= 1
+        let gen = hyperUIGeneration
+        lock.unlock()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.lock.lock()
+            let currentGen = self.hyperUIGeneration
+            self.lock.unlock()
+            guard gen == currentGen else { return }
+            self.hyperKeyActive = false
+            HyperBindingsHUD.setHyperHeld(false)
+        }
     }
 
     private func enabledIDsSnapshot() -> Set<String>? {

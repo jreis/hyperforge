@@ -83,8 +83,9 @@ enum ClipboardHistoryPanel {
             origin.y = min(max(origin.y, vis.minY + 8), vis.maxY - panel.frame.height - 8)
         }
         panel.setFrameOrigin(origin)
-        panel.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        // Non-activating: keep focus in the previous app; Esc still hits our local monitor
+        // and the global event tap. Avoids stealing key focus / Caps weirdness.
+        panel.orderFront(nil)
 
         Banner.show(
             "Clipboard history",
