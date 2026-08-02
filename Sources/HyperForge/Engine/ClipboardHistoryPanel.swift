@@ -1,18 +1,17 @@
 // ClipboardHistoryPanel.swift
-// Simple clipboard history for Hyper+V / Hyper+⇧V.
+// Hyper+V / Hyper+⇧V → NSMenu at cursor. Esc closes (not lock). That's it.
 //
-// Design (intentionally boring):
-//   1. Hyper+V → swallow V, show NSMenu at cursor
-//   2. Esc → NSMenu dismisses (we never treat it as Hyper+Esc lock)
-//   3. Never touch Caps/F18 latch while the menu is open
-//   4. After popUp returns, resync Hyper as released (modal menus often drop keyUp)
+// Rules:
+//   • Swallow V via the engine (handle returns true → return nil). Never clear f18Held on open.
+//   • While menu is open, Hyper+Esc is suppressed (pass Esc through to NSMenu).
+//   • After popUp returns, resync Hyper released (modal menus often drop Caps keyUp).
+//   • Clear latched Caps Lock LED on open if needed (Karabiner blocks normal Caps toggle).
 
 import AppKit
 import Foundation
 
 @MainActor
 enum ClipboardHistoryPanel {
-    /// True while `NSMenu.popUp` is on the stack (read from event tap).
     nonisolated private static let lock = NSLock()
     nonisolated(unsafe) private static var tracking = false
 
@@ -25,17 +24,20 @@ enum ClipboardHistoryPanel {
         lock.lock(); tracking = value; lock.unlock()
     }
 
-    /// Hyper+V entry point. Call only on the main thread.
     static func show() {
+        // If Caps Lock LED is stuck ON (common after earlier bugs), clear it so
+        // the next non-Hyper keystroke isn't capitalised. Does not affect F18 hold.
+        EventSynthesizer.clearCapsLockIfLatched()
+
         _ = ClipboardService.shared.poll()
-        let items = Array(ClipboardService.shared.history.prefix(12))
+        let items = Array(ClipboardService.shared.history.prefix(15))
 
         let menu = NSMenu(title: "Clipboard")
         menu.autoenablesItems = false
 
         if items.isEmpty {
             let empty = NSMenuItem(
-                title: "No history — copy text first",
+                title: "No history yet — copy some text first",
                 action: nil,
                 keyEquivalent: ""
             )
@@ -43,41 +45,40 @@ enum ClipboardHistoryPanel {
             menu.addItem(empty)
         } else {
             for (i, text) in items.enumerated() {
-                let title = "\(i + 1).  \(preview(text))"
                 let item = NSMenuItem(
-                    title: title,
-                    action: #selector(ClipboardHistoryMenuTarget.paste(_:)),
+                    title: "\(i + 1).  \(preview(text))",
+                    action: #selector(Target.paste(_:)),
                     keyEquivalent: i < 9 ? "\(i + 1)" : ""
                 )
                 item.tag = i
-                item.target = ClipboardHistoryMenuTarget.shared
+                item.target = Target.shared
                 item.toolTip = text
                 menu.addItem(item)
             }
             menu.addItem(.separator())
             let clear = NSMenuItem(
                 title: "Clear history",
-                action: #selector(ClipboardHistoryMenuTarget.clear(_:)),
+                action: #selector(Target.clear(_:)),
                 keyEquivalent: ""
             )
-            clear.target = ClipboardHistoryMenuTarget.shared
+            clear.target = Target.shared
             menu.addItem(clear)
         }
 
-        // Mark tracking so Hyper+Esc is suppressed while the menu is open.
         setTracking(true)
         HyperKeyEngine.shared.noteClipboardPanelVisible(true)
-        defer {
-            setTracking(false)
-            HyperKeyEngine.shared.noteClipboardPanelVisible(false)
-            // Modal menu often ate Caps/F18 keyUp — treat Hyper as released.
-            HyperKeyEngine.shared.resyncHyperAfterMenu()
-        }
 
+        // popUp is modal; when it returns the menu is gone.
         menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+
+        setTracking(false)
+        HyperKeyEngine.shared.noteClipboardPanelVisible(false)
+        // Caps keyUp was often eaten by the modal menu — treat Hyper as released.
+        HyperKeyEngine.shared.resyncHyperAfterMenu()
+
+        HyperLog.event("clipboard menu finished items=\(items.count)")
     }
 
-    /// Kept for call sites that used hide() — NSMenu is already gone after popUp.
     static func hide() {
         setTracking(false)
         HyperKeyEngine.shared.noteClipboardPanelVisible(false)
@@ -95,8 +96,8 @@ enum ClipboardHistoryPanel {
 }
 
 @MainActor
-private final class ClipboardHistoryMenuTarget: NSObject {
-    static let shared = ClipboardHistoryMenuTarget()
+private final class Target: NSObject {
+    static let shared = Target()
 
     @objc func paste(_ sender: NSMenuItem) {
         ClipboardService.shared.pasteHistoryItem(at: sender.tag)

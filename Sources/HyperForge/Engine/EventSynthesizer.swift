@@ -115,15 +115,14 @@ enum EventSynthesizer {
     }
 
     /// If the Caps Lock *toggle* (LED) is latched ON, pulse Caps once to turn it off.
-    /// Safe only as recovery: Karabiner Caps→F18 never reaches the system, so a latched
-    /// LED can only be cleared by injecting caps_lock (or the user using another path).
+    ///
+    /// Critical with Karabiner Caps→F18: the physical Caps key never reaches the OS, so
+    /// a latched Caps Lock LED can only be cleared by injecting caps_lock. Otherwise the
+    /// user is stuck typing CAPITALS forever and Hyper+V looks like a capital V.
     static func clearCapsLockIfLatched() {
         let flags = CGEventSource.flagsState(.hidSystemState)
-        guard flags.contains(.maskAlphaShift) else {
-            HyperLog.event("clearCapsLockIfLatched: alphaShift already off")
-            return
-        }
-        // Full down+up toggles Caps Lock off when it was ON.
+        guard flags.contains(.maskAlphaShift) else { return }
+        // Our event tap swallows real caps_lock — mark as synthetic so it passes through.
         postKey(0x39 /* caps_lock */)
         HyperLog.event("clearCapsLockIfLatched: pulsed Caps Lock to clear LED")
     }

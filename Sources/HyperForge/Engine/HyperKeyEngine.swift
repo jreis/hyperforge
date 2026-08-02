@@ -78,6 +78,13 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
     func start() {
         guard !isRunning else { return }
         statusMessage = "Starting…"
+        // Reset any leaked menu flags from a previous crash / bad session.
+        menuSessionDepth = 0
+        clipboardPanelVisible = false
+        ClipboardHistoryPanel.setTracking(false)
+        // Caps→F18 means the user cannot toggle Caps Lock LED off with Caps —
+        // clear a latched LED so typing isn't stuck in ALL CAPS.
+        EventSynthesizer.clearCapsLockIfLatched()
         startEventTap()
         startAuxTimers()
         // Keep Space-nav per-app gate in sync with the frontmost app.
@@ -223,16 +230,11 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         let now = Date()
 
         // ── F18 / raw Caps as Hyper (keyUp must clear held state) ────────
-        // Only keyDown/keyUp latch Hyper. flagsChanged+toggle used to leave Caps/Hyper
-        // stuck ON after NSMenu dismiss (Esc) when a keyUp was missed or reordered.
+        // Always latch on keyDown — never ignore F18 because a menu flag is stuck.
+        // (Ignoring F18 keyDown left Hyper dead: V typed into apps, Caps felt stuck.)
         if keyCode == KeyCode.f18 || keyCode == KeyCode.hidF18 || keyCode == KeyCode.capsLock {
             if useF18AsHyper {
                 if type == .keyDown {
-                    // Modal NSMenu only — clipboard panel is non-modal and must not block Caps.
-                    if isInMenuSession {
-                        HyperLog.event("F18/Caps keyDown ignored during modal menu session")
-                        return nil
-                    }
                     f18Held = true
                     markHyperSeen(now)
                     setHyperActive(true)
@@ -246,6 +248,7 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                     flushPendingMenu(force: false)
                 }
             }
+            // Swallow so Caps never toggles system Caps Lock while we own Hyper.
             return nil
         }
 
