@@ -33,14 +33,7 @@ enum ClipboardHistoryPanel {
         let items = Array(ClipboardService.shared.history.prefix(15))
         HyperDebug.log("clipboard.show 2 items=\(items.count)")
 
-        let panel: NSPanel
-        do {
-            panel = makePanel(items: items)
-        } catch {
-            HyperDebug.log("clipboard.show BUILD FAIL \(error)")
-            Banner.show("Clipboard menu failed", subtitle: "\(error)", style: .danger)
-            return
-        }
+        let panel = makePanel(items: items)
         HyperDebug.log("clipboard.show 3 panel built")
 
         window = panel
