@@ -167,6 +167,8 @@ enum PasteTransformService {
         let loc = NSEvent.mouseLocation
         HyperKeyEngine.shared.beginMenuSession()
         defer { HyperKeyEngine.shared.endMenuSession() }
+        ClipboardHistoryPanel.setTracking(true)
+        defer { ClipboardHistoryPanel.setTracking(false) }
         menu.popUp(positioning: nil, at: loc, in: nil)
     }
 

@@ -46,6 +46,8 @@ enum QuickMenuService {
 
         HyperKeyEngine.shared.beginMenuSession()
         defer { HyperKeyEngine.shared.endMenuSession() }
+        ClipboardHistoryPanel.setTracking(true)
+        defer { ClipboardHistoryPanel.setTracking(false) }
         menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
     }
 }

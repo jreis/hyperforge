@@ -172,8 +172,8 @@ enum HyperKeyActions {
             // Defer popUp until Caps/Hyper released (see openMenuAfterHyperRelease).
             onMain { PasteTransformService.showMenu() }
         case "clip-history":
-            // Do NOT clear f18Held here — that made Caps still-down look like Hyper was off,
-            // so the next key (or key repeat) typed a literal "V" into the front app.
+            // Show menu on main. Do not touch Hyper latch (f18Held). V is already swallowed
+            // by the engine (return nil after handle). Esc is suppressed while menu tracks.
             onMain { ClipboardHistoryPanel.show() }
         case "clip-region-pin":
             onMain { RegionPinService.shared.beginSelection() }
