@@ -531,23 +531,20 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             // clear the LED, open the clipboard menu.
             if keyCode == KeyCode.v, type == .keyDown {
                 let alpha = flags.contains(.maskAlphaShift)
-                let shift = flags.contains(.maskShift)
                 HyperDebug.log(
-                    "V without Hyper f18Held=\(f18Held) hyperActive=\(isHyperActive) alphaShift=\(alpha) shift=\(shift) flags=\(flags.rawValue)"
+                    "V without Hyper f18Held=\(f18Held) hyperActive=\(isHyperActive) alphaShift=\(alpha) flags=\(flags.rawValue)"
                 )
-                // Stuck Caps Lock LED (looks like Hyper) + V / ⇧V → open clipboard.
-                // Real Hyper hold would have logged CAPS/F18 down first.
-                if alpha || shift {
-                    if alpha { EventSynthesizer.clearCapsLockIfLatched() }
-                    HyperDebug.log("V without Hyper (shift/capsLock) → treat as Hyper+V")
+                // Stuck Caps Lock LED looks like Hyper is "on" but f18Held is false.
+                // Real Hyper hold always logs CAPS/F18 down first — your logs never had that.
+                if alpha {
+                    EventSynthesizer.clearCapsLockIfLatched()
+                    HyperDebug.log("V + stuck CapsLock LED → treat as Hyper+V")
                     SnippetEngine.shared.resetBuffer()
                     scheduleClipboardMenuAfterCapsRelease()
                     DispatchQueue.main.async {
                         Banner.show(
                             "Clipboard",
-                            subtitle: alpha
-                                ? "Caps Lock was on (not Hyper). Hold Caps for real Hyper+V."
-                                : "Opened · for real Hyper hold Caps, then V",
+                            subtitle: "Caps Lock LED was on (not Hyper). Hold Caps, then V next time.",
                             style: .warning,
                             symbol: "list.clipboard",
                             duration: 2.6
