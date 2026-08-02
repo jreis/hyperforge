@@ -657,7 +657,8 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         HyperLog.event("clipboardPanelVisible=\(visible)")
     }
 
-    /// Hyper+V while Caps held: queue menu, open on Caps keyUp (or short timeout).
+    /// Hyper+V while Caps held: queue menu, open on Caps keyUp only.
+    /// (A short timeout used to open while Caps was still down — menu was flaky.)
     private func scheduleClipboardMenuAfterCapsRelease() {
         pendingClipboardTimeout?.cancel()
         pendingClipboardMenu = true
@@ -669,22 +670,24 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                 subtitle: "Release Caps to open menu",
                 style: .info,
                 symbol: "list.clipboard",
-                duration: 1.4
+                duration: 1.6
             )
         }
 
-        // If Caps already up (sticky Hyper only), open next turn.
+        // Caps already up (sticky Hyper only) → open next turn.
         if !f18Held {
             flushPendingClipboardMenu()
             return
         }
 
-        // Safety: if user keeps holding Caps, open after a beat anyway.
+        // Long fallback only if Caps keyUp is lost (modal ate it, etc.).
         let work = DispatchWorkItem { [weak self] in
-            self?.flushPendingClipboardMenu()
+            guard let self, self.pendingClipboardMenu else { return }
+            HyperDebug.log("clipboard menu fallback timeout (Caps keyUp missing?)")
+            self.flushPendingClipboardMenu()
         }
         pendingClipboardTimeout = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: work)
     }
 
     private func flushPendingClipboardMenu() {
