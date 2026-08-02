@@ -215,32 +215,30 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         let now = Date()
 
         // ── F18 / raw Caps as Hyper (keyUp must clear held state) ────────
+        // Only keyDown/keyUp latch Hyper. flagsChanged+toggle used to leave Caps/Hyper
+        // stuck ON after NSMenu dismiss (Esc) when a keyUp was missed or reordered.
         if keyCode == KeyCode.f18 || keyCode == KeyCode.hidF18 || keyCode == KeyCode.capsLock {
             if useF18AsHyper {
                 if type == .keyDown {
+                    // While a menu is open, ignore new Hyper latch (modal often desyncs keyUp).
+                    if isInMenuSession {
+                        HyperLog.event("F18/Caps keyDown ignored during menu session")
+                        return nil
+                    }
                     f18Held = true
                     markHyperSeen(now)
                     setHyperActive(true)
                     setPhysicalHyperHold(true)
                 } else if type == .keyUp {
+                    // Always honor keyUp even during menu — prevents sticky latch.
                     f18Held = false
                     setHyperActive(false)
                     setPhysicalHyperHold(false)
                     lastHyperTriggerTime = now
                     // Caps-alone → Escape follows this keyUp; don't treat it as UI Esc.
                     noteCapsAloneEscapeWindow(from: now)
-                } else if type == .flagsChanged {
-                    f18Held.toggle()
-                    if f18Held {
-                        markHyperSeen(now)
-                        setHyperActive(true)
-                        setPhysicalHyperHold(true)
-                    } else {
-                        setHyperActive(false)
-                        setPhysicalHyperHold(false)
-                        noteCapsAloneEscapeWindow(from: now)
-                    }
                 }
+                // flagsChanged: intentionally ignored for latch state (toggle caused stuck-on)
             }
             return nil
         }
@@ -410,13 +408,13 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             if keyCode == KeyCode.escape {
                 if shouldSuppressSysLock {
                     HyperLog.event(
-                        "Hyper+Esc suppressed (menu session / post-menu dismiss)"
+                        "Hyper+Esc suppressed (menu session / post-menu dismiss) — clear Hyper"
                     )
                     noteCapsAloneEscapeWindow(from: now)
+                    // Always clear Hyper latch: modal menus often drop Caps/F18 keyUp,
+                    // which left f18Held stuck true (HUD + chords still armed).
+                    forceClearHyperHold(reason: "esc-during-menu")
                     // Pass through so NSMenu can cancel; do not route to sys-lock.
-                    if !physicallyHeld {
-                        endStickyHyper()
-                    }
                     return Unmanaged.passUnretained(event)
                 }
                 if !physicallyHeld {
@@ -558,8 +556,16 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         return menuSessionDepth > 0 || Date() < suppressSysLockUntil
     }
 
-    /// Wrap `NSMenu.popUp` so Esc dismisses the menu instead of locking.
+    private var isInMenuSession: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return menuSessionDepth > 0
+    }
+
+    /// Wrap `NSMenu.popUp` so Esc dismisses the menu instead of locking / sticking Hyper.
     func beginMenuSession() {
+        // Drop Hyper before the modal loop — Caps keyUp is often lost while the menu runs.
+        forceClearHyperHold(reason: "menu-begin")
         lock.lock()
         menuSessionDepth += 1
         let depth = menuSessionDepth
@@ -572,26 +578,33 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         menuSessionDepth = max(0, menuSessionDepth - 1)
         suppressSysLockUntil = Date().addingTimeInterval(menuDismissLockSuppressSeconds)
         let depth = menuSessionDepth
-        let physicalHeld = f18Held
         lock.unlock()
         HyperLog.event("menu session end depth=\(depth)")
-        // Clear sticky Hyper grace after menu so the next bare key isn't Hyper-scoped.
-        // Physical Caps/F18 hold is unchanged.
+        // Always force-clear after menu. Never trust f18Held after a modal NSMenu —
+        // keyUp is frequently missed and left Caps/Hyper "stuck on".
         if depth == 0 {
-            lastHyperSeenTime = .distantPast
-            setHyperActive(physicalHeld)
-            if !physicalHeld {
-                setPhysicalHyperHold(false)
-            }
+            forceClearHyperHold(reason: "menu-end")
+        }
+    }
+
+    /// Hard reset Hyper latch + sticky grace + hold HUD (safe after menus / Esc).
+    func forceClearHyperHold(reason: String) {
+        lock.lock()
+        f18Held = false
+        _hyperActive = false
+        lastHyperSeenTime = .distantPast
+        lastHyperTriggerTime = Date()
+        lock.unlock()
+        HyperLog.event("forceClearHyperHold: \(reason)")
+        DispatchQueue.main.async { [weak self] in
+            self?.hyperKeyActive = false
+            HyperBindingsHUD.setHyperHeld(false)
         }
     }
 
     /// Drop sticky Hyper without waiting for grace (after a finished chord).
     private func endStickyHyper() {
-        f18Held = false
-        setHyperActive(false)
-        setPhysicalHyperHold(false)
-        lastHyperSeenTime = .distantPast
+        forceClearHyperHold(reason: "end-sticky")
     }
 
     private func enabledIDsSnapshot() -> Set<String>? {

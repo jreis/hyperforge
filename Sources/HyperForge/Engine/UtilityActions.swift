@@ -214,6 +214,9 @@ final class ClipboardService: ObservableObject {
     /// Hyper + ⇧V — local history stack + paste transforms (no network).
     func showHistoryMenu() {
         _ = poll()
+        // Clear Hyper *before* building the menu so Caps can settle while we prepare.
+        HyperKeyEngine.shared.forceClearHyperHold(reason: "clipboard-menu-prepare")
+
         let menu = NSMenu(title: "Clipboard")
         menu.autoenablesItems = false
 
