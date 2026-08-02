@@ -54,6 +54,10 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
     /// Grace after menu closes so Esc that closes the menu can't still lock.
     private var suppressSysLockUntil = Date.distantPast
     private let menuDismissLockSuppressSeconds: TimeInterval = 0.55
+    /// Open popup menus only after Caps/Hyper is released (avoids stuck latch).
+    private var pendingMenuOpener: (() -> Void)?
+    private var pendingMenuTimeout: DispatchWorkItem?
+    private let pendingMenuTimeoutSeconds: TimeInterval = 0.40
     private var enabledIDsCopy: Set<String>?
 
     private var eventTap: CFMachPort?
@@ -237,6 +241,8 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                     lastHyperTriggerTime = now
                     // Caps-alone → Escape follows this keyUp; don't treat it as UI Esc.
                     noteCapsAloneEscapeWindow(from: now)
+                    // Deferred menus (clipboard history, etc.) open on real Caps release.
+                    flushPendingMenu(force: false)
                 }
                 // flagsChanged: intentionally ignored for latch state (toggle caused stuck-on)
             }
@@ -343,6 +349,8 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             if isHyperActive, !f18Held {
                 noteCapsAloneEscapeWindow(from: now)
                 setPhysicalHyperHold(false)
+                // Caps released (mods dropped) → open deferred menu if any.
+                flushPendingMenu(force: false)
             }
             // Soft release via grace (checked on keyDown) — no logging on every blip.
             return Unmanaged.passUnretained(event)
@@ -408,12 +416,18 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             if keyCode == KeyCode.escape {
                 if shouldSuppressSysLock {
                     HyperLog.event(
-                        "Hyper+Esc suppressed (menu session / post-menu dismiss) — clear Hyper"
+                        "Hyper+Esc suppressed (menu / pending menu) — clear Hyper, cancel menu"
                     )
                     noteCapsAloneEscapeWindow(from: now)
-                    // Always clear Hyper latch: modal menus often drop Caps/F18 keyUp,
-                    // which left f18Held stuck true (HUD + chords still armed).
-                    forceClearHyperHold(reason: "esc-during-menu")
+                    // Esc before deferred menu opens → cancel it (don't pop up after release).
+                    if hasPendingMenu {
+                        cancelPendingMenu()
+                        suppressSysLockUntil = Date().addingTimeInterval(
+                            menuDismissLockSuppressSeconds
+                        )
+                    }
+                    // Always clear Hyper latch + unstick OS modifiers / Caps LED.
+                    forceClearHyperHold(reason: "esc-during-menu", releaseHardware: true)
                     // Pass through so NSMenu can cancel; do not route to sys-lock.
                     return Unmanaged.passUnretained(event)
                 }
@@ -548,12 +562,14 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         return Date() < suppressUIEscapeUntil
     }
 
-    /// True while a HyperForge NSMenu is tracking, or briefly after it closes.
+    /// True while a HyperForge NSMenu is tracking, waiting to open, or just closed.
     /// Prevents Hyper+⇧V → Esc from becoming Hyper+Esc (lock) + stuck Caps.
     var shouldSuppressSysLock: Bool {
         lock.lock()
         defer { lock.unlock() }
-        return menuSessionDepth > 0 || Date() < suppressSysLockUntil
+        return menuSessionDepth > 0
+            || pendingMenuOpener != nil
+            || Date() < suppressSysLockUntil
     }
 
     private var isInMenuSession: Bool {
@@ -562,10 +578,16 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         return menuSessionDepth > 0
     }
 
+    private var hasPendingMenu: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return pendingMenuOpener != nil
+    }
+
     /// Wrap `NSMenu.popUp` so Esc dismisses the menu instead of locking / sticking Hyper.
     func beginMenuSession() {
-        // Drop Hyper before the modal loop — Caps keyUp is often lost while the menu runs.
-        forceClearHyperHold(reason: "menu-begin")
+        // Drop Hyper + unstick OS modifiers before the modal loop.
+        forceClearHyperHold(reason: "menu-begin", releaseHardware: true)
         lock.lock()
         menuSessionDepth += 1
         let depth = menuSessionDepth
@@ -583,19 +605,97 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         // Always force-clear after menu. Never trust f18Held after a modal NSMenu —
         // keyUp is frequently missed and left Caps/Hyper "stuck on".
         if depth == 0 {
-            forceClearHyperHold(reason: "menu-end")
+            forceClearHyperHold(reason: "menu-end", releaseHardware: true)
         }
     }
 
+    /// Schedule an NSMenu to open only after Caps/Hyper is released.
+    /// Opening a modal menu *while* Caps is still down is what sticks Hyper/Caps.
+    func openMenuAfterHyperRelease(_ open: @escaping () -> Void) {
+        cancelPendingMenu()
+        lock.lock()
+        pendingMenuOpener = open
+        lock.unlock()
+        HyperLog.event("menu deferred until Hyper release")
+
+        // If already released (sticky-only chord), open on next run-loop turn.
+        if !f18Held, !systemLooksLikeHyperHeld() {
+            DispatchQueue.main.async { [weak self] in
+                self?.flushPendingMenu(force: false)
+            }
+            return
+        }
+
+        let work = DispatchWorkItem { [weak self] in
+            self?.flushPendingMenu(force: true)
+        }
+        pendingMenuTimeout = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + pendingMenuTimeoutSeconds,
+            execute: work
+        )
+    }
+
+    private func cancelPendingMenu() {
+        pendingMenuTimeout?.cancel()
+        pendingMenuTimeout = nil
+        lock.lock()
+        pendingMenuOpener = nil
+        lock.unlock()
+    }
+
+    /// Open deferred menu (on Caps keyUp, 4-mod release, or timeout).
+    private func flushPendingMenu(force: Bool) {
+        lock.lock()
+        let open = pendingMenuOpener
+        pendingMenuOpener = nil
+        lock.unlock()
+        pendingMenuTimeout?.cancel()
+        pendingMenuTimeout = nil
+        guard let open else { return }
+
+        if force {
+            HyperLog.event("menu flush forced (timeout) — releasing stuck keys")
+        } else {
+            HyperLog.event("menu flush on Hyper release")
+        }
+        forceClearHyperHold(reason: "menu-flush", releaseHardware: true)
+        // One more turn so key-ups settle before popUp steals the run loop.
+        DispatchQueue.main.async {
+            open()
+        }
+    }
+
+    /// OS-level check: 4-mod still down or Caps Lock toggle latched.
+    private func systemLooksLikeHyperHeld() -> Bool {
+        let flags = CGEventSource.flagsState(.hidSystemState)
+        let quad =
+            flags.contains(.maskCommand)
+            && flags.contains(.maskAlternate)
+            && flags.contains(.maskControl)
+            && flags.contains(.maskShift)
+        let triple =
+            flags.contains(.maskCommand)
+            && flags.contains(.maskAlternate)
+            && flags.contains(.maskControl)
+        return quad || triple || flags.contains(.maskAlphaShift)
+    }
+
     /// Hard reset Hyper latch + sticky grace + hold HUD (safe after menus / Esc).
-    func forceClearHyperHold(reason: String) {
+    /// - Parameter releaseHardware: also synthesize key-ups for stuck ⌘⌥⌃⇧ / F18 / Caps.
+    func forceClearHyperHold(reason: String, releaseHardware: Bool = false) {
         lock.lock()
         f18Held = false
         _hyperActive = false
         lastHyperSeenTime = .distantPast
         lastHyperTriggerTime = Date()
         lock.unlock()
-        HyperLog.event("forceClearHyperHold: \(reason)")
+        HyperLog.event(
+            "forceClearHyperHold: \(reason) hardware=\(releaseHardware)"
+        )
+        if releaseHardware {
+            EventSynthesizer.releaseStuckHyperKeys()
+        }
         DispatchQueue.main.async { [weak self] in
             self?.hyperKeyActive = false
             HyperBindingsHUD.setHyperHeld(false)
@@ -604,7 +704,7 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
 
     /// Drop sticky Hyper without waiting for grace (after a finished chord).
     private func endStickyHyper() {
-        forceClearHyperHold(reason: "end-sticky")
+        forceClearHyperHold(reason: "end-sticky", releaseHardware: false)
     }
 
     private func enabledIDsSnapshot() -> Set<String>? {

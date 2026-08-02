@@ -169,16 +169,10 @@ enum HyperKeyActions {
         case "clip-nvim":
             DispatchQueue.global().async { SystemActions.openClipboardInNvim() }
         case "clip-paste-menu":
-            // Clear Hyper before the modal menu so Caps/F18 keyUp isn't required mid-popUp.
-            onMain {
-                HyperKeyEngine.shared.forceClearHyperHold(reason: "paste-menu-chord")
-                PasteTransformService.showMenu()
-            }
+            // Defer popUp until Caps/Hyper released (see openMenuAfterHyperRelease).
+            onMain { PasteTransformService.showMenu() }
         case "clip-history":
-            onMain {
-                HyperKeyEngine.shared.forceClearHyperHold(reason: "history-menu-chord")
-                ClipboardService.shared.showHistoryMenu()
-            }
+            onMain { ClipboardService.shared.showHistoryMenu() }
         case "clip-region-pin":
             onMain { RegionPinService.shared.beginSelection() }
         case "clip-image":
@@ -233,11 +227,9 @@ enum HyperKeyActions {
             AppState.shared.showCheatSheet()
             return
         case "clip-paste-menu":
-            HyperKeyEngine.shared.forceClearHyperHold(reason: "paste-menu-perform")
             PasteTransformService.showMenu()
             return
         case "clip-history":
-            HyperKeyEngine.shared.forceClearHyperHold(reason: "history-menu-perform")
             ClipboardService.shared.showHistoryMenu()
             return
         case "clip-region-pin":

@@ -212,11 +212,16 @@ final class ClipboardService: ObservableObject {
     }
 
     /// Hyper + ⇧V — local history stack + paste transforms (no network).
+    /// Defers `NSMenu.popUp` until Caps/Hyper is released so the modal loop
+    /// cannot eat Caps keyUp and leave Hyper stuck on.
     func showHistoryMenu() {
         _ = poll()
-        // Clear Hyper *before* building the menu so Caps can settle while we prepare.
-        HyperKeyEngine.shared.forceClearHyperHold(reason: "clipboard-menu-prepare")
+        HyperKeyEngine.shared.openMenuAfterHyperRelease { [weak self] in
+            self?.presentHistoryMenuNow()
+        }
+    }
 
+    private func presentHistoryMenuNow() {
         let menu = NSMenu(title: "Clipboard")
         menu.autoenablesItems = false
 

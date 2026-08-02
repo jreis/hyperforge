@@ -139,6 +139,13 @@ enum PasteTransformService {
     /// Show an NSMenu of transforms at the mouse (AHK paste menu energy).
     @MainActor
     static func showMenu() {
+        HyperKeyEngine.shared.openMenuAfterHyperRelease {
+            presentMenuNow()
+        }
+    }
+
+    @MainActor
+    private static func presentMenuNow() {
         let menu = NSMenu(title: "Paste transforms")
         for kind in PasteTransform.allCases {
             let item = NSMenuItem(

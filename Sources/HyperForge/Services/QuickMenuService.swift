@@ -7,6 +7,12 @@ import Foundation
 @MainActor
 enum QuickMenuService {
     static func show() {
+        HyperKeyEngine.shared.openMenuAfterHyperRelease {
+            presentNow()
+        }
+    }
+
+    private static func presentNow() {
         let menu = NSMenu(title: "HyperForge Quick Menu")
 
         func item(_ title: String, _ symbol: String, _ action: Selector) -> NSMenuItem {
