@@ -414,21 +414,28 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             // Also: Esc while a HyperForge menu is open (or just closed) dismisses the
             // menu — never lock (Hyper+⇧V → Esc was locking + leaving Caps stuck).
             if keyCode == KeyCode.escape {
+                // Clipboard history panel owns Esc — never lock while it's up.
+                if ClipboardHistoryPanel.isShowing {
+                    HyperLog.event("Hyper+Esc → close clipboard panel (no lock)")
+                    noteCapsAloneEscapeWindow(from: now)
+                    DispatchQueue.main.async {
+                        ClipboardHistoryPanel.hide(clearHyper: true)
+                    }
+                    forceClearHyperHold(reason: "esc-clipboard-panel", releaseHardware: true)
+                    return nil
+                }
                 if shouldSuppressSysLock {
                     HyperLog.event(
                         "Hyper+Esc suppressed (menu / pending menu) — clear Hyper, cancel menu"
                     )
                     noteCapsAloneEscapeWindow(from: now)
-                    // Esc before deferred menu opens → cancel it (don't pop up after release).
                     if hasPendingMenu {
                         cancelPendingMenu()
                         suppressSysLockUntil = Date().addingTimeInterval(
                             menuDismissLockSuppressSeconds
                         )
                     }
-                    // Always clear Hyper latch + unstick OS modifiers / Caps LED.
                     forceClearHyperHold(reason: "esc-during-menu", releaseHardware: true)
-                    // Pass through so NSMenu can cancel; do not route to sys-lock.
                     return Unmanaged.passUnretained(event)
                 }
                 if !physicallyHeld {
@@ -584,9 +591,8 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         return pendingMenuOpener != nil
     }
 
-    /// Wrap `NSMenu.popUp` so Esc dismisses the menu instead of locking / sticking Hyper.
+    /// Modal NSMenu session (quick menu / shortcuts / transforms only).
     func beginMenuSession() {
-        // Drop Hyper + unstick OS modifiers before the modal loop.
         forceClearHyperHold(reason: "menu-begin", releaseHardware: true)
         lock.lock()
         menuSessionDepth += 1
@@ -602,11 +608,27 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         let depth = menuSessionDepth
         lock.unlock()
         HyperLog.event("menu session end depth=\(depth)")
-        // Always force-clear after menu. Never trust f18Held after a modal NSMenu —
-        // keyUp is frequently missed and left Caps/Hyper "stuck on".
         if depth == 0 {
             forceClearHyperHold(reason: "menu-end", releaseHardware: true)
         }
+    }
+
+    /// Non-modal panel session (clipboard history). Suppresses Hyper+Esc lock while open.
+    func beginNonModalUISession() {
+        lock.lock()
+        menuSessionDepth += 1
+        let depth = menuSessionDepth
+        lock.unlock()
+        HyperLog.event("non-modal UI session begin depth=\(depth)")
+    }
+
+    func endNonModalUISession() {
+        lock.lock()
+        menuSessionDepth = max(0, menuSessionDepth - 1)
+        suppressSysLockUntil = Date().addingTimeInterval(menuDismissLockSuppressSeconds)
+        let depth = menuSessionDepth
+        lock.unlock()
+        HyperLog.event("non-modal UI session end depth=\(depth)")
     }
 
     /// Schedule an NSMenu to open only after Caps/Hyper is released.

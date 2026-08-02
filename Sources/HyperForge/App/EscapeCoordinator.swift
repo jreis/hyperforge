@@ -21,9 +21,10 @@ final class EscapeCoordinator {
         case regionSelection = 0
         case floatingPin = 1
         case linkHints = 2
-        case commandBar = 3
-        case cheatSheet = 4
-        case dashboard = 5
+        case clipboardHistory = 3
+        case commandBar = 4
+        case cheatSheet = 5
+        case dashboard = 6
 
         static func < (lhs: Layer, rhs: Layer) -> Bool {
             lhs.rawValue < rhs.rawValue
@@ -102,7 +103,7 @@ final class EscapeCoordinator {
         switch layer {
         case .commandBar, .cheatSheet, .dashboard:
             return
-        default:
+        case .regionSelection, .floatingPin, .linkHints, .clipboardHistory:
             handlers[layer] = nil
         }
     }

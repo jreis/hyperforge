@@ -99,11 +99,9 @@ enum EventSynthesizer {
         deliver(up)
     }
 
-    /// After Hyper+⇧V → Esc (or any modal menu), Caps/4-mod keyUps are often lost and the
-    /// OS still thinks ⌘⌥⌃⇧ or F18 is held — every key looks like Hyper and Caps “stays on”.
-    /// Blast key-ups for modifiers + F18, and toggle Caps Lock off if the LED is stuck.
+    /// Unstick ⌘⌥⌃⇧ + F18 after a bad latch. Never synthesizes Caps Lock down/up —
+    /// that *toggles* the Caps Lock LED and was leaving Caps stuck ON.
     static func releaseStuckHyperKeys() {
-        // Left + right of each modifier, then F18 / HID F18.
         let ups: [CGKeyCode] = [
             0x37, 0x36, // ⌘ left / right
             0x3A, 0x3D, // ⌥ left / right
@@ -114,19 +112,7 @@ enum EventSynthesizer {
         for code in ups {
             postKeyUp(code)
         }
-
-        // If the Caps Lock *toggle* (LED / alphaShift) is latched on, pulse Caps to clear it.
-        // Do this only when the system reports alphaShift — not while Karabiner is mid-hold.
-        let flags = CGEventSource.flagsState(.hidSystemState)
-        if flags.contains(.maskAlphaShift) {
-            // Full down+up toggles Caps Lock off when it was stuck ON.
-            postKey(0x39 /* caps_lock */)
-            HyperLog.event("releaseStuckHyperKeys: toggled Caps Lock off (alphaShift was set)")
-        } else {
-            // Still send Caps key-up in case a bare edge was lost (won't toggle if not latched).
-            postKeyUp(0x39)
-            HyperLog.event("releaseStuckHyperKeys: modifier + F18 keyUps posted")
-        }
+        HyperLog.event("releaseStuckHyperKeys: modifier + F18 keyUps posted (no Caps pulse)")
     }
 
     /// ⌘W-style close: press Command, press W, release W, release Command.
