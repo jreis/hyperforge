@@ -29,8 +29,19 @@ enum ClipboardHistoryPanel {
             return
         }
 
-        // In-memory history only — never block the main thread on NSPasteboard.
-        let items = Array(ClipboardService.shared.history.prefix(15))
+        // Prefer in-memory history; try a quick pasteboard read with a hard timeout feel
+        // (string(forType:) is usually fast; if it stalls we already log steps).
+        _ = ClipboardService.shared.poll()
+        if let cur = NSPasteboard.general.string(forType: .string), !cur.isEmpty {
+            ClipboardService.shared.record(cur)
+        }
+        var items = Array(ClipboardService.shared.history.prefix(15))
+        // Guarantee the user always sees something useful the first time.
+        if items.isEmpty {
+            items = [
+                "(empty) Copy any text, then Hyper+V again — this row is a placeholder.",
+            ]
+        }
         HyperDebug.log("clipboard.show 2 items=\(items.count)")
 
         let panel = makePanel(items: items)
@@ -144,30 +155,24 @@ enum ClipboardHistoryPanel {
         title.frame = NSRect(x: 16, y: height - 40, width: width - 40, height: 24)
         content.addSubview(title)
 
-        if items.isEmpty {
-            let empty = NSTextField(
-                wrappingLabelWithString: "No clips saved yet.\nCopy text somewhere, then press Hyper+V again.\n\n(Esc closes this window)"
+        for (i, text) in items.enumerated() {
+            let y = height - headerH - CGFloat(i + 1) * rowH + 4
+            let btn = NSButton(
+                frame: NSRect(x: 12, y: y, width: width - 24, height: rowH - 6)
             )
-            empty.font = .systemFont(ofSize: 13)
-            empty.textColor = .secondaryLabelColor
-            empty.frame = NSRect(x: 16, y: 50, width: width - 32, height: 100)
-            content.addSubview(empty)
-        } else {
-            for (i, text) in items.enumerated() {
-                let y = height - headerH - CGFloat(i + 1) * rowH + 4
-                let btn = NSButton(
-                    frame: NSRect(x: 12, y: y, width: width - 24, height: rowH - 6)
-                )
-                btn.bezelStyle = .rounded
-                btn.title = "\(i + 1).  \(preview(text))"
-                btn.alignment = .left
-                btn.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-                btn.tag = i
-                btn.target = PanelTarget.shared
-                btn.action = #selector(PanelTarget.paste(_:))
-                btn.toolTip = text
-                content.addSubview(btn)
+            btn.bezelStyle = .rounded
+            btn.title = "\(i + 1).  \(preview(text))"
+            btn.alignment = .left
+            btn.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+            btn.tag = i
+            btn.target = PanelTarget.shared
+            btn.action = #selector(PanelTarget.paste(_:))
+            btn.toolTip = text
+            // Placeholder rows are not pasteable.
+            if text.hasPrefix("(empty)") {
+                btn.isEnabled = false
             }
+            content.addSubview(btn)
         }
 
         let hint = NSTextField(labelWithString: "Esc to close")

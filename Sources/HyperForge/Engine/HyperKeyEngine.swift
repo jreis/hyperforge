@@ -232,6 +232,17 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
 
         let now = Date()
 
+        // With Caps→F18, Caps Lock LED should never stay on. If it latches (your logs
+        // show alphaShift flip true with no CAPS/F18 event), clear it immediately so
+        // the next key isn't a capital letter mistaken for Hyper.
+        if useF18AsHyper,
+           type == .keyDown,
+           event.flags.contains(.maskAlphaShift),
+           !EventSynthesizer.shouldPassThrough(event)
+        {
+            EventSynthesizer.clearCapsLockIfLatched()
+        }
+
         // ── F18 / raw Caps as Hyper (keyUp must clear held state) ────────
         if keyCode == KeyCode.f18 || keyCode == KeyCode.hidF18 || keyCode == KeyCode.capsLock {
             if useF18AsHyper {
@@ -520,21 +531,26 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             // clear the LED, open the clipboard menu.
             if keyCode == KeyCode.v, type == .keyDown {
                 let alpha = flags.contains(.maskAlphaShift)
+                let shift = flags.contains(.maskShift)
                 HyperDebug.log(
-                    "V without Hyper f18Held=\(f18Held) hyperActive=\(isHyperActive) alphaShift=\(alpha) flags=\(flags.rawValue)"
+                    "V without Hyper f18Held=\(f18Held) hyperActive=\(isHyperActive) alphaShift=\(alpha) shift=\(shift) flags=\(flags.rawValue)"
                 )
-                if alpha {
-                    EventSynthesizer.clearCapsLockIfLatched()
-                    HyperDebug.log("stuck CapsLock+V → treat as Hyper+V (swallow + menu)")
+                // Stuck Caps Lock LED (looks like Hyper) + V / ⇧V → open clipboard.
+                // Real Hyper hold would have logged CAPS/F18 down first.
+                if alpha || shift {
+                    if alpha { EventSynthesizer.clearCapsLockIfLatched() }
+                    HyperDebug.log("V without Hyper (shift/capsLock) → treat as Hyper+V")
                     SnippetEngine.shared.resetBuffer()
                     scheduleClipboardMenuAfterCapsRelease()
                     DispatchQueue.main.async {
                         Banner.show(
-                            "Caps Lock was stuck on",
-                            subtitle: "Opened clipboard · next time hold Caps (Hyper) + V",
+                            "Clipboard",
+                            subtitle: alpha
+                                ? "Caps Lock was on (not Hyper). Hold Caps for real Hyper+V."
+                                : "Opened · for real Hyper hold Caps, then V",
                             style: .warning,
                             symbol: "list.clipboard",
-                            duration: 2.4
+                            duration: 2.6
                         )
                     }
                     return nil
