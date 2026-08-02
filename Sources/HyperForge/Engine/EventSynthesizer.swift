@@ -114,38 +114,60 @@ enum EventSynthesizer {
         HyperLog.event("releaseStuckHyperKeys: modifier + F18 keyUps posted")
     }
 
-    /// If the Caps Lock *toggle* (LED) is latched ON, pulse Caps once to turn it off.
-    ///
-    /// Critical with Karabiner Caps→F18: the physical Caps key never reaches the OS, so
-    /// a latched Caps Lock LED can only be cleared by injecting caps_lock. Otherwise the
-    /// user is stuck typing CAPITALS forever and Hyper+V looks like a capital V.
-    ///
-    /// Posts at **session** level (not HID) so Karabiner does not re-map the pulse to F18.
+    /// If the Caps Lock *toggle* (LED) is latched ON, force it off.
+    /// Karabiner Caps→F18 means the user cannot clear the LED with the Caps key.
     static func clearCapsLockIfLatched() {
-        let flags = CGEventSource.flagsState(.hidSystemState)
-        guard flags.contains(.maskAlphaShift) else {
+        func latched() -> Bool {
+            CGEventSource.flagsState(.hidSystemState).contains(.maskAlphaShift)
+        }
+        guard latched() else {
             HyperDebug.log("clearCapsLockIfLatched: already off")
             return
         }
 
-        for keyDown in [true, false] {
-            guard
-                let ev = CGEvent(
-                    keyboardEventSource: source,
-                    virtualKey: 0x39, /* caps_lock */
-                    keyDown: keyDown
-                )
-            else { continue }
-            ev.flags = []
-            ev.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
-            ev.setIntegerValueField(.eventSourceUserData, value: syntheticMarker)
-            // Session tap: reaches system Caps Lock state; less likely to re-enter Karabiner.
-            ev.post(tap: .cgSessionEventTap)
+        // Try several delivery paths — one pulse often fails under Karabiner.
+        let taps: [CGEventTapLocation] = [
+            .cgSessionEventTap,
+            .cghidEventTap,
+            .cgAnnotatedSessionEventTap,
+        ]
+        for attempt in 1...3 {
+            guard latched() else { break }
+            for tap in taps {
+                for keyDown in [true, false] {
+                    let src = keyDown ? source : (hidSource ?? source)
+                    guard
+                        let ev = CGEvent(
+                            keyboardEventSource: src,
+                            virtualKey: 0x39, /* caps_lock */
+                            keyDown: keyDown
+                        )
+                    else { continue }
+                    ev.flags = []
+                    ev.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
+                    ev.setIntegerValueField(.eventSourceUserData, value: syntheticMarker)
+                    ev.post(tap: tap)
+                }
+            }
+            // Brief settle for flagsState to update.
+            usleep(30_000)
+            HyperDebug.log("clearCapsLockIfLatched attempt \(attempt) stillOn=\(latched())")
         }
-        // Verify
-        let after = CGEventSource.flagsState(.hidSystemState).contains(.maskAlphaShift)
-        HyperDebug.log("clearCapsLockIfLatched: pulsed session Caps Lock → stillOn=\(after)")
+
+        let after = latched()
+        HyperDebug.log("clearCapsLockIfLatched done stillOn=\(after)")
         HyperLog.event("clearCapsLockIfLatched: stillOn=\(after)")
+        if after {
+            DispatchQueue.main.async {
+                Banner.show(
+                    "Caps Lock still on",
+                    subtitle: "Disable Karabiner briefly and tap Caps, or use Reset Hyper",
+                    style: .warning,
+                    symbol: "capslock",
+                    duration: 3.0
+                )
+            }
+        }
     }
 
     /// ⌘W-style close: press Command, press W, release W, release Command.
