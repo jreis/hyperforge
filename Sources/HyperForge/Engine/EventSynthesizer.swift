@@ -123,7 +123,10 @@ enum EventSynthesizer {
     /// Posts at **session** level (not HID) so Karabiner does not re-map the pulse to F18.
     static func clearCapsLockIfLatched() {
         let flags = CGEventSource.flagsState(.hidSystemState)
-        guard flags.contains(.maskAlphaShift) else { return }
+        guard flags.contains(.maskAlphaShift) else {
+            HyperDebug.log("clearCapsLockIfLatched: already off")
+            return
+        }
 
         for keyDown in [true, false] {
             guard
@@ -139,7 +142,10 @@ enum EventSynthesizer {
             // Session tap: reaches system Caps Lock state; less likely to re-enter Karabiner.
             ev.post(tap: .cgSessionEventTap)
         }
-        HyperLog.event("clearCapsLockIfLatched: session-level Caps Lock pulse")
+        // Verify
+        let after = CGEventSource.flagsState(.hidSystemState).contains(.maskAlphaShift)
+        HyperDebug.log("clearCapsLockIfLatched: pulsed session Caps Lock → stillOn=\(after)")
+        HyperLog.event("clearCapsLockIfLatched: stillOn=\(after)")
     }
 
     /// ⌘W-style close: press Command, press W, release W, release Command.

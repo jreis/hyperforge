@@ -86,6 +86,8 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         clipboardPanelVisible = false
         ClipboardHistoryPanel.setTracking(false)
         HyperDebug.log("engine.start useF18=\(useF18AsHyper)")
+        // One-shot clear if Caps Lock LED is latched from a previous session.
+        EventSynthesizer.clearCapsLockIfLatched()
         startEventTap()
         startAuxTimers()
         // Keep Space-nav per-app gate in sync with the frontmost app.
@@ -517,10 +519,19 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
                 HyperDebug.log(
                     "V LEAKED to typing f18Held=\(f18Held) hyperActive=\(isHyperActive) alphaShift=\(alpha) flags=\(flags.rawValue)"
                 )
-                // Caps Lock LED stuck ON (Karabiner blocks normal Caps toggle).
+                // Caps Lock LED stuck ON → capital V. Clear + tell the user to hold Caps.
                 if alpha {
                     EventSynthesizer.clearCapsLockIfLatched()
                     HyperDebug.log("cleared latched Caps Lock after V leak")
+                    DispatchQueue.main.async {
+                        Banner.show(
+                            "Hold Caps for Hyper",
+                            subtitle: "Caps Lock LED was stuck — cleared. Hyper+V needs Caps held.",
+                            style: .warning,
+                            symbol: "capslock",
+                            duration: 2.5
+                        )
+                    }
                 }
             }
             if SnippetEngine.shared.handleTypedKey(
@@ -701,8 +712,24 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         pendingMenuTimeout?.cancel()
         pendingMenuTimeout = nil
         ClipboardHistoryPanel.setTracking(false)
-        // Do NOT auto-pulse Caps Lock here — incorrect pulses were leaving LED stuck ON.
-        HyperDebug.log("prepareAfterUIDismiss: \(reason)")
+
+        // Debug log proved: after dashboard Esc, alphaShift was still true and the next
+        // Shift+V leaked as capital V with no CAPS/F18 down. Clear latched Caps Lock LED
+        // (user cannot toggle it via Caps while Karabiner owns Caps→F18).
+        let alpha = CGEventSource.flagsState(.hidSystemState).contains(.maskAlphaShift)
+        HyperDebug.log("prepareAfterUIDismiss: \(reason) alphaShift=\(alpha)")
+        if alpha {
+            EventSynthesizer.clearCapsLockIfLatched()
+            DispatchQueue.main.async {
+                Banner.show(
+                    "Caps Lock was on",
+                    subtitle: "Cleared — hold Caps for Hyper, then V",
+                    style: .warning,
+                    symbol: "capslock",
+                    duration: 2.2
+                )
+            }
+        }
         HyperLog.event("prepareAfterUIDismiss: \(reason)")
     }
 
