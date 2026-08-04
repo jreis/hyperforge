@@ -33,10 +33,10 @@ struct HyperAppSlot: Codable, Identifiable, Equatable, Hashable {
 final class HyperAppSlotStore: ObservableObject {
     static let shared = HyperAppSlotStore()
 
-    static let storageKey = "hf.hyperAppSlots"
+    nonisolated static let storageKey = "hf.hyperAppSlots"
 
     /// Catalog action ids for digits 1…5 (kept for profile/checklist compatibility).
-    static let actionIDsByDigit: [Int: String] = [
+    nonisolated static let actionIDsByDigit: [Int: String] = [
         1: "app-chrome",
         2: "app-zed",
         3: "app-teams",
@@ -44,13 +44,15 @@ final class HyperAppSlotStore: ObservableObject {
         5: "app-zoom",
     ]
 
-    static let digitByActionID: [String: Int] = {
-        var map: [String: Int] = [:]
-        for (d, id) in actionIDsByDigit { map[id] = d }
-        return map
-    }()
+    nonisolated static let digitByActionID: [String: Int] = [
+        "app-chrome": 1,
+        "app-zed": 2,
+        "app-teams": 3,
+        "app-vscode": 4,
+        "app-zoom": 5,
+    ]
 
-    static let defaults: [HyperAppSlot] = [
+    nonisolated static let defaults: [HyperAppSlot] = [
         HyperAppSlot(
             digit: 1,
             actionID: "app-chrome",
