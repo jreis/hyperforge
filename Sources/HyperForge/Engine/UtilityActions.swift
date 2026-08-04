@@ -136,15 +136,50 @@ final class PomodoroService {
 
 // MARK: - Clipboard History
 
+/// One clipboard-history entry. Persisted locally (Application Support) so
+/// history — and pins — survive app restarts. Never leaves the machine.
+struct ClipboardEntry: Identifiable, Codable, Equatable, Sendable {
+    var id: UUID = UUID()
+    var text: String
+    var pinned: Bool = false
+    var createdAt: Date = Date()
+}
+
 @MainActor
 final class ClipboardService: ObservableObject {
     static let shared = ClipboardService()
 
-    @Published private(set) var history: [String] = []
+    @Published private(set) var entries: [ClipboardEntry] = []
+    /// Cap on *unpinned* entries — pinned entries are exempt from eviction.
     var maxItems = 20
     private var lastChangeCount = NSPasteboard.general.changeCount
+    private let fileURL: URL
 
-    private init() {}
+    private init() {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("HyperForge", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        fileURL = dir.appendingPathComponent("clipboard-history.json")
+        load()
+    }
+
+    /// Display order: pinned entries first, otherwise most-recent-first (stable sort
+    /// keeps relative order within each group).
+    var pinnedFirst: [ClipboardEntry] {
+        entries.sorted { $0.pinned && !$1.pinned }
+    }
+
+    private func load() {
+        guard let data = try? Data(contentsOf: fileURL),
+              let decoded = try? JSONDecoder().decode([ClipboardEntry].self, from: data)
+        else { return }
+        entries = decoded
+    }
+
+    private func persist() {
+        guard let data = try? JSONEncoder().encode(entries) else { return }
+        try? data.write(to: fileURL, options: .atomic)
+    }
 
     /// Snapshot current plain-text pasteboard into history if it changed.
     /// Called from the Clipboard panel / Hyper history menu — not a background timer.
@@ -161,21 +196,41 @@ final class ClipboardService: ObservableObject {
         return true
     }
 
-    /// Insert text at the front of history (deduped). Used when HyperForge writes the pasteboard.
+    /// Insert text at the front of history (deduped, pin preserved). Used when
+    /// HyperForge writes the pasteboard.
     func record(_ content: String) {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         // Cap stored length so the menu stays snappy
         let stored = content.count > 8_000 ? String(content.prefix(8_000)) : content
-        history.removeAll { $0 == stored }
-        history.insert(stored, at: 0)
-        if history.count > maxItems {
-            history.removeLast(history.count - maxItems)
+        let wasPinned = entries.first { $0.text == stored }?.pinned ?? false
+        entries.removeAll { $0.text == stored }
+        entries.insert(ClipboardEntry(text: stored, pinned: wasPinned), at: 0)
+        trimUnpinned()
+        persist()
+    }
+
+    /// Drop oldest unpinned entries beyond `maxItems`; pinned entries never evict.
+    private func trimUnpinned() {
+        var unpinnedSeen = 0
+        entries = entries.filter { entry in
+            if entry.pinned { return true }
+            unpinnedSeen += 1
+            return unpinnedSeen <= maxItems
         }
     }
 
+    func togglePin(_ id: UUID) {
+        guard let i = entries.firstIndex(where: { $0.id == id }) else { return }
+        entries[i].pinned.toggle()
+        trimUnpinned()
+        persist()
+    }
+
+    /// Clears unpinned history; pinned entries are kept.
     func clearHistory() {
-        history.removeAll()
+        entries.removeAll { !$0.pinned }
+        persist()
     }
 
     func pasteAsPlainText() {
@@ -191,20 +246,17 @@ final class ClipboardService: ObservableObject {
     }
 
     /// Paste a history entry (set pasteboard + ⌘V).
-    func pasteHistoryItem(at index: Int) {
-        guard history.indices.contains(index) else { return }
-        let text = history[index]
+    func paste(_ entry: ClipboardEntry) {
         let pb = NSPasteboard.general
         pb.clearContents()
-        pb.setString(text, forType: .string)
+        pb.setString(entry.text, forType: .string)
         lastChangeCount = pb.changeCount
-        // Move to front
-        record(text)
+        // Move to front (keeps pin state).
+        record(entry.text)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) {
             EventSynthesizer.postCommandKey(KeyCode.v)
             Banner.show(
                 "Pasted history",
-                subtitle: "#\(index + 1)",
                 style: .success,
                 symbol: "list.clipboard"
             )
