@@ -118,16 +118,8 @@ enum HyperKeyActions {
             EventSynthesizer.postScrollHorizontal(dx: -200)
         case "prod-keepalive":
             onMain { KeepAliveService.shared.toggle() }
-        case "app-chrome":
-            onMain { AppLauncher.shared.launchFocusOrMinimize("Google Chrome") }
-        case "app-zed":
-            onMain { AppLauncher.shared.launchFocusOrMinimize("Zed") }
-        case "app-teams":
-            onMain { AppLauncher.shared.launchFocusOrMinimize("Microsoft Teams") }
-        case "app-vscode":
-            onMain { AppLauncher.shared.launchFocusOrMinimize("Visual Studio Code") }
-        case "app-zoom":
-            onMain { AppLauncher.shared.launchFocusOrMinimize("Zoom") }
+        case "app-chrome", "app-zed", "app-teams", "app-vscode", "app-zoom":
+            onMain { HyperAppSlotStore.shared.launch(actionID: actionID) }
         case "app-iterm":
             onMain { AppLauncher.shared.openTerminalSmart(inFinderFolder: false) }
         case "app-terminal-here":

@@ -16,7 +16,7 @@ struct DashboardView: View {
     @FocusState private var searchFocused: Bool
 
     private var actions: [HyperAction] {
-        var list = ActionCatalog.defaults
+        var list = ActionCatalog.resolvedDefaults()
         let enabled = profiles.activeProfile.enabledActionIDs
         if !enabled.isEmpty {
             list = list.filter { enabled.contains($0.id) }

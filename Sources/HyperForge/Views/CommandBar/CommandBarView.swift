@@ -277,7 +277,7 @@ enum CommandRouter {
             add("Lock Screen", "Hold Hyper + Esc", "lock", "sys-lock")
         }
 
-        for action in ActionCatalog.defaults {
+        for action in ActionCatalog.resolvedDefaults() {
             if q.isEmpty || action.title.lowercased().contains(q)
                 || action.detail.lowercased().contains(q)
                 || action.id.contains(q.replacingOccurrences(of: " ", with: "-"))

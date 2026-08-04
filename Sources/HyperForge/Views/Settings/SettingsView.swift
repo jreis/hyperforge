@@ -10,6 +10,7 @@ struct SettingsView: View {
 
     @ObservedObject private var ollama = OllamaClient.shared
     @ObservedObject private var terminal = TerminalPreference.shared
+    @ObservedObject private var appSlots = HyperAppSlotStore.shared
 
     @ObservedObject private var spaceNav = SpaceNavStore.shared
     @ObservedObject private var appearance = AppearanceStore.shared
@@ -97,6 +98,25 @@ struct SettingsView: View {
 
     private var appsTab: some View {
         Form {
+            Section {
+                Text("Launch → focus → minimize. Hyper+6…0 stay window snaps (tile / quarters).")
+                    .font(.system(size: 11))
+                    .foregroundStyle(HFTheme.textTertiary)
+                ForEach(appSlots.slots) { slot in
+                    appSlotRow(slot)
+                }
+                HStack {
+                    Spacer()
+                    Button("Reset to defaults") {
+                        appSlots.resetDefaults()
+                        Banner.show("App slots reset", style: .info, symbol: "arrow.counterclockwise")
+                    }
+                    .controlSize(.small)
+                }
+            } header: {
+                Text("Hyper + number (1–5)")
+            }
+
             Section("Preferred terminal") {
                 Picker("Terminal", selection: $terminal.bundleID) {
                     ForEach(terminal.installedOptions) { opt in
@@ -135,13 +155,64 @@ struct SettingsView: View {
                     .controlSize(.small)
                 }
             }
-            Section("Installed") {
+            Section("Installed terminals") {
                 ForEach(TerminalAppOption.presets.filter { terminal.isInstalled($0.bundleID) }) { opt in
                     Label(opt.name, systemImage: opt.symbol)
                 }
             }
         }
         .formStyle(.grouped)
+    }
+
+    @ViewBuilder
+    private func appSlotRow(_ slot: HyperAppSlot) -> some View {
+        HStack(spacing: 12) {
+            Text("\(slot.digit)")
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .foregroundStyle(HFTheme.accent)
+                .frame(width: 28, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(HFTheme.accent.opacity(0.15))
+                )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(slot.displayName)
+                    .font(.system(size: 13, weight: .semibold))
+                Text(slot.bundleID.isEmpty ? "No bundle id" : slot.bundleID)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(HFTheme.textTertiary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Menu("Set") {
+                Button("Choose Application…") {
+                    appSlots.pickApplication(forDigit: slot.digit)
+                }
+                if !appSlots.commonPresets.isEmpty {
+                    Divider()
+                    ForEach(appSlots.commonPresets, id: \.bundleID) { preset in
+                        Button(preset.name) {
+                            appSlots.assign(
+                                digit: slot.digit,
+                                bundleID: preset.bundleID,
+                                displayName: preset.name,
+                                symbol: preset.symbol
+                            )
+                        }
+                    }
+                }
+            }
+            .controlSize(.small)
+
+            Button("Test") {
+                HyperAppSlotStore.shared.launch(actionID: slot.actionID)
+            }
+            .controlSize(.small)
+        }
+        .padding(.vertical, 2)
     }
 
     private var aiTab: some View {

@@ -188,12 +188,12 @@ enum ActionCatalog {
         HyperAction(id: "scroll-up", title: "Scroll Up", detail: "Live test / Vim ⌃u (Hyper+K is keep-alive)", keyCode: KeyCode.u, mode: .vimCtrl, category: .scroll, isEnabled: true, symbol: "arrow.up"),
         HyperAction(id: "scroll-right", title: "Scroll Right", detail: "Hyper + L", keyCode: KeyCode.l, mode: .hyper, category: .scroll, isEnabled: true, symbol: "arrow.right"),
 
-        // Apps — launch / focus / minimize cycle (AHK RunOrActivateOrMinimize)
-        HyperAction(id: "app-chrome", title: "Chrome", detail: "Launch → focus → minimize cycle", keyCode: KeyCode.one, mode: .hyper, category: .apps, isEnabled: true, symbol: "globe"),
-        HyperAction(id: "app-zed", title: "Zed", detail: "Launch → focus → minimize cycle", keyCode: KeyCode.two, mode: .hyper, category: .apps, isEnabled: true, symbol: "chevron.left.forwardslash.chevron.right"),
-        HyperAction(id: "app-teams", title: "Teams", detail: "Launch → focus → minimize cycle", keyCode: KeyCode.three, mode: .hyper, category: .apps, isEnabled: true, symbol: "person.3"),
-        HyperAction(id: "app-vscode", title: "VS Code", detail: "Launch → focus → minimize cycle", keyCode: KeyCode.four, mode: .hyper, category: .apps, isEnabled: true, symbol: "chevron.left.forwardslash.chevron.right"),
-        HyperAction(id: "app-zoom", title: "Zoom", detail: "Launch → focus → minimize cycle", keyCode: KeyCode.five, mode: .hyper, category: .apps, isEnabled: true, symbol: "video"),
+        // Apps — Hyper+1…5 targets are user-configurable (Settings → Apps)
+        HyperAction(id: "app-chrome", title: "App Slot 1", detail: "Hyper+1 · assign in Settings → Apps", keyCode: KeyCode.one, mode: .hyper, category: .apps, isEnabled: true, symbol: "globe"),
+        HyperAction(id: "app-zed", title: "App Slot 2", detail: "Hyper+2 · assign in Settings → Apps", keyCode: KeyCode.two, mode: .hyper, category: .apps, isEnabled: true, symbol: "chevron.left.forwardslash.chevron.right"),
+        HyperAction(id: "app-teams", title: "App Slot 3", detail: "Hyper+3 · assign in Settings → Apps", keyCode: KeyCode.three, mode: .hyper, category: .apps, isEnabled: true, symbol: "person.3"),
+        HyperAction(id: "app-vscode", title: "App Slot 4", detail: "Hyper+4 · assign in Settings → Apps", keyCode: KeyCode.four, mode: .hyper, category: .apps, isEnabled: true, symbol: "chevron.left.forwardslash.chevron.right"),
+        HyperAction(id: "app-zoom", title: "App Slot 5", detail: "Hyper+5 · assign in Settings → Apps", keyCode: KeyCode.five, mode: .hyper, category: .apps, isEnabled: true, symbol: "video"),
         HyperAction(id: "app-iterm", title: "Terminal (smart)", detail: "New tab if running, else launch — Settings → Apps", keyCode: KeyCode.t, mode: .hyper, category: .apps, isEnabled: true, symbol: "terminal"),
         HyperAction(id: "app-terminal-here", title: "Terminal in Finder Folder", detail: "Hyper+⇧T · or Hyper+T while Finder is frontmost", keyCode: KeyCode.t, mode: .hyper, category: .apps, isEnabled: true, symbol: "folder.badge.gearshape"),
         HyperAction(id: "app-finder", title: "New Finder Window", detail: "Open Finder", keyCode: KeyCode.f, mode: .hyper, category: .apps, isEnabled: true, symbol: "folder"),

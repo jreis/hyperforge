@@ -11,7 +11,7 @@ struct StandaloneCheatSheetView: View {
     @FocusState private var searchFocused: Bool
 
     private var actions: [HyperAction] {
-        var list = ActionCatalog.defaults
+        var list = ActionCatalog.resolvedDefaults()
         if let categoryFilter {
             list = list.filter { $0.category == categoryFilter }
         }
