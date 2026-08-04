@@ -93,21 +93,34 @@ final class TerminalPreference: ObservableObject {
 
     /// Prefer exact bundle ID; also match by name / “ghostty” substring so we never
     /// miss a live process and accidentally call `openApplication` (new window).
+    ///
+    /// Fuzzy matches are limited to `.regular` apps. Ghostty’s Dock Tile plugin leaves a
+    /// permanent “Dock Extra (Ghostty.app)” process (`com.apple.dock.external.extra.*`,
+    /// activationPolicy accessory) that used to match the substring and make Hyper+T think
+    /// the terminal was already running — banner showed, cold launch never ran.
     func findRunning() -> NSRunningApplication? {
         let apps = NSWorkspace.shared.runningApplications
         if let exact = apps.first(where: { $0.bundleIdentifier == bundleID }) {
             return exact
         }
+        // Helpers / Dock Extras / agents — never treat as the terminal UI.
+        let candidates = apps.filter { app in
+            guard app.activationPolicy == .regular else { return false }
+            let bid = app.bundleIdentifier?.lowercased() ?? ""
+            if bid.hasPrefix("com.apple.dock") { return false }
+            if bid.contains(".helper") || bid.contains(".plugin") { return false }
+            return true
+        }
         let name = current.name
-        if let byName = apps.first(where: {
+        if let byName = candidates.first(where: {
             $0.localizedName?.caseInsensitiveCompare(name) == .orderedSame
         }) {
             return byName
         }
-        // Ghostty / app renames
+        // Ghostty / app renames (substring) — only among regular UI apps.
         let needle = bundleID.split(separator: ".").last.map(String.init)?.lowercased() ?? ""
         if needle.count >= 4 {
-            return apps.first(where: {
+            return candidates.first(where: {
                 $0.bundleIdentifier?.lowercased().contains(needle) == true
                     || $0.localizedName?.lowercased().contains(needle) == true
             })
@@ -204,13 +217,7 @@ final class TerminalPreference: ObservableObject {
             }
         } else {
             // Cold start only — never send ⌘N/⌘T (that would open a second surface).
-            coldLaunch()
-            Banner.show(
-                current.name,
-                subtitle: "Launched",
-                style: .info,
-                symbol: "terminal"
-            )
+            coldLaunch(showBanner: true)
         }
     }
 
@@ -219,8 +226,7 @@ final class TerminalPreference: ObservableObject {
         if let running = findRunning() {
             openNewTab(in: running)
         } else {
-            coldLaunch()
-            Banner.show(current.name, subtitle: "Launched", style: .info, symbol: "terminal")
+            coldLaunch(showBanner: true)
         }
     }
 
@@ -263,8 +269,7 @@ final class TerminalPreference: ObservableObject {
         if let running = findRunning() {
             openNewWindow(in: running)
         } else {
-            coldLaunch()
-            Banner.show(current.name, subtitle: "Launched", style: .info, symbol: "macwindow.badge.plus")
+            coldLaunch(showBanner: true)
         }
     }
 
@@ -331,19 +336,70 @@ final class TerminalPreference: ObservableObject {
         coldLaunch()
     }
 
-    private func coldLaunch() {
+    /// Launch preferred terminal when no real instance is running.
+    /// - Parameter showBanner: when true, report success/failure via Banner (Hyper+T path).
+    private func coldLaunch(showBanner: Bool = false) {
         guard findRunning() == nil else { return }
+        let name = current.name
         let config = NSWorkspace.OpenConfiguration()
         config.activates = true
         if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
-            NSWorkspace.shared.openApplication(at: url, configuration: config) { _, err in
-                if let err {
-                    HyperLog.event("terminal coldLaunch error: \(err.localizedDescription)")
+            NSWorkspace.shared.openApplication(at: url, configuration: config) { [weak self] app, err in
+                Task { @MainActor in
+                    if let err {
+                        HyperLog.event("terminal coldLaunch error: \(err.localizedDescription)")
+                        // Launch Services path can fail for agent callers; `/usr/bin/open` is reliable.
+                        if self?.openViaLaunchServicesCLI() == true {
+                            if showBanner {
+                                Banner.show(name, subtitle: "Launched", style: .info, symbol: "terminal")
+                            }
+                        } else if showBanner {
+                            Banner.show(
+                                "Couldn’t open \(name)",
+                                subtitle: err.localizedDescription,
+                                style: .warning,
+                                symbol: "exclamationmark.triangle"
+                            )
+                        }
+                        return
+                    }
+                    HyperLog.event("terminal coldLaunch ok → \(self?.bundleID ?? "?") pid=\(app?.processIdentifier ?? -1)")
+                    if showBanner {
+                        Banner.show(name, subtitle: "Launched", style: .info, symbol: "terminal")
+                    }
                 }
             }
             return
         }
+        // Bundle ID not resolved — try open -b / path fallback.
+        if openViaLaunchServicesCLI() {
+            if showBanner {
+                Banner.show(name, subtitle: "Launched", style: .info, symbol: "terminal")
+            }
+            return
+        }
         AppLauncher.shared.launchOrFocus(bundleID)
+        if showBanner {
+            Banner.show(name, subtitle: "Launched", style: .info, symbol: "terminal")
+        }
+    }
+
+    /// `open -b <bundleID>` — Launch Services CLI, works when NSWorkspace open fails.
+    @discardableResult
+    private func openViaLaunchServicesCLI() -> Bool {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        proc.arguments = ["-b", bundleID]
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        do {
+            try proc.run()
+            HyperLog.event("terminal coldLaunch via open -b \(bundleID)")
+            return true
+        } catch {
+            HyperLog.event("terminal open -b failed: \(error.localizedDescription)")
+            return false
+        }
     }
 
     /// Send a key to a specific app process (System Events). Requires Accessibility.
