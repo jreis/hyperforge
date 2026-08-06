@@ -6,10 +6,14 @@ import SwiftUI
 struct TriggersView: View {
     @EnvironmentObject private var profiles: ProfileStore
     @ObservedObject private var service = AutoTriggerService.shared
+    @ObservedObject private var recipes = AXRecipeStore.shared
 
     @State private var kind: AutoTrigger.Kind = .wifiSSID
     @State private var value = ""
     @State private var profileID: UUID?
+    @State private var action: AutoTrigger.Action = .switchProfile
+    @State private var recipeID: UUID?
+    @State private var layoutID: UUID?
 
     var body: some View {
         ScrollView {
@@ -74,6 +78,9 @@ struct TriggersView: View {
         }
     }
 
+    /// Which profile's `layouts` to draw the restore-layout picker from.
+    private var pickerProfileID: UUID { profileID ?? profiles.activeProfileID }
+
     private var newTriggerCard: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 12) {
@@ -89,13 +96,50 @@ struct TriggersView: View {
                 TextField(kind.placeholder, text: $value)
                     .textFieldStyle(.roundedBorder)
 
-                Picker("Activate profile", selection: Binding(
-                    get: { profileID ?? profiles.activeProfileID },
-                    set: { profileID = $0 }
-                )) {
-                    ForEach(profiles.profiles) { p in
-                        Text(p.name).tag(p.id as UUID?)
+                Picker("Then", selection: $action) {
+                    ForEach(AutoTrigger.Action.allCases, id: \.self) { a in
+                        Label(a.title, systemImage: a.symbol).tag(a)
                     }
+                }
+                .pickerStyle(.segmented)
+
+                switch action {
+                case .switchProfile:
+                    Picker("Activate profile", selection: Binding(
+                        get: { pickerProfileID },
+                        set: { profileID = $0 }
+                    )) {
+                        ForEach(profiles.profiles) { p in
+                            Text(p.name).tag(p.id as UUID?)
+                        }
+                    }
+                case .runRecipe:
+                    Picker("Recipe", selection: $recipeID) {
+                        Text("Choose…").tag(UUID?.none)
+                        ForEach(recipes.recipes) { r in
+                            Text(r.name).tag(r.id as UUID?)
+                        }
+                    }
+                case .restoreLayout:
+                    Picker("Profile", selection: Binding(
+                        get: { pickerProfileID },
+                        set: {
+                            profileID = $0
+                            layoutID = nil
+                        }
+                    )) {
+                        ForEach(profiles.profiles) { p in
+                            Text(p.name).tag(p.id as UUID?)
+                        }
+                    }
+                    let targetLayouts = profiles.profiles.first { $0.id == pickerProfileID }?.layouts ?? []
+                    Picker("Layout", selection: $layoutID) {
+                        Text("Choose…").tag(UUID?.none)
+                        ForEach(targetLayouts) { l in
+                            Text(l.name).tag(l.id as UUID?)
+                        }
+                    }
+                    .disabled(targetLayouts.isEmpty)
                 }
 
                 HStack {
@@ -109,20 +153,62 @@ struct TriggersView: View {
                     }
                     Spacer()
                     Button("Add Trigger") {
-                        guard !value.isEmpty, let pid = profileID ?? Optional(profiles.activeProfileID)
-                        else { return }
-                        profiles.addTrigger(
-                            AutoTrigger(kind: kind, value: value, profileID: pid)
-                        )
+                        guard !value.isEmpty else { return }
+                        switch action {
+                        case .switchProfile:
+                            profiles.addTrigger(
+                                AutoTrigger(kind: kind, value: value, profileID: pickerProfileID, action: .switchProfile)
+                            )
+                        case .runRecipe:
+                            guard let recipeID else { return }
+                            profiles.addTrigger(
+                                AutoTrigger(
+                                    kind: kind, value: value, profileID: profiles.activeProfileID,
+                                    action: .runRecipe, recipeID: recipeID
+                                )
+                            )
+                        case .restoreLayout:
+                            guard let layoutID else { return }
+                            profiles.addTrigger(
+                                AutoTrigger(
+                                    kind: kind, value: value, profileID: pickerProfileID,
+                                    action: .restoreLayout, layoutID: layoutID
+                                )
+                            )
+                        }
                         value = ""
+                        recipeID = nil
+                        layoutID = nil
                         Banner.show("Trigger added")
                         service.evaluate()
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(HFTheme.accent)
-                    .disabled(value.isEmpty)
+                    .disabled(
+                        value.isEmpty
+                            || (action == .runRecipe && recipeID == nil)
+                            || (action == .restoreLayout && layoutID == nil)
+                    )
                 }
             }
+        }
+    }
+
+    private func actionSubtitle(for trigger: AutoTrigger) -> String {
+        switch trigger.action {
+        case .switchProfile:
+            return "→ \(profiles.profiles.first { $0.id == trigger.profileID }?.name ?? "?")"
+        case .runRecipe:
+            let name = trigger.recipeID.flatMap { id in
+                recipes.recipes.first { $0.id == id }?.name
+            } ?? "?"
+            return "→ Run recipe: \(name)"
+        case .restoreLayout:
+            let profile = profiles.profiles.first { $0.id == trigger.profileID }
+            let name = trigger.layoutID.flatMap { id in
+                profile?.layouts.first { $0.id == id }?.name
+            } ?? "?"
+            return "→ Restore: \(name)"
         }
     }
 
@@ -142,11 +228,9 @@ struct TriggersView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("\(trigger.kind.title): \(trigger.value)")
                                     .font(.system(size: 13, weight: .semibold))
-                                Text(
-                                    "→ \(profiles.profiles.first { $0.id == trigger.profileID }?.name ?? "?")"
-                                )
-                                .font(.system(size: 11))
-                                .foregroundStyle(HFTheme.textTertiary)
+                                Text(actionSubtitle(for: trigger))
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(HFTheme.textTertiary)
                             }
                             Spacer()
                             Toggle(

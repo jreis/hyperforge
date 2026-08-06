@@ -82,3 +82,21 @@ extension AutoTrigger.Kind {
         }
     }
 }
+
+extension AutoTrigger.Action {
+    var title: String {
+        switch self {
+        case .switchProfile: return "Switch profile"
+        case .runRecipe: return "Run recipe"
+        case .restoreLayout: return "Restore layout"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .switchProfile: return "person.crop.circle.badge.checkmark"
+        case .runRecipe: return "wand.and.stars"
+        case .restoreLayout: return "rectangle.3.group"
+        }
+    }
+}

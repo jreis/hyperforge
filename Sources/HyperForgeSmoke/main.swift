@@ -381,6 +381,96 @@ struct HyperForgeSmoke {
             return false
         }())
 
+        print("\nFuzzy match (command-bar launcher)")
+        check("empty query matches with zero score", FuzzyMatch.score(query: "", candidate: "anything") == 0)
+        check(
+            "ordered subsequence matches",
+            FuzzyMatch.score(query: "snap left", candidate: "Snap Left Half") != nil
+        )
+        check(
+            "out-of-order characters do not match",
+            FuzzyMatch.score(query: "left snap", candidate: "Snap Left Half") == nil
+        )
+        check(
+            "missing character does not match",
+            FuzzyMatch.score(query: "keymap", candidate: "Keybinding Cheat Sheet") == nil
+        )
+        check("rank filters and orders by score", {
+            let items = ["Terminal", "The Editor Recent Menu", "Zoom"]
+            let ranked = FuzzyMatch.rank(items, query: "term", key: { $0 })
+            return ranked == ["Terminal", "The Editor Recent Menu"]
+        }())
+        check("rank preserves input order on ties", {
+            let ranked = FuzzyMatch.rank(["Alpha", "Beta"], query: "", key: { $0 })
+            return ranked == ["Alpha", "Beta"]
+        }())
+
+        print("\nTrigger edge detection")
+        check("fires on rising edge only", {
+            var d = EdgeDetector<String>()
+            let first = d.shouldFire(for: "a", currentlyMatching: true)
+            let second = d.shouldFire(for: "a", currentlyMatching: true)
+            return first && !second
+        }())
+        check("resets after condition goes false", {
+            var d = EdgeDetector<String>()
+            _ = d.shouldFire(for: "a", currentlyMatching: true)
+            _ = d.shouldFire(for: "a", currentlyMatching: false)
+            return d.shouldFire(for: "a", currentlyMatching: true)
+        }())
+        check("keys are independent", {
+            var d = EdgeDetector<String>()
+            let a = d.shouldFire(for: "a", currentlyMatching: true)
+            let b = d.shouldFire(for: "b", currentlyMatching: true)
+            return a && b
+        }())
+        check("never-matching key never fires", {
+            var d = EdgeDetector<String>()
+            return d.shouldFire(for: "a", currentlyMatching: false) == false
+        }())
+
+        print("\nAX recipe recording (coalescing)")
+        check("consecutive characters coalesce into one typeText step", {
+            let keys = [
+                RecordedKeyEvent(character: "h", keyName: nil, timestampMs: 0),
+                RecordedKeyEvent(character: "i", keyName: nil, timestampMs: 10),
+            ]
+            let steps = RecordingCoalescer.toSteps(clicks: [], keys: keys)
+            return steps == [RecordedStepDraft(kind: .typeText, value: "hi")]
+        }())
+        check("chord becomes standalone pressKey step", {
+            let keys = [RecordedKeyEvent(character: nil, keyName: "cmd+s", timestampMs: 0)]
+            let steps = RecordingCoalescer.toSteps(clicks: [], keys: keys)
+            return steps == [RecordedStepDraft(kind: .pressKey, value: "cmd+s")]
+        }())
+        check("click flushes pending text and becomes clickNamed", {
+            let keys = [RecordedKeyEvent(character: "a", keyName: nil, timestampMs: 0)]
+            let clicks = [RecordedClickEvent(label: "OK", isFragile: false, timestampMs: 10)]
+            let steps = RecordingCoalescer.toSteps(clicks: clicks, keys: keys)
+            return steps == [
+                RecordedStepDraft(kind: .typeText, value: "a"),
+                RecordedStepDraft(kind: .clickNamed, value: "OK", isFragile: false),
+            ]
+        }())
+        check("large gap inserts pause step", {
+            let keys = [
+                RecordedKeyEvent(character: "a", keyName: nil, timestampMs: 0),
+                RecordedKeyEvent(character: "b", keyName: nil, timestampMs: 1000),
+            ]
+            let steps = RecordingCoalescer.toSteps(clicks: [], keys: keys, pauseThresholdMs: 250)
+            return steps == [
+                RecordedStepDraft(kind: .typeText, value: "a"),
+                RecordedStepDraft(kind: .pause, value: "1.00"),
+                RecordedStepDraft(kind: .typeText, value: "b"),
+            ]
+        }())
+        check("fragile click propagates flag", {
+            let clicks = [RecordedClickEvent(label: "AXButton", isFragile: true, timestampMs: 0)]
+            let steps = RecordingCoalescer.toSteps(clicks: clicks, keys: [])
+            return steps == [RecordedStepDraft(kind: .clickNamed, value: "AXButton", isFragile: true)]
+        }())
+        check("empty input produces no steps", RecordingCoalescer.toSteps(clicks: [], keys: []) == [])
+
         print()
         if failed == 0 {
             print("All smoke tests passed.")

@@ -5,9 +5,11 @@
 //   1. Region selection (drag-to-pin)
 //   2. Floating pins (region / clipboard image)
 //   3. Link hints
-//   4. Command bar
-//   5. Cheat sheet
-//   6. Dashboard
+//   4. Clipboard history
+//   5. AX recipe recording
+//   6. Command bar
+//   7. Cheat sheet
+//   8. Dashboard
 
 import AppKit
 import Foundation
@@ -22,9 +24,10 @@ final class EscapeCoordinator {
         case floatingPin = 1
         case linkHints = 2
         case clipboardHistory = 3
-        case commandBar = 4
-        case cheatSheet = 5
-        case dashboard = 6
+        case axRecording = 4
+        case commandBar = 5
+        case cheatSheet = 6
+        case dashboard = 7
 
         static func < (lhs: Layer, rhs: Layer) -> Bool {
             lhs.rawValue < rhs.rawValue
@@ -103,7 +106,7 @@ final class EscapeCoordinator {
         switch layer {
         case .commandBar, .cheatSheet, .dashboard:
             return
-        case .regionSelection, .floatingPin, .linkHints, .clipboardHistory:
+        case .regionSelection, .floatingPin, .linkHints, .clipboardHistory, .axRecording:
             handlers[layer] = nil
         }
     }

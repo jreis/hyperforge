@@ -2,6 +2,7 @@
 // Local AI command palette — offline router + optional Ollama on localhost.
 
 import AppKit
+import HyperForgeKit
 import SwiftUI
 
 struct CommandBarView: View {
@@ -12,6 +13,8 @@ struct CommandBarView: View {
     @State private var results: [CommandResult] = []
     @State private var aiNote: String?
     @State private var generatedPayload: String?
+    /// -1 = "Ask local AI" row (only meaningful while it's visible); 0... indexes `results`.
+    @State private var highlightedIndex = 0
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -52,15 +55,36 @@ struct CommandBarView: View {
         .onAppear {
             focused = true
             results = CommandRouter.suggest("")
+            highlightedIndex = 0
             Task { await ollama.ping() }
         }
         .onChange(of: query) { _, new in
             results = CommandRouter.suggest(new)
+            highlightedIndex = new.isEmpty ? 0 : -1
             generatedPayload = nil
             aiNote = nil
         }
         .onExitCommand {
             _ = EscapeCoordinator.shared.handleEscape()
+        }
+    }
+
+    private var hasAIRow: Bool { !query.isEmpty }
+
+    private func moveSelection(by delta: Int) {
+        let lower = hasAIRow ? -1 : 0
+        let upper = results.count - 1
+        guard upper >= lower else { return }
+        highlightedIndex = min(max(highlightedIndex + delta, lower), upper)
+    }
+
+    private func submitCommand() {
+        if highlightedIndex >= 0, results.indices.contains(highlightedIndex) {
+            let r = results[highlightedIndex]
+            r.run()
+            appState.commandBarVisible = false
+        } else {
+            Task { await interpretAndRun() }
         }
     }
 
@@ -76,7 +100,15 @@ struct CommandBarView: View {
             .textFieldStyle(.plain)
             .font(.system(size: 15, weight: .medium, design: .rounded))
             .focused($focused)
-            .onSubmit { Task { await interpretAndRun() } }
+            .onSubmit { submitCommand() }
+            .onKeyPress(.downArrow) {
+                moveSelection(by: 1)
+                return .handled
+            }
+            .onKeyPress(.upArrow) {
+                moveSelection(by: -1)
+                return .handled
+            }
 
             StatusPill(
                 title: ollama.isAvailable ? "Ollama" : "Offline",
@@ -100,18 +132,25 @@ struct CommandBarView: View {
                             title: ollama.isThinking ? "Thinking locally…" : "Ask local AI / router",
                             subtitle: ollama.isAvailable
                                 ? "Ollama · \(ollama.model)"
-                                : "Offline intent router (always private)"
+                                : "Offline intent router (always private)",
+                            isSelected: highlightedIndex == -1
                         )
                     }
                     .buttonStyle(.plain)
                 }
 
-                ForEach(results) { r in
+                ForEach(Array(results.enumerated()), id: \.element.id) { index, r in
                     Button {
                         r.run()
                         appState.commandBarVisible = false
                     } label: {
-                        row(icon: r.icon, title: r.title, subtitle: r.subtitle)
+                        row(
+                            icon: r.icon,
+                            title: r.title,
+                            subtitle: r.subtitle,
+                            kindLabel: r.kind.label,
+                            isSelected: index == highlightedIndex
+                        )
                     }
                     .buttonStyle(.plain)
                 }
@@ -121,7 +160,13 @@ struct CommandBarView: View {
         .frame(maxHeight: 300)
     }
 
-    private func row(icon: String, title: String, subtitle: String) -> some View {
+    private func row(
+        icon: String,
+        title: String,
+        subtitle: String,
+        kindLabel: String? = nil,
+        isSelected: Bool = false
+    ) -> some View {
         HStack {
             Image(systemName: icon)
                 .foregroundStyle(HFTheme.accent)
@@ -136,8 +181,22 @@ struct CommandBarView: View {
                     .lineLimit(2)
             }
             Spacer()
+            if let kindLabel {
+                Text(kindLabel)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(HFTheme.textTertiary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(HFTheme.stroke.opacity(0.5), in: Capsule())
+            }
         }
         .padding(10)
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(HFTheme.accent.opacity(0.15))
+            }
+        }
         .contentShape(Rectangle())
     }
 
@@ -205,14 +264,30 @@ struct CommandBarView: View {
     }
 }
 
+enum CommandResultKind: String {
+    case action, app, snippet, recipe, shortcut
+
+    var label: String {
+        switch self {
+        case .action: return "Action"
+        case .app: return "App"
+        case .snippet: return "Snippet"
+        case .recipe: return "Recipe"
+        case .shortcut: return "Shortcut"
+        }
+    }
+}
+
 struct CommandResult: Identifiable {
     let id = UUID()
     let title: String
     let subtitle: String
     let icon: String
+    var kind: CommandResultKind = .action
     let run: () -> Void
 }
 
+@MainActor
 enum CommandRouter {
     static func suggest(_ query: String) -> [CommandResult] {
         let q = query.lowercased()
@@ -277,26 +352,14 @@ enum CommandRouter {
             add("Lock Screen", "Hold Hyper + Esc", "lock", "sys-lock")
         }
 
-        for action in ActionCatalog.resolvedDefaults() {
-            if q.isEmpty || action.title.lowercased().contains(q)
-                || action.detail.lowercased().contains(q)
-                || action.id.contains(q.replacingOccurrences(of: " ", with: "-"))
-            {
-                items.append(
-                    CommandResult(
-                        title: action.title,
-                        subtitle: action.shortcutDisplay,
-                        icon: action.symbol
-                    ) {
-                        Task { @MainActor in
-                            HyperKeyActions.perform(actionID: action.id)
-                        }
-                    }
-                )
-            }
-        }
+        // Broad catalog: apps, snippets, recipes, Shortcuts, and Hyper actions.
+        // Curated matches above take priority on title collisions (dedup keeps first).
+        items.append(contentsOf: CommandCatalog.allEntries())
 
         var seen = Set<String>()
-        return items.filter { seen.insert($0.title).inserted }.prefix(14).map { $0 }
+        let deduped = items.filter { seen.insert($0.title).inserted }
+
+        let ranked = FuzzyMatch.rank(deduped, query: query) { "\($0.title) \($0.subtitle)" }
+        return Array(ranked.prefix(20))
     }
 }

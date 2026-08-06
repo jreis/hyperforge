@@ -17,11 +17,62 @@ struct AutoTrigger: Identifiable, Codable, Equatable {
         case timeOfDay
     }
 
+    /// What happens on match. `.switchProfile` is level-triggered (re-applies while the
+    /// condition holds, unchanged legacy behavior); `.runRecipe`/`.restoreLayout` are
+    /// edge-triggered (fire once per "became true" transition — see `AutoTriggerService`).
+    enum Action: String, Codable, CaseIterable {
+        case switchProfile
+        case runRecipe
+        case restoreLayout
+    }
+
     var id: UUID = UUID()
     var kind: Kind
     var value: String
+    /// For `.switchProfile`/`.restoreLayout`: the target profile (and, for restoreLayout,
+    /// which profile's `layouts` to look `layoutID` up in). Unused for `.runRecipe`.
     var profileID: UUID
     var isEnabled: Bool = true
+    var action: Action = .switchProfile
+    var recipeID: UUID?
+    var layoutID: UUID?
+
+    init(
+        id: UUID = UUID(),
+        kind: Kind,
+        value: String,
+        profileID: UUID,
+        isEnabled: Bool = true,
+        action: Action = .switchProfile,
+        recipeID: UUID? = nil,
+        layoutID: UUID? = nil
+    ) {
+        self.id = id
+        self.kind = kind
+        self.value = value
+        self.profileID = profileID
+        self.isEnabled = isEnabled
+        self.action = action
+        self.recipeID = recipeID
+        self.layoutID = layoutID
+    }
+
+    // Custom decode: Swift's synthesized Decodable throws on a *missing* key even when
+    // the property has a default value — it does not fall back to the default. Config
+    // backups / on-disk state written before `action`/`recipeID`/`layoutID` existed must
+    // still decode (into `.switchProfile`, `nil`, `nil`) rather than fail the whole
+    // `[AutoTrigger]` array and silently reset the user's profiles/triggers to builtins.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        kind = try c.decode(Kind.self, forKey: .kind)
+        value = try c.decode(String.self, forKey: .value)
+        profileID = try c.decode(UUID.self, forKey: .profileID)
+        isEnabled = try c.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        action = try c.decodeIfPresent(Action.self, forKey: .action) ?? .switchProfile
+        recipeID = try c.decodeIfPresent(UUID.self, forKey: .recipeID)
+        layoutID = try c.decodeIfPresent(UUID.self, forKey: .layoutID)
+    }
 }
 
 struct HyperProfile: Identifiable, Codable, Equatable {

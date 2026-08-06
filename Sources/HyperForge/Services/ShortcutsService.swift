@@ -38,6 +38,21 @@ enum ShortcutsService {
         cacheLock.unlock()
     }
 
+    /// Cached names only — never blocks on the `shortcuts` CLI. Used on hot paths
+    /// (e.g. command-bar keystrokes) where `listNames()`'s synchronous shell-out on a
+    /// cache miss would be too slow. Kicks off a background refresh when stale so the
+    /// *next* call sees fresh data.
+    static func cachedOrRefreshingNames() -> [String] {
+        cacheLock.lock()
+        let cached = cachedNames
+        let isStale = cacheDate.map { Date().timeIntervalSince($0) >= cacheTTL } ?? true
+        cacheLock.unlock()
+        if isStale {
+            DispatchQueue.global(qos: .utility).async { _ = listNames(forceRefresh: true) }
+        }
+        return cached ?? []
+    }
+
     /// Run a shortcut by exact name (as shown in Shortcuts.app / `shortcuts list`).
     static func run(name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)

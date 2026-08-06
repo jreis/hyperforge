@@ -71,7 +71,7 @@ struct SnippetsView: View {
                                     .controlSize(.small)
                             }
                         }
-                        Text("Tokens: {{date}} · {{date:MMM d, yyyy}} · {{clipboard}} · {{hostname}} · \\n for newlines")
+                        Text("Tokens: {{date}} · {{date:MMM d, yyyy}} · {{clipboard}} · {{hostname}} · {{uuid}} · {{lan-ip}} · \\n for newlines")
                             .font(.system(size: 11))
                             .foregroundStyle(HFTheme.textTertiary)
                         TextField("Trigger (e.g. ,sig)", text: $trigger)

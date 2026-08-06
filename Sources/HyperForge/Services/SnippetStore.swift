@@ -199,6 +199,10 @@ final class SnippetEngine: @unchecked Sendable {
         HyperLog.event("Snippet expanded \(trigger)")
     }
 
+    // Token set is intentionally closed and enumerable (date/clipboard/hostname/uuid/lan-ip).
+    // Never add a `{{shell:...}}` or `{{applescript:...}}` token here — this engine fires on
+    // typed text, so an arbitrary-exec token would let any typed or pasted-in trigger string
+    // run code on expansion.
     private static func resolve(_ template: String) -> String {
         // Support both real newlines (from the editor) and typed "\n" / "\t" escapes.
         var out = template
@@ -216,7 +220,42 @@ final class SnippetEngine: @unchecked Sendable {
                 with: ProcessInfo.processInfo.hostName
             )
         }
+        if out.contains("{{uuid}}") {
+            out = out.replacingOccurrences(of: "{{uuid}}", with: UUID().uuidString)
+        }
+        if out.contains("{{lan-ip}}") {
+            out = out.replacingOccurrences(of: "{{lan-ip}}", with: lanIPAddress() ?? "")
+        }
         return out
+    }
+
+    /// First non-loopback IPv4 address via `getifaddrs` — sync syscall, no process spawn,
+    /// safe to call from the CGEvent tap thread (unlike `SystemActions.primaryIP()`, which
+    /// shells out to `ifconfig` and is too slow for this hot path).
+    private static func lanIPAddress() -> String? {
+        var ifaddrPtr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddrPtr) == 0, let firstAddr = ifaddrPtr else { return nil }
+        defer { freeifaddrs(ifaddrPtr) }
+
+        var result: String?
+        for ptr in sequence(first: firstAddr, next: { $0.pointee.ifa_next }) {
+            let flags = Int32(ptr.pointee.ifa_flags)
+            guard (flags & IFF_UP) == IFF_UP, (flags & IFF_LOOPBACK) == 0,
+                  let addr = ptr.pointee.ifa_addr, addr.pointee.sa_family == UInt8(AF_INET)
+            else { continue }
+
+            var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            let ret = getnameinfo(
+                addr, socklen_t(addr.pointee.sa_len),
+                &hostname, socklen_t(hostname.count),
+                nil, 0, NI_NUMERICHOST
+            )
+            if ret == 0 {
+                result = String(cString: hostname)
+                break
+            }
+        }
+        return result
     }
 
     /// `{{date}}` uses the global format; `{{date:MM/dd/yyyy}}` overrides per token.

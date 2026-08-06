@@ -1,8 +1,10 @@
 // AutoTriggerService.swift
-// Watches Wi‑Fi, frontmost app, and time-of-day to auto-switch profiles.
+// Watches Wi‑Fi, frontmost app, and time-of-day to auto-switch profiles, run a recipe,
+// or restore a workspace layout.
 
 import AppKit
 import Foundation
+import HyperForgeKit
 
 @MainActor
 final class AutoTriggerService: ObservableObject {
@@ -16,6 +18,9 @@ final class AutoTriggerService: ObservableObject {
     private var timer: Timer?
     private var lastAppliedProfileID: UUID?
     private var lastSSID: String?
+    /// Rising-edge bookkeeping for `.runRecipe`/`.restoreLayout` triggers only —
+    /// `.switchProfile` stays level-triggered (unchanged legacy behavior).
+    private var edgeDetector = EdgeDetector<UUID>()
 
     private init() {}
 
@@ -54,23 +59,67 @@ final class AutoTriggerService: ObservableObject {
             rank(a.kind) < rank(b.kind)
         }
 
+        // Track match + rising-edge state for every trigger this cycle — not just the
+        // eventual winner — so an edge-triggered trigger that loses priority this round
+        // still observes its own falling edge and can re-fire later. Only the
+        // highest-priority matching trigger's action actually runs per cycle (same
+        // single-winner limitation the level-triggered profile switch has always had —
+        // e.g. a lower-priority runRecipe trigger for the same app as a switchProfile
+        // trigger will never win and never fire).
+        var matchFlags: [UUID: Bool] = [:]
+        var firedThisCycle: Set<UUID> = []
         for trigger in ordered {
-            if matches(trigger) {
-                if store.activeProfileID != trigger.profileID {
-                    if let profile = store.profiles.first(where: { $0.id == trigger.profileID }) {
-                        store.select(profile)
-                        lastAppliedProfileID = profile.id
-                        lastMatchDescription =
-                            "\(trigger.kind.title): \(trigger.value) → \(profile.name)"
-                        Banner.show("Profile: \(profile.name)")
-                        HyperLog.event("AutoTrigger \(lastMatchDescription ?? "")")
-                    }
-                } else {
-                    lastMatchDescription =
-                        "Holding \(store.activeProfile.name) via \(trigger.kind.title)"
+            let isMatch = matches(trigger)
+            matchFlags[trigger.id] = isMatch
+            if trigger.action != .switchProfile {
+                if edgeDetector.shouldFire(for: trigger.id, currentlyMatching: isMatch) {
+                    firedThisCycle.insert(trigger.id)
                 }
+            }
+        }
+
+        guard let winner = ordered.first(where: { matchFlags[$0.id] == true }) else { return }
+
+        switch winner.action {
+        case .switchProfile:
+            if store.activeProfileID != winner.profileID {
+                if let profile = store.profiles.first(where: { $0.id == winner.profileID }) {
+                    store.select(profile)
+                    lastAppliedProfileID = profile.id
+                    lastMatchDescription =
+                        "\(winner.kind.title): \(winner.value) → \(profile.name)"
+                    Banner.show("Profile: \(profile.name)")
+                    HyperLog.event("AutoTrigger \(lastMatchDescription ?? "")")
+                }
+            } else {
+                lastMatchDescription =
+                    "Holding \(store.activeProfile.name) via \(winner.kind.title)"
+            }
+
+        case .runRecipe:
+            guard firedThisCycle.contains(winner.id) else { return }
+            guard let recipeID = winner.recipeID,
+                  let recipe = AXRecipeStore.shared.recipes.first(where: { $0.id == recipeID })
+            else {
+                Banner.show("Trigger recipe not found", style: .warning)
                 return
             }
+            AXRecipeStore.shared.run(recipe)
+            lastMatchDescription = "\(winner.kind.title): \(winner.value) → Run recipe: \(recipe.name)"
+            HyperLog.event("AutoTrigger \(lastMatchDescription ?? "")")
+
+        case .restoreLayout:
+            guard firedThisCycle.contains(winner.id) else { return }
+            guard let layoutID = winner.layoutID,
+                  let profile = store.profiles.first(where: { $0.id == winner.profileID }),
+                  let layout = profile.layouts.first(where: { $0.id == layoutID })
+            else {
+                Banner.show("Trigger layout not found", style: .warning)
+                return
+            }
+            store.restoreLayout(layout)
+            lastMatchDescription = "\(winner.kind.title): \(winner.value) → Restore: \(layout.name)"
+            HyperLog.event("AutoTrigger \(lastMatchDescription ?? "")")
         }
     }
 
