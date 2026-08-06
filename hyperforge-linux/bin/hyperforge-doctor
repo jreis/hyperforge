@@ -66,14 +66,49 @@ echo
 echo "HyperForge files"
 [[ -x "$ROOT/bin/hyperforge-snap" ]] && pass "hyperforge-snap" || bad "hyperforge-snap missing — run install.sh"
 [[ -x "$ROOT/bin/hyperforge-action" ]] && pass "hyperforge-action" || bad "hyperforge-action missing"
+[[ -x "$ROOT/bin/hyperforge-snippet" ]] && pass "hyperforge-snippet" || soft "hyperforge-snippet missing — run install.sh"
+[[ -x "$ROOT/bin/hyperforge-clip" ]] && pass "hyperforge-clip" || soft "hyperforge-clip missing — run install.sh"
 [[ -f "$HOME/.config/kanata/hyperforge.kbd" ]] && pass "~/.config/kanata/hyperforge.kbd" \
   || soft "kanata config not installed yet"
 
 echo
+echo "Snippets (Hyper+,)"
+SNIP_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hyperforge-linux/snippets.conf"
+if [[ -f "$SNIP_CONF" ]]; then
+  n=$(grep -cE '^[^#=]+=' "$SNIP_CONF" 2>/dev/null || echo 0)
+  pass "snippets.conf — $n configured"
+else
+  soft "no snippets.conf yet — run install.sh (seeds $SNIP_CONF)"
+fi
+have rofi && pass "rofi (snippet/clipboard picker)" \
+  || have wofi && pass "wofi (snippet/clipboard picker)" \
+  || have fzf && soft "fzf found — picker needs a terminal emulator too" \
+  || soft "install rofi or wofi for the Hyper+, and Hyper+P pickers"
+
+echo
+echo "Clipboard history (Hyper+P)"
+CLIP_STORE="${XDG_DATA_HOME:-$HOME/.local/share}/hyperforge-linux/clipboard-history.dat"
+if [[ -f "$CLIP_STORE" ]]; then
+  n=$(wc -l <"$CLIP_STORE" 2>/dev/null | tr -d ' ')
+  pass "clipboard-history.dat — $n item(s)"
+else
+  soft "no clipboard history yet — copy something after the watcher is running"
+fi
+if systemctl --user is-active --quiet hyperforge-clipboard.service 2>/dev/null; then
+  pass "hyperforge-clipboard.service running"
+else
+  soft "hyperforge-clipboard.service not running — systemctl --user enable --now hyperforge-clipboard.service"
+fi
+
+echo
 echo "Optional helpers"
 have notify-send && pass "notify-send" || soft "notify-send (desktop toasts)"
-have wtype && pass "wtype (type date on Wayland)" || soft "wtype or ydotool for typing into focused apps"
+have wtype && pass "wtype (type into focused apps on Wayland)" || soft "wtype or ydotool for typing into focused apps"
 have wl-copy && pass "wl-copy" || soft "wl-clipboard for Wayland copy"
+
+echo
+echo "macOS-only (no Linux equivalent shipped here): OCR region, region pin,"
+echo "Ollama command bar, Shortcuts integration, AX recipe recording, profiles/auto-triggers."
 
 echo
 echo "Summary: $ok ok · $warn warnings · $fail failures"

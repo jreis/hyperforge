@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # hyperforge-snap — window snaps for Hyprland, Sway/i3, or X11.
-# Usage: hyperforge-snap <left|right|top|bottom|max|center|tl|tr|bl|br|min|close|next-mon|undo|tile>
-# Muscle memory aligned with macOS HyperForge 0.4.x where the compositor allows.
+# Usage: hyperforge-snap <left|right|top|bottom|max|center|tl|tr|bl|br|min|close|next-mon|undo|tile|
+#                         third-l|third-c|third-r|twothird-l|twothird-r|almost-max>
+# Muscle memory aligned with current macOS HyperForge where the compositor allows.
 set -euo pipefail
 
 action="${1:-}"
 if [[ -z "$action" ]]; then
-  echo "usage: $0 <left|right|top|bottom|max|center|tl|tr|bl|br|min|close|next-mon|undo|tile>" >&2
+  echo "usage: $0 <left|right|top|bottom|max|center|tl|tr|bl|br|min|close|next-mon|undo|tile|" >&2
+  echo "           third-l|third-c|third-r|twothird-l|twothird-r|almost-max>" >&2
   exit 2
 fi
 
@@ -108,6 +110,12 @@ snap_hypr() {
     tr) nw=$((mw / 2)); nh=$((mh / 2)); nx=$((mx + mw / 2)); ny=$my ;;
     bl) nw=$((mw / 2)); nh=$((mh / 2)); nx=$mx; ny=$((my + mh / 2)) ;;
     br) nw=$((mw / 2)); nh=$((mh / 2)); nx=$((mx + mw / 2)); ny=$((my + mh / 2)) ;;
+    third-l)     nw=$((mw / 3)); nh=$mh; nx=$mx; ny=$my ;;
+    third-c)     nw=$((mw / 3)); nh=$mh; nx=$((mx + mw / 3)); ny=$my ;;
+    third-r)     nw=$((mw / 3)); nh=$mh; nx=$((mx + 2 * mw / 3)); ny=$my ;;
+    twothird-l)  nw=$((mw * 2 / 3)); nh=$mh; nx=$mx; ny=$my ;;
+    twothird-r)  nw=$((mw * 2 / 3)); nh=$mh; nx=$((mx + mw / 3)); ny=$my ;;
+    almost-max)  nw=$((mw * 90 / 100)); nh=$((mh * 90 / 100)); nx=$((mx + mw * 5 / 100)); ny=$((my + mh * 5 / 100)) ;;
     *) echo "unknown action: $action" >&2; exit 2 ;;
   esac
 
@@ -131,6 +139,12 @@ snap_sway() {
     tr)     $msg "fullscreen disable; floating enable; resize set 50 ppt 50 ppt; move position 50 ppt 0 ppt" ;;
     bl)     $msg "fullscreen disable; floating enable; resize set 50 ppt 50 ppt; move position 0 ppt 50 ppt" ;;
     br)     $msg "fullscreen disable; floating enable; resize set 50 ppt 50 ppt; move position 50 ppt 50 ppt" ;;
+    third-l)    $msg "fullscreen disable; floating enable; resize set 33 ppt 100 ppt; move position 0 ppt 0 ppt" ;;
+    third-c)    $msg "fullscreen disable; floating enable; resize set 33 ppt 100 ppt; move position 33 ppt 0 ppt" ;;
+    third-r)    $msg "fullscreen disable; floating enable; resize set 34 ppt 100 ppt; move position 66 ppt 0 ppt" ;;
+    twothird-l) $msg "fullscreen disable; floating enable; resize set 66 ppt 100 ppt; move position 0 ppt 0 ppt" ;;
+    twothird-r) $msg "fullscreen disable; floating enable; resize set 67 ppt 100 ppt; move position 33 ppt 0 ppt" ;;
+    almost-max) $msg "fullscreen disable; floating enable; resize set 90 ppt 90 ppt; move position center" ;;
     min)    $msg "move window to scratchpad" ;;
     close)  $msg kill ;;
     next-mon) $msg "move workspace to output right" ;;
@@ -169,6 +183,12 @@ snap_x11() {
     tr) nw=$((sw / 2)); nh=$((sh / 2)); nx=$((sw / 2)); ny=0 ;;
     bl) nw=$((sw / 2)); nh=$((sh / 2)); nx=0; ny=$((sh / 2)) ;;
     br) nw=$((sw / 2)); nh=$((sh / 2)); nx=$((sw / 2)); ny=$((sh / 2)) ;;
+    third-l)    nw=$((sw / 3)); nh=$sh; nx=0; ny=0 ;;
+    third-c)    nw=$((sw / 3)); nh=$sh; nx=$((sw / 3)); ny=0 ;;
+    third-r)    nw=$((sw / 3)); nh=$sh; nx=$((2 * sw / 3)); ny=0 ;;
+    twothird-l) nw=$((sw * 2 / 3)); nh=$sh; nx=0; ny=0 ;;
+    twothird-r) nw=$((sw * 2 / 3)); nh=$sh; nx=$((sw / 3)); ny=0 ;;
+    almost-max) nw=$((sw * 9 / 10)); nh=$((sh * 9 / 10)); nx=$((sw / 20)); ny=$((sh / 20)) ;;
     min) xdotool windowminimize "$win"; return ;;
     close) wmctrl -ic "$win"; return ;;
     next-mon) wmctrl -ir "$win" -b remove,maximized_vert,maximized_horz; return ;;

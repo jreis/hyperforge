@@ -1,0 +1,13 @@
+[Unit]
+Description=HyperForge clipboard history watcher
+Documentation=https://github.com/jreis/hyperforge/tree/main/hyperforge-linux
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/hyperforge-clip watch
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

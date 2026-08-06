@@ -1,6 +1,7 @@
 ;; HyperForge for Linux — kanata config
 ;; Caps → Hyper layer (tap Esc) · Space → nav layer (tap space)
-;; Parity target: macOS HyperForge 0.4.x core chords + full numpad window pad
+;; Parity target: current macOS HyperForge core chords + full numpad window pad +
+;; thirds/two-thirds/almost-max + snippet picker + clipboard history.
 ;;
 ;; Install: ./install.sh  (rewrites HF_BIN)
 ;; Run:    kanata -c ~/.config/kanata/hyperforge.kbd
@@ -59,6 +60,22 @@
   ourl (cmd HF_BIN/hyperforge-action open-url)
   plain (cmd HF_BIN/hyperforge-action plain-paste)
 
+  ;; Thirds / two-thirds / almost-max (macOS parity — Raycast/Rectangle staples).
+  ;; macOS disambiguates -/=/\ with Shift for the 2/3 variant; kanata's Hyper layer
+  ;; doesn't force Shift down like the 4-mod bridges do, but sharing physical keys
+  ;; with an OS-level Shift press is still fragile, so 2/3 and almost-max get their
+  ;; own keys (i / o / y) instead.
+  thil (cmd HF_BIN/hyperforge-action win-third-l)
+  thic (cmd HF_BIN/hyperforge-action win-third-c)
+  thir (cmd HF_BIN/hyperforge-action win-third-r)
+  twol (cmd HF_BIN/hyperforge-action win-2third-l)
+  twor (cmd HF_BIN/hyperforge-action win-2third-r)
+  almx (cmd HF_BIN/hyperforge-action win-almost-max)
+
+  ;; Snippets (Hyper+,) and clipboard history (Hyper+P) — macOS Hyper+, / Hyper+V parity.
+  snip (cmd HF_BIN/hyperforge-action snippet-pick)
+  clip (cmd HF_BIN/hyperforge-action clip-show)
+
   ;; Space-layer helpers (macOS-ish)
   wback (multi lctl left)
   wfwd  (multi lctl right)
@@ -87,16 +104,17 @@
 
 ;; Hold Caps — Hyper
 ;; Main: arrows halves · Enter/Num5 max · 6 tile-all · 7–0 quarters
-;; Numpad full spatial pad (macOS 0.4.x):
+;; -/=/\ thirds · i/o two-thirds · y almost-max · , snippet picker · p clipboard history
+;; Numpad full spatial pad (macOS parity):
 ;;   7 TL   8 Top   9 TR
 ;;   4 Left 5 Max   6 Right
 ;;   1 BL   2 Bot   3 BR
 ;;   0 Center
 (deflayer hyper
-  _   @brws @edit _ _ _ @stil @stl @str @sbl @sbr _ _
-  _   _     _     @plain @sund @term _ @ourl _ _ _ _ _ _
+  _   @brws @edit _ _ _ @stil @stl @str @sbl @sbr @thil @thir
+  _   _     _     @plain @sund @term @almx @ourl @twol @twor @clip _ _ @thic
   _   @aot  @smin _ @files @goog _ _ _ _ _ _ @sm
-  _   @sund @scls @sc _ @smin _ @snx _ @date _
+  _   @sund @scls @sc _ @smin _ @snx @snip @date _
   _   _     _     _ _ _
   @sl @sb   @st   @sr
   @lock _

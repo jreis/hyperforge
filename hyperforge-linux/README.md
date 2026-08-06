@@ -1,15 +1,17 @@
 # HyperForge for Linux
 
-**Caps → Hyper · Space-layer HJKL · window snaps** for Linux — same muscle memory as the macOS app.
+**Caps → Hyper · Space-layer HJKL · window snaps · snippets · clipboard history** for Linux — same muscle memory as the macOS app.
 
-**Parity target:** macOS HyperForge **0.4.x** (window pad, tile-all, Space nav subset). This is **not** a Swift/AppKit port.
+**Parity target:** current macOS HyperForge window pad (halves/quarters/**thirds/two-thirds/almost-max**/tile-all/undo), `{{token}}` **snippets**, a persisted/pinned **clipboard history**, and the Space nav subset. This is **not** a Swift/AppKit port. Not ported — no Linux equivalent shipped here: **OCR region**, **region pin**, the **Ollama command bar**, **Shortcuts** integration, **AX recipe recording**, and **profiles/auto-triggers** (all macOS-API-specific).
 
 | Piece | Role |
 |-------|------|
 | **[kanata](https://github.com/jtroo/kanata)** (preferred) | Caps Hyper layer + Space nav layer + numpad pad |
 | **[keyd](https://github.com/rvaiya/keyd)** (optional) | Same idea as a system service |
-| **`hyperforge-snap`** | Half / quarter / max / **tile** for **Hyprland**, **Sway**, or **X11** |
-| **`hyperforge-action`** | Apps, lock, date, google clipboard, plain paste, open URL |
+| **`hyperforge-snap`** | Half / quarter / **third / two-thirds / almost-max** / max / **tile** for **Hyprland**, **Sway**, or **X11** |
+| **`hyperforge-action`** | Apps, lock, date, google clipboard, plain paste, open URL, snippet + clipboard dispatch |
+| **`hyperforge-snippet`** | `{{token}}` text-expansion snippets — direct or via a picker |
+| **`hyperforge-clip`** | Persisted, pinned, searchable clipboard history |
 | **`hyperforge-doctor`** | Setup health check |
 
 Sibling of:
@@ -27,6 +29,7 @@ Sibling of:
 - **kanata** (or keyd)
 - `jq` for Hyprland geometry snaps  
 - Optional: `notify-send`, `wtype` / `ydotool`, `wl-clipboard`
+- Optional: `rofi` or `wofi` for the snippet (Hyper+,) and clipboard (Hyper+P) pickers
 
 ---
 
@@ -47,7 +50,12 @@ kanata -c ~/.config/kanata/hyperforge.kbd
 # or user service
 systemctl --user daemon-reload
 systemctl --user enable --now hyperforge-kanata.service
+
+# optional: clipboard history watcher (Hyper+P)
+systemctl --user enable --now hyperforge-clipboard.service
 ```
+
+Edit `~/.config/hyperforge-linux/snippets.conf` (seeded by `install.sh`) to add your own snippets.
 
 Health check:
 
@@ -83,6 +91,11 @@ See [kanata Linux docs](https://github.com/jtroo/kanata/blob/main/docs/setup-lin
 | Hyper + Enter | Maximize |
 | Hyper + **6** | Tile all windows (macOS parity) |
 | Hyper + 7 / 8 / 9 / 0 | Quarters TL TR BL BR |
+| Hyper + - / = / \\ | Left / center / right **third** |
+| Hyper + I / O | Left / right **two-thirds** |
+| Hyper + Y | **Almost-max** (~90% centered) |
+| Hyper + , | **Snippet picker** (rofi/wofi/fzf) |
+| Hyper + P | **Clipboard history** (pinned/searchable picker) |
 | Hyper + C | Center |
 | Hyper + A | Always on top / pin (best-effort) |
 | Hyper + B / S | Minimize |
@@ -106,6 +119,41 @@ See [kanata Linux docs](https://github.com/jtroo/kanata/blob/main/docs/setup-lin
 1 BL    2 Bot    3 BR
 0 Center
 ```
+
+macOS disambiguates the third vs. two-thirds chord with Shift (`-` vs `⇧-`).
+kanata's Hyper layer doesn't force Shift down the way the 4-mod bridges do, but
+sharing a physical key with an OS-level Shift press is still fragile, so
+two-thirds and almost-max get their own keys (I / O / Y) instead.
+
+### Snippets (Hyper + ,)
+
+`hyperforge-snippet` types `{{token}}` text expansions — kanata/keyd can't watch
+typed text for hotstring triggers like AHK or the macOS app do, so snippets here
+are chord/picker-triggered instead. Configure `~/.config/hyperforge-linux/snippets.conf`
+(`name=expansion`, seeded from `snippets.example.conf`):
+
+| Token | Expands to |
+|-------|------------|
+| `{{date}}` | Today, formatted per the config's `date_format` (default `yyyy-MM-dd`) |
+| `{{date:MM/dd/yyyy}}` | Today, with a per-snippet format override |
+| `{{clipboard}}` | Current clipboard text |
+| `{{hostname}}` | This machine's name |
+| `{{uuid}}` | A fresh random UUID |
+| `{{lan-ip}}` | First non-loopback IPv4 address |
+
+`\n` expands to a real newline. Hyper+, opens a picker (rofi/wofi, or fzf in a
+spawned terminal); `hyperforge-snippet <name>` types one directly (bind it to
+your own chord if you want a specific snippet on a dedicated key).
+
+### Clipboard history (Hyper + P)
+
+`hyperforge-clip watch` (via `hyperforge-clipboard.service`) records clipboard
+text changes to `~/.local/share/hyperforge-linux/clipboard-history.dat` — same
+persisted/pinned shape as the Windows and macOS history. Hyper+P opens a
+pinned-first picker (rofi/wofi/fzf); picking an entry copies it and pastes into
+the focused window. `hyperforge-clip pin` opens the same picker to toggle pin
+instead of pasting. Unpinned entries are capped at 20 (edit `MAX_ITEMS` in the
+script); pinned entries never evict.
 
 ### Space = nav layer (hold) · space (tap)
 
@@ -145,16 +193,20 @@ Wayland will never match macOS `CGEvent` globally in a portable way. This stack 
 hyperforge-linux/
 ├── README.md
 ├── install.sh
+├── snippets.example.conf    # seeds ~/.config/hyperforge-linux/snippets.conf
 ├── bin/
-│   ├── hyperforge-snap      # window geometry + tile
-│   ├── hyperforge-action    # Hyper command targets
+│   ├── hyperforge-snap      # window geometry + tile + thirds/2-thirds/almost-max
+│   ├── hyperforge-action    # Hyper command targets (snaps, apps, snippets, clipboard)
+│   ├── hyperforge-snippet   # {{token}} text expansion
+│   ├── hyperforge-clip      # persisted/pinned clipboard history
 │   └── hyperforge-doctor
 ├── kanata/
 │   └── hyperforge.kbd       # primary config (numpad + Space nav)
 ├── keyd/
 │   └── hyperforge.conf      # optional system keyd
 └── systemd/
-    └── hyperforge-kanata.service
+    ├── hyperforge-kanata.service
+    └── hyperforge-clipboard.service
 ```
 
 ---
@@ -179,7 +231,11 @@ Adjust `HF_BIN` paths if you install elsewhere (install.sh rewrites them).
 |--|-------|--------|
 | Input | CGEvent + Karabiner | **kanata** / keyd |
 | Space layer | Built into app | kanata `nav` layer (subset) |
-| Window pad | Arrows · numpad · 6 tile · Z undo | **Same chords** |
+| Window pad | Arrows · numpad · thirds/2-thirds/almost-max · 6 tile · Z undo | **Same chords**, 2/3 + almost-max on I/O/Y (no Shift disambiguation) |
+| Snippets | Typed-trigger hotstrings, `{{token}}` set | **Same tokens**, chord/picker-triggered (kanata can't watch typed text) |
+| Clipboard history | Hyper+V panel, persisted/pinned/searchable | Hyper+P picker, persisted/pinned/searchable |
+| Profiles / auto-triggers | Wi‑Fi / app / time, per-app overrides | Not ported — no per-process/per-app layer switching here |
+| OCR / region pin / command bar / Shortcuts / AX recipes | Built-in (Vision, Ollama, AppleScript, Accessibility) | Not ported — macOS-API-specific |
 | Windows | AX / AppKit | hyprctl / sway / wmctrl |
 | UI | SwiftUI + Infernal skin | CLI + notify-send |
 | Goal | Full companion | Same muscle memory |
@@ -191,6 +247,7 @@ Adjust `HF_BIN` paths if you install elsewhere (install.sh rewrites them).
 - No network by default (except optional `google-clip` / `open-url` → browser).  
 - No telemetry.  
 - Configs live under `~/.config` and `~/.local/share`. Undo layout cache under `~/.cache/hyperforge-linux`.
+- Clipboard history is plain text at `~/.local/share/hyperforge-linux/clipboard-history.dat` (base64-encoded lines, not encrypted) — treat it like shell history.
 
 ---
 
@@ -203,6 +260,9 @@ Adjust `HF_BIN` paths if you install elsewhere (install.sh rewrites them).
 | Numpad pad silent | ensure keyboard sends `kp0`–`kp9`; laptop may need Fn |
 | Space layer feels sticky | lower `$tap` (e.g. 120) in `hyperforge.kbd` |
 | Want 4-mod Hyper for apps | use a separate kanata alias with `(multi lctl lalt lmet lsft)` instead of a layer |
+| Hyper+, / Hyper+P do nothing | install `rofi` or `wofi` (or `fzf` + a terminal emulator) |
+| Clipboard history stays empty | `systemctl --user enable --now hyperforge-clipboard.service` (not started by `hyperforge-kanata.service`) |
+| Snippet types nothing | check the trigger name matches a key in `~/.config/hyperforge-linux/snippets.conf` (not the reserved `date_format` key) |
 
 Doctor:
 

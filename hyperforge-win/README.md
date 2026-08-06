@@ -2,7 +2,7 @@
 
 **AHK v2 Hyper Key companion** — Caps → Hyper, window snaps, apps, paste transforms, Explorer power moves.
 
-**Parity target:** macOS HyperForge **0.4.x** for window pad / tile-all / undo / monitors. App launch chords stay Windows-native (letter keys differ by design).
+**Parity target:** current macOS HyperForge window pad (halves/quarters/**thirds/two-thirds/almost-max**/tile-all/undo/monitors), `{{token}}` snippets, and a persisted/pinned/searchable clipboard history. App launch chords stay Windows-native (letter keys differ by design). Not ported — no Windows equivalent shipped here: **OCR region**, **region pin**, the **Ollama command bar**, **Shortcuts** integration, and **AX recipe recording** (all macOS-API-specific).
 
 Pairs with **[TouchCursor](https://code.google.com/archive/p/touchcursor/)** (or similar) for Space-layer navigation. This project **does not** reimplement SpaceFN.
 
@@ -36,11 +36,20 @@ Caps is held as **Ctrl+Alt+Shift+Win** (same chord family as 4-mod Hyper on macO
 | Hyper + Enter | Maximize |
 | Hyper + **6** | Tile all windows on this monitor |
 | Hyper + 7 / 8 / 9 / 0 | Quarters TL / TR / BL / BR |
+| Hyper + - / = / \\ | Left / right / center **third** |
+| Hyper + I / O | Left / right **two-thirds** |
+| Hyper + U | **Almost-max** (~90% centered) |
 | Hyper + . | Center window (keep size) |
 | Hyper + Z | Undo last snap or tile layout |
 | Hyper + ] / [ | Next / previous monitor |
 | Hyper + A | Always on top (also Ctrl+Shift+Space) |
 | Hyper + B | Minimize (also XButton1) |
+| Hyper + P | Clipboard history (pinned/searchable) |
+
+macOS disambiguates the third vs. two-thirds chord with Shift (`-` vs `⇧-`). Windows'
+Hyper is a fixed Win+Ctrl+Alt+**Shift** chord (see `CapsHyper.ahk` — Shift is always
+down while Caps is held), so it can't use Shift the same way; two-thirds and
+almost-max get their own keys (I / O / U) instead.
 
 **Numpad (Hyper held)** — full spatial pad (same as macOS):
 
@@ -70,9 +79,35 @@ Caps is held as **Ctrl+Alt+Shift+Win** (same chord family as 4-mod Hyper on macO
 
 **Per-app mute:** Hyper is off in RDP and processes listed under `[mute]` in `config.ini` (game-friendly). Caps→Hyper is muted there too when `mute.caps_too=1`.
 
-**Doctor:** tray → **Doctor — health check** (AHK version, config, TouchCursor process, mute list, macOS-parity tips).
+**Doctor:** tray → **Doctor — health check** (AHK version, config, TouchCursor process, mute list, clipboard history count, macOS-parity tips).
 
-Snippets: configure under `[snippets]` in `config.ini` (`@@`, `tj`, `,v`, …).
+### Clipboard history (Hyper + P)
+
+Persisted, pinned-first, searchable — mirrors macOS's Hyper+V panel. Every text
+copy is recorded (`OnClipboardChange`) to `%APPDATA%\HyperForge\clipboard-history.dat`;
+unpinned entries are capped at `[clipboard] max_items` (default 20), pinned entries
+never evict. Hyper+P opens a small window: type to filter, **Enter** pastes the
+top/selected match, double-click pastes a specific row, **Pin / unpin** toggles pin
+on the selected row, Esc closes.
+
+The older Ctrl+Alt+Shift+V **paste transform menu** (linefeeds↔commas, base64,
+URL encode, …) is unchanged and separate from history.
+
+### Snippets
+
+Configure under `[snippets]` in `config.ini` (`@@`, `tj`, `,v`, `,sig`, …). Expansions
+support the same `{{token}}` set as macOS HyperForge:
+
+| Token | Expands to |
+|-------|------------|
+| `{{date}}` | Today, formatted per `[snippets] date_format` (default `yyyy-MM-dd`) |
+| `{{date:MM/dd/yyyy}}` | Today, with a per-snippet format override |
+| `{{clipboard}}` | Current clipboard text |
+| `{{hostname}}` | This machine's name |
+| `{{uuid}}` | A fresh random UUID |
+| `{{lan-ip}}` | First non-loopback IPv4 address |
+
+`\n` / `\t` still expand to a real newline/tab for multi-line snippets.
 
 ## Layout
 
@@ -98,9 +133,13 @@ hyperforge-win/
 
 | | macOS | Windows |
 |--|-------|---------|
-| Hyper | F18 / 4-mod + Karabiner | Caps → `#^!+` in AHK |
-| Window pad | Arrows · numpad · 6 tile · Z undo | **Same** |
+| Hyper | F18 / 4-mod + Karabiner | Caps → `#^!+` in AHK (always includes Shift) |
+| Window pad | Arrows · numpad · thirds/2-thirds/almost-max · 6 tile · Z undo | **Same chords**, 2/3 + almost-max on I/O/U (no Shift disambiguation) |
+| Snippets | `{{date/clipboard/hostname/uuid/lan-ip}}` hotstrings | **Same tokens**, AHK `:*:` hotstrings |
+| Clipboard history | Hyper+V panel, persisted/pinned/searchable | Hyper+P Gui panel, persisted/pinned/searchable |
 | Space layer | Built-in (TouchCursor-style) | **TouchCursor** (external) |
+| Profiles / auto-triggers | Wi‑Fi / app / time, per-app overrides | Not ported — use `[mute]` for a coarse per-process on/off instead |
+| OCR / region pin / command bar / Shortcuts / AX recipes | Built-in (Vision, Ollama, AppleScript, Accessibility) | Not ported — macOS-API-specific |
 | UI | SwiftUI dashboard / Doctor | Tray + config.ini + Doctor |
 | Engine | Swift CGEvent | AutoHotkey v2 |
 | App keys | 1–5, T, F, … | Letter chords (N/V/C/T/E…) — intentional |

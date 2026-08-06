@@ -1,7 +1,14 @@
-; Clipboard.ahk — paste transform menu (generic)
+; Clipboard.ahk — paste transform menu + clipboard history (macOS Hyper+V parity)
+
+global HF_ClipHistory := []  ; newest-first array of {text, pinned}
 
 RegisterClipboardHotkeys() {
     Hotkey "^+!v", ShowPasteMenu
+    ClipHistory_Load()
+    OnClipboardChange(ClipHistory_OnChange)
+    HotIf HyperAllowed
+    Hotkey "#^!+p", (*) => ShowClipboardHistory()
+    HotIf
 }
 
 ShowPasteMenu(*) {
@@ -129,4 +136,212 @@ Join(arr, sep) {
             s .= sep
     }
     return s
+}
+
+; ── Clipboard history (Hyper+P) ──────────────────────────────────────────
+; Persisted, pinned-first, searchable — same shape as macOS ClipboardService
+; (pin survives eviction; unpinned entries capped at clipboard.max_items, default 20).
+
+ClipHistoryFile() {
+    dir := A_AppData "\HyperForge"
+    if !DirExist(dir)
+        DirCreate(dir)
+    return dir "\clipboard-history.dat"
+}
+
+ClipHistory_Load() {
+    global HF_ClipHistory
+    HF_ClipHistory := []
+    file := ClipHistoryFile()
+    if !FileExist(file)
+        return
+    for line in StrSplit(FileRead(file), "`n") {
+        line := Trim(line, "`r`n")
+        if (line = "")
+            continue
+        parts := StrSplit(line, "`t", , 2)
+        if (parts.Length < 2)
+            continue
+        text := Base64Decode(parts[2])
+        if (text != "")
+            HF_ClipHistory.Push({ text: text, pinned: parts[1] = "1" })
+    }
+}
+
+ClipHistory_Save() {
+    global HF_ClipHistory
+    out := ""
+    for entry in HF_ClipHistory
+        out .= (entry.pinned ? "1" : "0") "`t" Base64Encode(entry.text) "`n"
+    try FileDelete(ClipHistoryFile())
+    if (out != "")
+        FileAppend(out, ClipHistoryFile())
+}
+
+ClipHistory_OnChange(dataType) {
+    if (dataType != 1)  ; 1 = text
+        return
+    ClipHistory_Record(A_Clipboard)
+}
+
+; Insert at front (deduped, pin preserved); trim unpinned beyond the cap; persist.
+ClipHistory_Record(text) {
+    global HF_ClipHistory
+    trimmed := Trim(text)
+    if (trimmed = "")
+        return
+    if (StrLen(text) > 8000)
+        text := SubStr(text, 1, 8000)
+    wasPinned := false
+    for i, entry in HF_ClipHistory {
+        if (entry.text = text) {
+            wasPinned := entry.pinned
+            HF_ClipHistory.RemoveAt(i)
+            break
+        }
+    }
+    HF_ClipHistory.InsertAt(1, { text: text, pinned: wasPinned })
+    ClipHistory_TrimUnpinned()
+    ClipHistory_Save()
+}
+
+ClipHistory_TrimUnpinned() {
+    global HF_ClipHistory
+    max := HFConfig.GetInt("clipboard.max_items", 20)
+    kept := []
+    unpinnedSeen := 0
+    for entry in HF_ClipHistory {
+        if entry.pinned {
+            kept.Push(entry)
+        } else if (++unpinnedSeen <= max) {
+            kept.Push(entry)
+        }
+    }
+    HF_ClipHistory := kept
+}
+
+; Pinned first, stable within each group (matches macOS `pinnedFirst`).
+ClipHistory_PinnedFirst() {
+    global HF_ClipHistory
+    pinned := []
+    rest := []
+    for entry in HF_ClipHistory
+        (entry.pinned ? pinned : rest).Push(entry)
+    for entry in rest
+        pinned.Push(entry)
+    return pinned
+}
+
+ClipHistory_Preview(text, maxLen := 70) {
+    one := StrReplace(StrReplace(text, "`r`n", " "), "`n", " ")
+    if (StrLen(one) > maxLen)
+        return SubStr(one, 1, maxLen - 1) "…"
+    return one
+}
+
+global HF_ClipGui := ""
+global HF_ClipGuiEntries := []
+
+ShowClipboardHistory(*) {
+    global HF_ClipGui, HF_ClipGuiEntries
+    ; Capture whatever is on the pasteboard right now too (e.g. copied before HyperForge started).
+    if (A_Clipboard != "")
+        ClipHistory_Record(A_Clipboard)
+
+    if IsObject(HF_ClipGui) {
+        try HF_ClipGui.Destroy()
+    }
+
+    g := Gui("+AlwaysOnTop +ToolWindow", "HyperForge — Clipboard")
+    HF_ClipGui := g
+    g.SetFont("s10")
+    g.AddText("w440", "Clipboard history")
+    filterEdit := g.AddEdit("w340 vFilterText")
+    pasteBtn := g.AddButton("x+8 w90 Default", "Paste ⏎")
+    list := g.AddListBox("w440 r9 vClipList")
+    pinBtn := g.AddButton("w120", "Pin / unpin")
+    g.AddText("x+8 yp+4", "Esc close · dbl-click paste · type to filter")
+
+    _clipRefresh := (*) => ClipHistory_RefreshList(list, filterEdit.Value)
+    filterEdit.OnEvent("Change", _clipRefresh)
+    list.OnEvent("DoubleClick", (*) => ClipHistory_PasteSelected(g, list))
+    pasteBtn.OnEvent("Click", (*) => ClipHistory_PasteSelected(g, list))
+    pinBtn.OnEvent("Click", (*) => (ClipHistory_ToggleSelectedPin(list), _clipRefresh()))
+    g.OnEvent("Escape", (*) => g.Destroy())
+    g.OnEvent("Close", (*) => g.Destroy())
+
+    ClipHistory_RefreshList(list, "")
+    g.Show()
+    filterEdit.Focus()
+}
+
+ClipHistory_RefreshList(list, filter) {
+    global HF_ClipGuiEntries
+    items := ClipHistory_PinnedFirst()
+    if (filter != "")
+        items := ClipHistory_Filter(items, filter)
+    items := ClipHistory_Cap(items, 9)
+    HF_ClipGuiEntries := items
+
+    list.Delete()
+    if !items.Length {
+        msg := filter != "" ? "No matches for “" filter "”" : "Nothing saved yet — copy some text"
+        list.Add([msg])
+        return
+    }
+    rows := []
+    for entry in items {
+        prefix := entry.pinned ? "★ " : "   "
+        rows.Push(prefix ClipHistory_Preview(entry.text))
+    }
+    list.Add(rows)
+    list.Choose(1)
+}
+
+ClipHistory_Filter(items, filter) {
+    out := []
+    for entry in items {
+        if InStr(entry.text, filter, false)
+            out.Push(entry)
+    }
+    return out
+}
+
+ClipHistory_Cap(items, n) {
+    out := []
+    for entry in items {
+        if (out.Length >= n)
+            break
+        out.Push(entry)
+    }
+    return out
+}
+
+ClipHistory_PasteSelected(g, list) {
+    global HF_ClipGuiEntries
+    idx := list.Value
+    if (idx = 0)
+        idx := 1
+    if !HF_ClipGuiEntries.Length
+        return
+    entry := HF_ClipGuiEntries[Min(idx, HF_ClipGuiEntries.Length)]
+    g.Destroy()
+    A_Clipboard := entry.text
+    Sleep 50
+    Send "^v"
+}
+
+ClipHistory_ToggleSelectedPin(list) {
+    global HF_ClipHistory, HF_ClipGuiEntries
+    idx := list.Value
+    if (idx = 0 || !HF_ClipGuiEntries.Length)
+        return
+    target := HF_ClipGuiEntries[Min(idx, HF_ClipGuiEntries.Length)]
+    for entry in HF_ClipHistory {
+        if (entry.text = target.text) {
+            entry.pinned := !entry.pinned
+            break
+        }
+    }
+    ClipHistory_Save()
 }

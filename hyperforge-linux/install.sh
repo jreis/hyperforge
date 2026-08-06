@@ -10,14 +10,22 @@ SYSTEMD_USER="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
 echo "→ Installing HyperForge Linux → $SHARE"
 
-mkdir -p "$SHARE/bin" "$BIN_DIR" "$KANATA_DIR"
+HF_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hyperforge-linux"
+
+mkdir -p "$SHARE/bin" "$BIN_DIR" "$KANATA_DIR" "$HF_CONFIG_DIR"
 
 # Scripts
-for f in hyperforge-snap hyperforge-action hyperforge-doctor; do
+for f in hyperforge-snap hyperforge-action hyperforge-doctor hyperforge-snippet hyperforge-clip; do
   cp "$ROOT/bin/$f" "$SHARE/bin/$f"
   chmod +x "$SHARE/bin/$f"
   ln -sfn "$SHARE/bin/$f" "$BIN_DIR/$f"
 done
+
+# Snippets config (only seed it — never overwrite personal edits)
+if [[ -f "$ROOT/snippets.example.conf" ]] && [[ ! -f "$HF_CONFIG_DIR/snippets.conf" ]]; then
+  cp "$ROOT/snippets.example.conf" "$HF_CONFIG_DIR/snippets.conf"
+  echo "→ snippets config: $HF_CONFIG_DIR/snippets.conf"
+fi
 
 # Kanata config with absolute bin path
 if [[ -f "$ROOT/kanata/hyperforge.kbd" ]]; then
@@ -46,6 +54,10 @@ if [[ -f "$ROOT/systemd/hyperforge-kanata.service" ]]; then
   fi
   echo "→ systemd user unit: hyperforge-kanata.service"
 fi
+if [[ -f "$ROOT/systemd/hyperforge-clipboard.service" ]]; then
+  cp "$ROOT/systemd/hyperforge-clipboard.service" "$SYSTEMD_USER/hyperforge-clipboard.service"
+  echo "→ systemd user unit: hyperforge-clipboard.service (clipboard history watcher)"
+fi
 
 export HYPERFORGE_LINUX_ROOT="$SHARE"
 # Persist for shells
@@ -67,10 +79,14 @@ echo "     (or package: cargo install kanata / yay -S kanata / etc.)"
 echo "  2. uinput access: ensure /dev/uinput is usable (udev rules / input group)."
 echo "  3. Run once:       kanata -c $KANATA_DIR/hyperforge.kbd"
 echo "  4. Autostart:      systemctl --user enable --now hyperforge-kanata.service"
-echo "  5. Health check:   hyperforge-doctor"
+echo "  5. Clipboard history (optional): systemctl --user enable --now hyperforge-clipboard.service"
+echo "  6. Edit snippets:  $HF_CONFIG_DIR/snippets.conf"
+echo "  7. Health check:   hyperforge-doctor"
 echo
 echo "Try:"
 echo "  • Hold Caps + ←/→/↑/↓  — window snap"
+echo "  • Hold Caps + -/=/\\    — left/right third · i/o two-thirds · y almost-max"
+echo "  • Hold Caps + ,        — snippet picker · Caps + P — clipboard history"
 echo "  • Hold Space + H/J/K/L — arrows"
 echo "  • Tap Caps             — Escape"
 echo "  • Tap Space            — space"

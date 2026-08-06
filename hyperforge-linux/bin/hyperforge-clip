@@ -1,0 +1,220 @@
+#!/usr/bin/env bash
+# hyperforge-clip — persisted/pinned clipboard history (macOS Hyper+V parity).
+#
+#   hyperforge-clip watch   — foreground/systemd watcher; records clipboard text changes
+#   hyperforge-clip show    — picker (rofi/wofi/fzf); selecting an entry copies + pastes it
+#   hyperforge-clip pin     — picker; selecting an entry toggles its pin (no paste)
+#
+# Storage: ~/.local/share/hyperforge-linux/clipboard-history.dat, one line per
+# entry as "pinned<TAB>base64(text)", newest-first. Same shape as the Windows
+# HyperForge clipboard store. Entries stay base64 everywhere except right at the
+# point of display/output — plain text may contain embedded newlines/tabs, which
+# would otherwise corrupt the one-entry-per-line format used between functions.
+# Unpinned entries are capped (default 20); pinned entries never evict.
+set -euo pipefail
+
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/hyperforge-linux"
+STORE="$DATA_DIR/clipboard-history.dat"
+MAX_ITEMS=20
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+notify() {
+  if have notify-send; then notify-send -a HyperForge -t 1500 "HyperForge" "$1" 2>/dev/null || true
+  else echo "$1" >&2
+  fi
+}
+
+clip_get() {
+  if have wl-paste; then wl-paste --no-newline 2>/dev/null || true
+  elif have xclip; then xclip -selection clipboard -o 2>/dev/null || true
+  else echo ""
+  fi
+}
+
+clip_set() {
+  local t="$1"
+  if have wl-copy; then printf '%s' "$t" | wl-copy
+  elif have xclip; then printf '%s' "$t" | xclip -selection clipboard
+  else echo "$t"
+  fi
+}
+
+paste_focused() {
+  if have wtype; then wtype -M ctrl v -m ctrl
+  elif have ydotool; then ydotool key ctrl+v
+  elif have xdotool; then xdotool key --clearmodifiers ctrl+v
+  fi
+}
+
+b64enc() { printf '%s' "$1" | base64 -w0; }
+b64dec() { printf '%s' "$1" | base64 -d 2>/dev/null || true; }
+
+ensure_store() {
+  mkdir -p "$DATA_DIR"
+  [[ -f "$STORE" ]] || : >"$STORE"
+}
+
+# Raw "pinned<TAB>base64" lines, newest-first — safe to split on newline since
+# base64 never contains one (encoder runs with -w0).
+load_raw() {
+  ensure_store
+  cat "$STORE"
+}
+
+save_raw() {
+  local tmp
+  tmp="$(mktemp "$DATA_DIR/.clip.XXXXXX")"
+  cat >"$tmp"
+  mv "$tmp" "$STORE"
+}
+
+# Insert/move `$1` to the front (pin preserved), trim unpinned beyond MAX_ITEMS.
+record() {
+  local text="$1"
+  [[ -z "${text//[[:space:]]/}" ]] && return 0
+  if [[ "${#text}" -gt 8000 ]]; then text="${text:0:8000}"; fi
+
+  local pinned_flag="0" kept=() p b64
+  while IFS=$'\t' read -r p b64; do
+    [[ -z "${p:-}" ]] && continue
+    if [[ "$(b64dec "$b64")" == "$text" ]]; then
+      pinned_flag="$p"
+      continue
+    fi
+    kept+=("$p"$'\t'"$b64")
+  done < <(load_raw)
+
+  # New entry counts toward the unpinned cap too (matches macOS trimUnpinned,
+  # which caps from the front of the whole list, not just the pre-existing ones).
+  {
+    printf '%s\t%s\n' "$pinned_flag" "$(b64enc "$text")"
+    printf '%s\n' "${kept[@]:-}"
+  } | awk -F'\t' -v max="$MAX_ITEMS" '
+    NF < 2 { next }
+    $1 == "1" { print; next }
+    { seen++; if (seen <= max) print }
+  ' | save_raw
+}
+
+set_pin() {
+  local target="$1" flag="$2" p b64
+  {
+    while IFS=$'\t' read -r p b64; do
+      [[ -z "${p:-}" ]] && continue
+      if [[ "$(b64dec "$b64")" == "$target" ]]; then
+        printf '%s\t%s\n' "$flag" "$b64"
+      else
+        printf '%s\t%s\n' "$p" "$b64"
+      fi
+    done < <(load_raw)
+  } | save_raw
+}
+
+# Pinned first, stable within each group. Raw "pinned<TAB>base64" lines.
+pinned_first_raw() {
+  local p b64
+  while IFS=$'\t' read -r p b64; do [[ "$p" == "1" ]] && printf '%s\t%s\n' "$p" "$b64"; done < <(load_raw)
+  while IFS=$'\t' read -r p b64; do [[ "$p" != "1" ]] && printf '%s\t%s\n' "$p" "$b64"; done < <(load_raw)
+}
+
+preview_line() {
+  local p="$1" text="$2" flat
+  flat="${text//$'\n'/ }"
+  flat="${flat:0:70}"
+  if [[ "$p" == "1" ]]; then printf '★ %s' "$flat"; else printf '  %s' "$flat"; fi
+}
+
+# Picker over history. Prints the chosen entry's decoded text on stdout.
+pick_entry() {
+  local p b64 labels=() texts=()
+  while IFS=$'\t' read -r p b64; do
+    [[ -z "${p:-}" ]] && continue
+    local text; text="$(b64dec "$b64")"
+    labels+=("$(preview_line "$p" "$text")")
+    texts+=("$text")
+  done < <(pinned_first_raw)
+  if [[ "${#texts[@]}" -eq 0 ]]; then
+    notify "Clipboard history empty — copy some text first"
+    return 1
+  fi
+
+  local idx=-1 chosen i
+  if have rofi; then
+    chosen="$(printf '%s\n' "${labels[@]}" | rofi -dmenu -p "Clipboard" -format i)" || return 1
+    idx="$chosen"
+  elif have wofi; then
+    chosen="$(printf '%s\n' "${labels[@]}" | wofi --dmenu -p "Clipboard")" || return 1
+    for i in "${!labels[@]}"; do [[ "${labels[$i]}" == "$chosen" ]] && idx="$i" && break; done
+  elif have fzf; then
+    local term
+    for term in x-terminal-emulator ghostty kitty alacritty wezterm gnome-terminal; do
+      have "$term" || continue
+      "$term" -e bash -c 'printf "%s\n" "$@" | fzf > /tmp/hyperforge-clip-pick' _ "${labels[@]}"
+      chosen="$(cat /tmp/hyperforge-clip-pick 2>/dev/null || true)"
+      rm -f /tmp/hyperforge-clip-pick
+      for i in "${!labels[@]}"; do [[ "${labels[$i]}" == "$chosen" ]] && idx="$i" && break; done
+      break
+    done
+  else
+    notify "Install rofi or wofi for the clipboard picker"
+    return 1
+  fi
+  [[ "$idx" -ge 0 ]] || return 1
+  printf '%s' "${texts[$idx]}"
+}
+
+cmd_watch() {
+  ensure_store
+  if have wl-paste; then
+    local self; self="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+    # `_` fills $0 for the inline script; $self arrives as $1 — avoids fragile
+    # quote-splicing to get this script's own path into a nested `bash -c`.
+    wl-paste --watch bash -c '
+      t="$(wl-paste --no-newline 2>/dev/null || true)"
+      [[ -n "$t" ]] && "$1" __record "$t"
+    ' _ "$self"
+  else
+    local last=""
+    while true; do
+      local cur; cur="$(clip_get)"
+      if [[ -n "$cur" && "$cur" != "$last" ]]; then
+        record "$cur"
+        last="$cur"
+      fi
+      sleep 1
+    done
+  fi
+}
+
+cmd_show() {
+  local text
+  text="$(pick_entry)" || exit 0
+  clip_set "$text"
+  sleep 0.05
+  paste_focused
+}
+
+cmd_pin() {
+  local text
+  text="$(pick_entry)" || exit 0
+  local p b64 cur="0"
+  while IFS=$'\t' read -r p b64; do
+    [[ -z "${p:-}" ]] && continue
+    [[ "$(b64dec "$b64")" == "$text" ]] && cur="$p"
+  done < <(load_raw)
+  set_pin "$text" "$([[ "$cur" == "1" ]] && echo 0 || echo 1)"
+  notify "$([[ "$cur" == "1" ]] && echo Unpinned || echo Pinned)"
+}
+
+case "${1:-}" in
+  watch)      cmd_watch ;;
+  show)       cmd_show ;;
+  pin)        cmd_pin ;;
+  __record)   record "${2:-}" ;;
+  ""|-h|--help)
+    echo "usage: $0 <watch|show|pin>"
+    echo "store: $STORE"
+    ;;
+  *) echo "unknown command: $1" >&2; exit 2 ;;
+esac

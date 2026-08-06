@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+# hyperforge-snippet — text-expansion snippets (macOS HyperForge Snippets parity).
+#
+# kanata/keyd can't watch typed text for hotstring triggers like AHK or the macOS
+# app do, so snippets here are chord/picker-triggered instead of typed-trigger-based:
+#   hyperforge-snippet <name>   — type the named snippet's expansion into the focused window
+#   hyperforge-snippet --pick   — rofi/wofi/dmenu picker over all configured snippets
+#
+# Config: ~/.config/hyperforge-linux/snippets.conf, "name=expansion" per line.
+# Tokens (same set as macOS SnippetStore): {{date}}, {{date:yyyy-MM-dd}} (per-token
+# format override), {{clipboard}}, {{hostname}}, {{uuid}}, {{lan-ip}}. `\n` expands
+# to a real newline for multi-line snippets. Never add a shell/exec token here —
+# this types whatever a config line says, so an exec token would let a hijacked
+# config (or a copy-pasted "snippet") run arbitrary commands on expansion.
+set -euo pipefail
+
+CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hyperforge-linux"
+CONF="$CONF_DIR/snippets.conf"
+ROOT="${HYPERFORGE_LINUX_ROOT:-$HOME/.local/share/hyperforge-linux}"
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+notify() {
+  if have notify-send; then notify-send -a HyperForge -t 2000 "HyperForge" "$1" 2>/dev/null || true
+  else echo "$1" >&2
+  fi
+}
+
+type_text() {
+  local t="$1"
+  if have wtype; then wtype "$t"
+  elif have ydotool; then ydotool type "$t"
+  elif have xdotool; then xdotool type --clearmodifiers -- "$t"
+  else notify "No typer (wtype/ydotool/xdotool) — install one"; exit 1
+  fi
+}
+
+clip_get() {
+  if have wl-paste; then wl-paste 2>/dev/null || true
+  elif have xclip; then xclip -selection clipboard -o 2>/dev/null || true
+  else echo ""
+  fi
+}
+
+# Reserved key, not a snippet name.
+default_date_format() {
+  awk -F= '/^date_format=/{sub(/^date_format=/,""); print; exit}' "$CONF" 2>/dev/null
+}
+
+# Translate the same CLDR-ish tokens macOS presets use (yyyy-MM-dd, EEEE, MMMM, …)
+# into `date`'s strftime tokens, so a format copied from the macOS Snippets UI works.
+translate_date_format() {
+  local f="$1"
+  f="${f//EEEE/%A}"
+  f="${f//MMMM/%B}"
+  f="${f//MMM/%b}"
+  f="${f//yyyy/%Y}"
+  f="${f//MM/%m}"
+  f="${f//dd/%d}"
+  f="${f//HH/%H}"
+  f="${f//mm/%M}"
+  f="${f//ss/%S}"
+  printf '%s' "$f"
+}
+
+render_date() {
+  local fmt="$1"
+  if [[ -z "$fmt" ]]; then
+    fmt="$(default_date_format)"
+    [[ -z "$fmt" ]] && fmt="yyyy-MM-dd"
+  fi
+  date "+$(translate_date_format "$fmt")"
+}
+
+gen_uuid() {
+  if [[ -r /proc/sys/kernel/random/uuid ]]; then cat /proc/sys/kernel/random/uuid
+  elif have uuidgen; then uuidgen
+  else echo "00000000-0000-0000-0000-000000000000"
+  fi
+}
+
+lan_ip() {
+  local ip
+  ip="$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="src") print $(i+1)}' | head -1)"
+  if [[ -z "$ip" ]]; then
+    ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  fi
+  printf '%s' "$ip"
+}
+
+resolve_tokens() {
+  local out="$1" nl tab
+  nl="$(printf '\nx')"; nl="${nl%x}"
+  tab="$(printf '\tx')"; tab="${tab%x}"
+  # Quoting the pattern forces literal matching of backslash+n / backslash+t —
+  # unquoted, bash's glob engine treats a lone backslash as an escape character
+  # and would match every bare "n"/"t" instead of the literal two-char sequence.
+  # Replacement comes from a plain variable, not inline $'...' — some bash builds
+  # (notably macOS's ancient bash 3.2) don't ANSI-C-expand $'...' in that position.
+  out="${out//'\n'/$nl}"
+  out="${out//'\t'/$tab}"
+  # {{date:FORMAT}} first (order matters: bare {{date}} would also match the prefix).
+  # Plain parameter-expansion splitting instead of `[[ =~ ]]`/BASH_REMATCH — capture
+  # groups referenced from inside a function are unreliable on bash 3.2.
+  while [[ "$out" == *"{{date:"*"}}"* ]]; do
+    local before="${out%%\{\{date:*}"
+    local rest="${out#*\{\{date:}"
+    local fmt="${rest%%\}\}*}"
+    local after="${rest#*\}\}}"
+    local resolved; resolved="$(render_date "$fmt")"
+    out="${before}${resolved}${after}"
+  done
+  if [[ "$out" == *"{{date}}"* ]]; then
+    out="${out//\{\{date\}\}/$(render_date "")}"
+  fi
+  [[ "$out" == *"{{clipboard}}"* ]] && out="${out//\{\{clipboard\}\}/$(clip_get)}"
+  [[ "$out" == *"{{hostname}}"* ]] && out="${out//\{\{hostname\}\}/$(hostname)}"
+  [[ "$out" == *"{{uuid}}"* ]] && out="${out//\{\{uuid\}\}/$(gen_uuid)}"
+  [[ "$out" == *"{{lan-ip}}"* ]] && out="${out//\{\{lan-ip\}\}/$(lan_ip)}"
+  printf '%s' "$out"
+}
+
+list_names() {
+  [[ -f "$CONF" ]] || return 0
+  awk -F= '!/^#/ && NF>=2 && $1 != "date_format" {print $1}' "$CONF"
+}
+
+lookup() {
+  local name="$1"
+  [[ -f "$CONF" ]] || return 1
+  awk -F= -v n="$name" '!/^#/ && $1==n {sub(/^[^=]+=/,""); print; found=1} END{exit !found}' "$CONF"
+}
+
+pick_name() {
+  local names picker
+  names="$(list_names)"
+  if [[ -z "$names" ]]; then
+    notify "No snippets configured — edit $CONF"
+    return 1
+  fi
+  if have rofi; then
+    printf '%s\n' "$names" | rofi -dmenu -p "Snippet"
+  elif have wofi; then
+    printf '%s\n' "$names" | wofi --dmenu -p "Snippet"
+  elif have fzf; then
+    local term
+    for term in x-terminal-emulator ghostty kitty alacritty wezterm gnome-terminal; do
+      have "$term" || continue
+      "$term" -e bash -c "printf '%s\n' \"\$1\" | fzf > /tmp/hyperforge-snippet-pick" _ "$names"
+      cat /tmp/hyperforge-snippet-pick 2>/dev/null
+      rm -f /tmp/hyperforge-snippet-pick
+      return 0
+    done
+    notify "fzf found but no terminal emulator to run it in"
+    return 1
+  else
+    notify "Install rofi or wofi for the snippet picker"
+    return 1
+  fi
+}
+
+main() {
+  local arg="${1:-}"
+  if [[ -z "$arg" || "$arg" == "-h" || "$arg" == "--help" ]]; then
+    echo "usage: $0 <name>   (type that snippet's expansion)"
+    echo "       $0 --pick   (choose a snippet via rofi/wofi/fzf)"
+    echo "config: $CONF"
+    exit 0
+  fi
+  if [[ "$arg" == "--pick" ]]; then
+    arg="$(pick_name || true)"
+    [[ -z "$arg" ]] && exit 0
+  fi
+  local expansion
+  if ! expansion="$(lookup "$arg")"; then
+    notify "No snippet named \"$arg\" — edit $CONF"
+    exit 1
+  fi
+  type_text "$(resolve_tokens "$expansion")"
+}
+
+main "$@"

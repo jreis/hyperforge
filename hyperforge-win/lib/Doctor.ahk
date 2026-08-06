@@ -36,12 +36,22 @@ ShowDoctor(*) {
     }
     lines.Push("TouchCursor process: " (tc ? "running" : "not detected (OK if you use another Space tool)"))
 
+    global HF_ClipHistory
+    clipCount := IsSet(HF_ClipHistory) ? HF_ClipHistory.Length : 0
+    lines.Push("Clipboard history: " clipCount " item(s) — Hyper+P")
+    lines.Push("Snippet date format: " HFConfig.Get("snippets.date_format", "yyyy-MM-dd"))
+
     lines.Push("")
-    lines.Push("Parity with macOS 0.4.x (window pad):")
+    lines.Push("Parity with macOS HyperForge (window pad + snippets + clipboard):")
     lines.Push("  Hyper+arrows halves · Enter max · 6 tile-all · Z undo")
+    lines.Push("  Hyper+-/=/\ thirds · i/o two-thirds · u almost-max")
     lines.Push("  Numpad full spatial pad · A always-on-top · B minimize · K keep-alive")
+    lines.Push("  Hyper+P clipboard history (pin/search) · {{token}} snippets")
     lines.Push("Tips: Hyper+[ ] next/prev monitor · Win+Esc pauses Hyper")
     lines.Push("edit mute.processes in config.ini for games / RDP")
+    lines.Push("")
+    lines.Push("macOS-only (no Windows equivalent shipped here): OCR region, region pin,")
+    lines.Push("Ollama command bar, Shortcuts integration, AX recipe recording.")
 
     msg := ""
     for line in lines

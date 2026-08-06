@@ -48,8 +48,11 @@ case "$id" in
     echo "usage: $0 <action-id>"
     echo "  snaps: win-left win-right win-top win-bottom win-max win-center"
     echo "         win-tl win-tr win-bl win-br win-min win-close win-next win-undo win-tile"
+    echo "         win-third-l win-third-c win-third-r win-2third-l win-2third-r win-almost-max"
     echo "  apps:  term browser editor files"
     echo "  sys:   lock hostname date google-clip plain-paste open-url always-on-top"
+    echo "  snippet: snippet <name> | snippet-pick"
+    echo "  clip:  clip-show clip-pin"
     exit 0
     ;;
   win-left)   exec "$SNAP" left ;;
@@ -67,6 +70,17 @@ case "$id" in
   win-next)   exec "$SNAP" next-mon ;;
   win-undo)   exec "$SNAP" undo ;;
   win-tile)   exec "$SNAP" tile ;;
+  win-third-l)   exec "$SNAP" third-l ;;
+  win-third-c)   exec "$SNAP" third-c ;;
+  win-third-r)   exec "$SNAP" third-r ;;
+  win-2third-l)  exec "$SNAP" twothird-l ;;
+  win-2third-r)  exec "$SNAP" twothird-r ;;
+  win-almost-max) exec "$SNAP" almost-max ;;
+
+  snippet)     exec "${ROOT}/bin/hyperforge-snippet" "${2:-}" ;;
+  snippet-pick) exec "${ROOT}/bin/hyperforge-snippet" --pick ;;
+  clip-show)   exec "${ROOT}/bin/hyperforge-clip" show ;;
+  clip-pin)    exec "${ROOT}/bin/hyperforge-clip" pin ;;
 
   term)
     if have ghostty; then exec ghostty

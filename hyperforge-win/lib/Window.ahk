@@ -43,6 +43,16 @@ RegisterWindowHotkeys() {
     Hotkey "#^!+Numpad0", (*) => CenterActive()
     ; Center (keep size) — period (legacy Win) also works
     Hotkey "#^!+.", (*) => CenterActive()
+    ; Thirds / two-thirds / almost-max (macOS parity — Raycast/Rectangle staples).
+    ; macOS disambiguates -/=/\ with Shift for the 2/3 variant; Hyper here is a fixed
+    ; Win+Ctrl+Alt+Shift chord (Shift always down, see CapsHyper.ahk), so 2/3 and
+    ; almost-max get their own keys (i / o / u) instead of a Shift variant.
+    Hotkey "#^!+-", (*) => SnapThird(0)
+    Hotkey "#^!+=", (*) => SnapThird(2)
+    Hotkey "#^!+\", (*) => SnapThird(1)
+    Hotkey "#^!+i", (*) => SnapTwoThirds(true)
+    Hotkey "#^!+o", (*) => SnapTwoThirds(false)
+    Hotkey "#^!+u", (*) => AlmostMaximize()
     ; Always on top / minimize — Mac Hyper+A / Hyper+B
     Hotkey "#^!+a", (*) => ToggleAlwaysOnTop()
     Hotkey "#^!+b", (*) => {
@@ -191,6 +201,31 @@ SnapActive(rx, ry, rw, rh) {
     nh := Round(h * rh)
     try WinRestore("ahk_id " hwnd)
     WinMove x, y, nw, nh, "ahk_id " hwnd
+}
+
+; column 0 left, 1 center, 2 right — same 1/3 split as macOS WindowManager.snapThird
+SnapThird(column) {
+    col := Max(0, Min(2, column))
+    SnapActive(col / 3, 0, 1 / 3, 1)
+    labels := ["Left third", "Center third", "Right third"]
+    ShowMsg(labels[col + 1])
+}
+
+SnapTwoThirds(leading) {
+    if leading {
+        SnapActive(0, 0, 2 / 3, 1)
+        ShowMsg("Left two-thirds")
+    } else {
+        SnapActive(1 / 3, 0, 2 / 3, 1)
+        ShowMsg("Right two-thirds")
+    }
+}
+
+; ~90% centered — same 0.05 inset default as macOS WindowManager.almostMaximize
+AlmostMaximize(inset := 0.05) {
+    m := Max(0.02, Min(0.2, inset))
+    SnapActive(m, m, 1 - 2 * m, 1 - 2 * m)
+    ShowMsg("Almost maximize (" Round((1 - 2 * m) * 100) "% centered)")
 }
 
 CenterActive() {
