@@ -82,7 +82,7 @@ swift run   # launch the app from the build product
 - **Per-app Space block list** — e.g. keep Terminal normal; allow Ghostty (editable in Settings)  
 - **Profiles & auto-triggers** — Coding / Browsing / Music / Minimal; Wi‑Fi, app, or time  
 - **Per-app Hyper overrides** — disable or remap chords per bundle ID  
-- **Snippets** — local hotstrings; `{{date}}` with custom formats; clipboard / hostname tokens  
+- **Snippets** — local hotstrings; `{{date}}` with custom formats; clipboard / hostname / uuid / lan-ip tokens  
 - **Shortcuts** — Hyper + `'` or ⇧S → run installed macOS Shortcuts  
 - **Window tools** — halves, quarters, **thirds / two-thirds**, almost-max, tile, undo, next/prev display, mouse warp  
 - **Clipboard history** — local stack on Hyper + ⇧V (plus paste transforms); no background polling  
@@ -280,7 +280,7 @@ A full CGEvent-tap engine fits **direct download / open source** better than the
 
 ## Windows (AutoHotkey)
 
-A companion **AHK v2** toolkit lives in [`hyperforge-win/`](hyperforge-win/): Caps → Hyper, **macOS-aligned window pad** (arrows, numpad spatial pad, Hyper+6 tile-all, Z undo), paste menu, Explorer helpers. **Space-layer nav stays with TouchCursor** on Windows. App letter chords stay Windows-native.
+A companion **AHK v2** toolkit lives in [`hyperforge-win/`](hyperforge-win/): Caps → Hyper, **macOS-aligned window pad** (arrows, numpad spatial pad, thirds/two-thirds/almost-max, Hyper+6 tile-all, Z undo), `{{token}}` **snippets** (date/clipboard/hostname/uuid/lan-ip), a persisted/pinned/searchable **clipboard history** (Hyper+P), paste-transform menu, Explorer helpers. **Space-layer nav stays with TouchCursor** on Windows. App letter chords stay Windows-native.
 
 ```text
 hyperforge-win/HyperForge.ahk   # run with AutoHotkey v2
@@ -289,12 +289,14 @@ hyperforge-win/README.md        # setup + chords
 
 ## Linux (kanata / keyd)
 
-[`hyperforge-linux/`](hyperforge-linux/) keeps the same Hyper window pad and a Space-layer subset via **kanata** (or keyd) plus small snap scripts for Hyprland / Sway / X11.
+[`hyperforge-linux/`](hyperforge-linux/) keeps the same Hyper window pad (including thirds/two-thirds/almost-max), the same `{{token}}` **snippets** (chord/picker-triggered — kanata can't watch typed text), a persisted/pinned **clipboard history** (Hyper+P), and a Space-layer subset via **kanata** (or keyd) plus small snap scripts for Hyprland / Sway / X11.
 
 ```text
 hyperforge-linux/install.sh     # install configs + bin helpers
 hyperforge-linux/README.md      # setup + chords
 ```
+
+**Not ported to Windows or Linux** (macOS-API-specific — Vision, Ollama, AppleScript, Accessibility): OCR region, region pin, the Ollama command bar, Shortcuts integration, AX recipe recording, and profiles/auto-triggers. See each kit's README for its own "Relation to macOS HyperForge" table.
 
 ## Origin
 
