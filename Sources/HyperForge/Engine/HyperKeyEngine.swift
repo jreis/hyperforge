@@ -71,6 +71,7 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
     private var runLoopSource: CFRunLoopSource?
     private var retryTimer: Timer?
     private var appTrackTimer: Timer?
+    private var clipboardTimer: Timer?
     private var didRequestAccessibility = false
 
     private init() {}
@@ -103,6 +104,8 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
         retryTimer = nil
         appTrackTimer?.invalidate()
         appTrackTimer = nil
+        clipboardTimer?.invalidate()
+        clipboardTimer = nil
 
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
@@ -139,7 +142,12 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
     }
 
     private func startAuxTimers() {
-        // Clipboard history is on-demand (Clipboard panel) — no background pasteboard poll.
+        // Text-only poll (changeCount-gated, cheap) so history captures every copy,
+        // not just the pasteboard contents at panel-open time. Does not touch
+        // ClipboardImagePreview, so the auto-popup dropped in 043c56a stays dropped.
+        clipboardTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+            Task { @MainActor in ClipboardService.shared.poll() }
+        }
         appTrackTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             Task { @MainActor in AppLauncher.shared.trackAppSwitch() }
         }
