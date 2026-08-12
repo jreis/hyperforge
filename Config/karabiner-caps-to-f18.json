@@ -6,7 +6,10 @@
       "manipulators": [
         {
           "type": "basic",
-          "from": { "key_code": "caps_lock" },
+          "from": {
+            "key_code": "caps_lock",
+            "modifiers": { "optional": ["any"] }
+          },
           "to": [{ "key_code": "f18" }],
           "to_if_alone": [{ "key_code": "escape" }]
         }
