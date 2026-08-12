@@ -40,6 +40,11 @@ final class EscapeCoordinator {
     private var globalMonitor: Any?
     private var started = false
 
+    /// Set by the Scripts pane's embedded CodeMirror editor while it holds keyboard
+    /// focus. Vim mode uses Esc constantly (insert -> normal mode); without this the
+    /// local monitor below swallows it first and hides the whole dashboard instead.
+    var webEditorHasFocus = false
+
     private init() {}
 
     func start() {
@@ -126,6 +131,10 @@ final class EscapeCoordinator {
         // cheat sheet / etc. Real Esc still works outside that short window.
         if HyperKeyEngine.shared.shouldSuppressEscapeForUI {
             HyperLog.event("Escape ignored for UI (post-Hyper / Caps-alone)")
+            return false
+        }
+        if webEditorHasFocus {
+            HyperLog.event("Escape passed through to script editor (vim mode)")
             return false
         }
         for layer in Layer.allCases.sorted() {

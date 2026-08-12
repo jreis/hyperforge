@@ -10,6 +10,10 @@ struct ScriptsView: View {
     @State private var bundleID = ""
     /// When set, the form is editing this script instead of adding a new one.
     @State private var editingID: UUID?
+    @AppStorage("hf.scriptEditorVimEnabled") private var vimEnabled = true
+    /// Bumped whenever the *loaded document* changes (new/edit/cancel) so the editor
+    /// resets its content without fighting live typing on every keystroke.
+    @State private var editorReloadToken = 0
 
     private var isEditing: Bool { editingID != nil }
 
@@ -37,6 +41,9 @@ struct ScriptsView: View {
                             Text(isEditing ? "Edit script" : "New script")
                                 .font(.system(size: 13, weight: .semibold))
                             Spacer()
+                            Toggle("Vim mode", isOn: $vimEnabled)
+                                .toggleStyle(.checkbox)
+                                .font(.system(size: 11))
                             if isEditing {
                                 Button("Cancel") { clearForm() }
                                     .controlSize(.small)
@@ -47,12 +54,13 @@ struct ScriptsView: View {
                             .foregroundStyle(HFTheme.textTertiary)
                         TextField("Name", text: $name)
                             .textFieldStyle(.roundedBorder)
-                        TextEditor(text: $source)
-                            .font(.system(size: 12, design: .monospaced))
-                            .frame(minHeight: 120)
-                            .padding(6)
-                            .background(HFTheme.bgElevated)
+                        ScriptEditorWebView(source: $source, vimEnabled: vimEnabled, reloadToken: editorReloadToken)
+                            .frame(minHeight: 220)
                             .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 6)
+                                    .strokeBorder(HFTheme.stroke, lineWidth: 1)
+                            }
                         TextField("Bundle ID filter (optional — empty = any app)", text: $bundleID)
                             .textFieldStyle(.roundedBorder)
 
@@ -166,6 +174,7 @@ struct ScriptsView: View {
         name = script.name
         source = script.source
         bundleID = script.bundleID
+        editorReloadToken += 1
     }
 
     private func clearForm() {
@@ -173,6 +182,7 @@ struct ScriptsView: View {
         name = ""
         source = ""
         bundleID = ""
+        editorReloadToken += 1
     }
 
     private func saveForm() {

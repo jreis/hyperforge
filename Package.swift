@@ -20,6 +20,9 @@ let package = Package(
             name: "HyperForge",
             dependencies: ["HyperForgeKit"],
             path: "Sources/HyperForge",
+            resources: [
+                .copy("Resources/ScriptEditor"),
+            ],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("Carbon"),
@@ -28,6 +31,7 @@ let package = Package(
                 .linkedFramework("ScreenCaptureKit"),
                 .linkedFramework("Vision"),
                 .linkedFramework("JavaScriptCore"),
+                .linkedFramework("WebKit"),
                 .linkedFramework("SwiftUI"),
                 .linkedFramework("Combine"),
             ]

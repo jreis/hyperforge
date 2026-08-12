@@ -1,0 +1,20 @@
+{
+  "name": "hyperforge-script-editor",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Build tooling for the CodeMirror + vim-mode editor embedded in HyperForge's Scripts settings pane. Not part of `swift build` — run `npm run build` here after changing src/editor.js, then commit the regenerated bundle under Sources/HyperForge/Resources/ScriptEditor/.",
+  "scripts": {
+    "build": "esbuild src/editor.js --bundle --minify --format=iife --outfile=../../Sources/HyperForge/Resources/ScriptEditor/editor.bundle.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.7.1",
+    "@codemirror/lang-javascript": "^6.2.2",
+    "@codemirror/language": "^6.10.3",
+    "@codemirror/state": "^6.5.0",
+    "@codemirror/view": "^6.35.0",
+    "@replit/codemirror-vim": "^6.2.1"
+  }
+}

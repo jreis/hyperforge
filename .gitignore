@@ -40,6 +40,10 @@ hyperforge-events.log
 *~
 .nova/
 
+# Script editor build tooling (WebAssets/script-editor) — the built
+# editor.bundle.js under Sources/HyperForge/Resources/ScriptEditor IS committed.
+WebAssets/script-editor/node_modules/
+
 # Secrets / local machine (never commit)
 .env
 .env.*

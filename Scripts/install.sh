@@ -71,7 +71,9 @@ echo "→ Building HyperForge (release)…"
 cd "$ROOT"
 swift build -c release
 
-BUILD_BIN="$(swift build -c release --show-bin-path)/HyperForge"
+BIN_PATH="$(swift build -c release --show-bin-path)"
+BUILD_BIN="${BIN_PATH}/HyperForge"
+RESOURCE_BUNDLE="${BIN_PATH}/HyperForge_HyperForge.bundle"
 if [[ ! -x "$BUILD_BIN" ]]; then
   echo "Build product not found at $BUILD_BIN" >&2
   exit 1
@@ -90,6 +92,10 @@ if [[ "$UPDATE_ONLY" -eq 1 && -d "$APP_DIR" ]]; then
   cp "${ROOT}/Supporting/Info.plist" "${APP_DIR}/Contents/Info.plist"
   if [[ -f "${ROOT}/Supporting/AppIcon.icns" ]]; then
     cp "${ROOT}/Supporting/AppIcon.icns" "${APP_DIR}/Contents/Resources/AppIcon.icns"
+  fi
+  if [[ -d "$RESOURCE_BUNDLE" ]]; then
+    rm -rf "${APP_DIR}/Contents/Resources/HyperForge_HyperForge.bundle"
+    cp -R "$RESOURCE_BUNDLE" "${APP_DIR}/Contents/Resources/"
   fi
   sign_app "$APP_DIR"
   echo "→ Opening HyperForge…"
@@ -126,6 +132,11 @@ cp "${ROOT}/Supporting/Info.plist" "${APP_DIR}/Contents/Info.plist"
 # App icon (.icns inside Resources — CFBundleIconFile)
 if [[ -f "${ROOT}/Supporting/AppIcon.icns" ]]; then
   cp "${ROOT}/Supporting/AppIcon.icns" "${APP_DIR}/Contents/Resources/AppIcon.icns"
+fi
+
+# SwiftPM resource bundle (Scripts settings pane's CodeMirror editor assets)
+if [[ -d "$RESOURCE_BUNDLE" ]]; then
+  cp -R "$RESOURCE_BUNDLE" "${APP_DIR}/Contents/Resources/"
 fi
 
 sign_app "$APP_DIR"
