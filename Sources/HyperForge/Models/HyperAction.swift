@@ -72,6 +72,7 @@ struct HyperAction: Identifiable, Equatable, Codable, Hashable {
         case "sys-copy-hostname": return "⇧M"
         case "sys-reverse-dns": return "⇧W"
         case "sys-shortcuts": return "'  ·  ⇧S"
+        case "sys-scripts": return "⇧Y"
         case "win-tile-all": return "6"
         case "win-tl": return "7 · Num7"
         case "win-tr": return "8 · Num9"
@@ -117,6 +118,7 @@ struct HyperAction: Identifiable, Equatable, Codable, Hashable {
         case "sys-copy-hostname": return "Hyper + ⇧M"
         case "sys-reverse-dns": return "Hyper + ⇧W"
         case "sys-shortcuts": return "Hyper + '  ·  Hyper + ⇧S"
+        case "sys-scripts": return "Hyper + ⇧Y"
         case "win-tile-all": return "Hyper + 6  ·  Hyper + ⇧↩"
         case "win-tl": return "Hyper + 7  ·  Num 7"
         case "win-tr": return "Hyper + 8  ·  Num 9"
@@ -232,6 +234,7 @@ enum ActionCatalog {
         HyperAction(id: "sys-dashboard", title: "Show Dashboard", detail: "Open main UI · Esc hides it", keyCode: KeyCode.comma, mode: .hyper, category: .system, isEnabled: true, symbol: "rectangle.center.inset.filled"),
         HyperAction(id: "sys-quick-menu", title: "Quick Menu", detail: "Cursor power menu (AHK XButton2)", keyCode: KeyCode.q, mode: .hyper, category: .system, isEnabled: true, symbol: "list.bullet.rectangle"),
         HyperAction(id: "sys-recipes", title: "AX Recipes", detail: "UI automation playbooks", keyCode: KeyCode.y, mode: .hyper, category: .system, isEnabled: true, symbol: "wand.and.stars"),
+        HyperAction(id: "sys-scripts", title: "Scripts", detail: "JavaScript automations · Hyper + ⇧Y", keyCode: KeyCode.y, mode: .hyper, category: .system, isEnabled: true, symbol: "curlybraces"),
         HyperAction(id: "sys-shortcuts", title: "Run Shortcut", detail: "Menu of installed macOS Shortcuts", keyCode: KeyCode.quote, mode: .hyper, category: .system, isEnabled: true, symbol: "sparkles.rectangle.stack"),
         HyperAction(id: "sys-link-hints", title: "Link Hints", detail: "F18 Hyper + / · (4-mod Hyper uses F19 for help)", keyCode: KeyCode.slash, mode: .hyper, category: .system, isEnabled: true, symbol: "link.circle"),
         HyperAction(id: "sys-cheatsheet", title: "Keybinding Cheat Sheet", detail: "Hyper + / (F19) · Hyper + ⇧/ (F18) · Hyper + ` · menu bar", keyCode: KeyCode.grave, mode: .hyper, category: .system, isEnabled: true, symbol: "keyboard"),

@@ -265,7 +265,7 @@ struct CommandBarView: View {
 }
 
 enum CommandResultKind: String {
-    case action, app, snippet, recipe, shortcut
+    case action, app, snippet, recipe, script, shortcut
 
     var label: String {
         switch self {
@@ -273,6 +273,7 @@ enum CommandResultKind: String {
         case .app: return "App"
         case .snippet: return "Snippet"
         case .recipe: return "Recipe"
+        case .script: return "Script"
         case .shortcut: return "Shortcut"
         }
     }

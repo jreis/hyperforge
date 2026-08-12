@@ -23,6 +23,7 @@ struct HyperForgeConfigPackage: Codable {
     var checklistVerified: [String]?
     /// Hyper+1…5 app launch slots.
     var appSlots: [HyperAppSlot]?
+    var scripts: [JSScript]?
 
     struct ProfilesSlice: Codable {
         var profiles: [HyperProfile]
@@ -105,7 +106,8 @@ enum ConfigBackupService {
                 baseURL: ollama.baseURLString
             ),
             checklistVerified: Array(BindingChecklistStore.shared.verifiedIDs).sorted(),
-            appSlots: HyperAppSlotStore.shared.slots
+            appSlots: HyperAppSlotStore.shared.slots,
+            scripts: ScriptStore.shared.scripts
         )
     }
 
@@ -179,6 +181,9 @@ enum ConfigBackupService {
         }
         if let slots = package.appSlots, !slots.isEmpty {
             HyperAppSlotStore.shared.replaceAll(slots)
+        }
+        if let scripts = package.scripts {
+            ScriptStore.shared.replaceAll(scripts)
         }
     }
 

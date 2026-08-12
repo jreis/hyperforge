@@ -159,6 +159,8 @@ struct RootView: View {
             SnippetsView()
         case .recipes:
             RecipesView()
+        case .scripts:
+            ScriptsView()
         case .triggers:
             TriggersView()
         case .overrides:

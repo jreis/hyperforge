@@ -162,6 +162,18 @@ struct HyperForgeSmoke {
             HyperBindingResolver.resolve(keyCode: HyperKeyCode.w) == .action("win-warp-mouse")
         )
         check(
+            "AX recipes on Y",
+            HyperBindingResolver.resolve(keyCode: HyperKeyCode.y) == .action("sys-recipes")
+        )
+        check(
+            "scripts on ⇧Y",
+            HyperBindingResolver.resolve(
+                keyCode: HyperKeyCode.y,
+                shiftDown: true,
+                hyperConsumesShift: false
+            ) == .action("sys-scripts")
+        )
+        check(
             "every spec still resolves",
             HyperBindingResolver.specs.allSatisfy { spec in
                 if case .action(let id) = HyperBindingResolver.resolve(

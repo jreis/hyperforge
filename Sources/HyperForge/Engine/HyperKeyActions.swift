@@ -196,6 +196,8 @@ enum HyperKeyActions {
             onMain { QuickMenuService.show() }
         case "sys-recipes":
             onMain { AXRecipeStore.shared.showMenu() }
+        case "sys-scripts":
+            onMain { ScriptStore.shared.showMenu() }
         case "sys-shortcuts":
             onMain { ShortcutsService.showMenu() }
         default:
@@ -239,6 +241,9 @@ enum HyperKeyActions {
             return
         case "sys-recipes":
             AXRecipeStore.shared.showMenu()
+            return
+        case "sys-scripts":
+            ScriptStore.shared.showMenu()
             return
         case "sys-shortcuts":
             ShortcutsService.showMenu()

@@ -84,6 +84,7 @@ swift run   # launch the app from the build product
 - **Per-app Hyper overrides** — disable or remap chords per bundle ID  
 - **Snippets** — local hotstrings; `{{date}}` with custom formats; clipboard / hostname / uuid / lan-ip tokens  
 - **Shortcuts** — Hyper + `'` or ⇧S → run installed macOS Shortcuts  
+- **Scripts** — Hyper + ⇧Y → run saved JavaScript automations (`HF.snap`, `HF.notify`, `HF.clipboardGet/Set`, …); also in Command Bar / Quick Menu  
 - **Window tools** — halves, quarters, **thirds / two-thirds**, almost-max, tile, undo, next/prev display, mouse warp  
 - **Clipboard history** — local stack on Hyper + ⇧V (plus paste transforms); no background polling  
 - **OCR region** — Hyper + O drag-select → on-device Vision text → clipboard  
@@ -148,6 +149,8 @@ Hold-before-layer (~200 ms default) and blocked apps: **Settings → Engine �
 | Hyper + T / ⇧T | Terminal · terminal in Finder folder |
 | Hyper + , | Dashboard |
 | Hyper + ' | Run Shortcut |
+| Hyper + Y | AX Recipes |
+| Hyper + ⇧Y | Scripts (JavaScript) |
 | Space + H/J/K/L | Arrows |
 | Space + X | Kill to end of line |
 | Space + Y / P / U | Copy / paste / undo |

@@ -219,7 +219,8 @@ final class AXRecipeStore: ObservableObject {
         }
     }
 
-    private static func pressKeyChord(_ spec: String) {
+    /// Shared with ScriptStore.swift's `HF.pressKey(...)` bridge — keep internal (not private).
+    static func pressKeyChord(_ spec: String) {
         let lower = spec.lowercased().replacingOccurrences(of: " ", with: "")
         var flags: CGEventFlags = []
         var key = lower

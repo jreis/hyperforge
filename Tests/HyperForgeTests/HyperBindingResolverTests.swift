@@ -34,4 +34,18 @@ final class HyperBindingResolverTests: XCTestCase {
         )
         XCTAssertEqual(route, .action("app-terminal-here"))
     }
+
+    func testPlainYIsRecipesNotScripts() {
+        let route = HyperBindingResolver.resolve(keyCode: HyperKeyCode.y)
+        XCTAssertEqual(route, .action("sys-recipes"))
+    }
+
+    func testShiftYIsScripts() {
+        let route = HyperBindingResolver.resolve(
+            keyCode: HyperKeyCode.y,
+            shiftDown: true,
+            hyperConsumesShift: false
+        )
+        XCTAssertEqual(route, .action("sys-scripts"))
+    }
 }

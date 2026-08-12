@@ -274,6 +274,12 @@ public enum HyperBindingResolver {
         .init(actionID: "sys-dashboard", keyCode: HyperKeyCode.comma, title: "Dashboard"),
         .init(actionID: "sys-quick-menu", keyCode: HyperKeyCode.q, title: "Quick Menu"),
         .init(actionID: "sys-recipes", keyCode: HyperKeyCode.y, title: "AX Recipes"),
+        .init(
+            actionID: "sys-scripts",
+            keyCode: HyperKeyCode.y,
+            requiresExtraShift: true,
+            title: "Scripts (⇧Y)"
+        ),
         .init(actionID: "sys-cheatsheet", keyCode: HyperKeyCode.grave, title: "Cheat Sheet (`)"),
         // Slash: primary F18 path is link-hints; 4-mod / extraShift → cheat sheet (see resolve)
         .init(actionID: "sys-link-hints", keyCode: HyperKeyCode.slash, title: "Link Hints (F18 /)"),
@@ -461,8 +467,10 @@ public enum HyperBindingResolver {
             return .action("win-minimize")
         case HyperKeyCode.q where allowed("sys-quick-menu"):
             return .action("sys-quick-menu")
-        case HyperKeyCode.y where allowed("sys-recipes"):
-            return .action("sys-recipes")
+        case HyperKeyCode.y:
+            if extraShift, allowed("sys-scripts") { return .action("sys-scripts") }
+            if allowed("sys-recipes") { return .action("sys-recipes") }
+            return .unhandled
         case HyperKeyCode.w:
             if extraShift, allowed("sys-reverse-dns") { return .action("sys-reverse-dns") }
             if allowed("win-warp-mouse") { return .action("win-warp-mouse") }

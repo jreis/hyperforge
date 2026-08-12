@@ -64,6 +64,22 @@ enum CommandCatalog {
             )
         }
 
+        for script in ScriptStore.shared.scripts where script.isEnabled {
+            let scope = script.bundleID.isEmpty ? "Any app" : script.bundleID
+            items.append(
+                CommandResult(
+                    title: script.name,
+                    subtitle: scope,
+                    icon: script.symbol,
+                    kind: .script
+                ) {
+                    Task { @MainActor in
+                        ScriptStore.shared.run(script)
+                    }
+                }
+            )
+        }
+
         for name in ShortcutsService.cachedOrRefreshingNames() {
             items.append(
                 CommandResult(
