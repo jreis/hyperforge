@@ -147,6 +147,12 @@ struct ScriptsView: View {
                         .foregroundStyle(HFTheme.danger)
                         .lineLimit(3)
                 }
+                if let output = script.lastOutput, !output.isEmpty {
+                    Text("Output: \(output)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(HFTheme.textSecondary)
+                        .lineLimit(5)
+                }
             }
             .contentShape(Rectangle())
             .onTapGesture(count: 2) {

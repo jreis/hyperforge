@@ -18,6 +18,8 @@ struct JSScript: Identifiable, Codable, Equatable, Sendable {
     var isEnabled: Bool = true
     /// Message from the most recent run's uncaught exception, if any (shown in Settings).
     var lastError: String?
+    /// Concatenated `HF.log(...)` calls from the most recent run, if any (shown in Settings).
+    var lastOutput: String?
 }
 
 @MainActor
@@ -165,12 +167,13 @@ final class ScriptStore: ObservableObject {
             symbol: script.symbol.isEmpty ? "curlybraces" : script.symbol
         )
         let scriptID = script.id
-        ScriptRunner.shared.run(script) { errorMessage in
+        ScriptRunner.shared.run(script) { errorMessage, output in
             DispatchQueue.main.async {
                 Task { @MainActor in
                     guard var latest = ScriptStore.shared.scripts.first(where: { $0.id == scriptID })
                     else { return }
                     latest.lastError = errorMessage
+                    latest.lastOutput = output
                     ScriptStore.shared.update(latest)
                 }
             }
@@ -242,7 +245,7 @@ final class ScriptRunner: @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "app.hyperforge.scriptRunner")
 
-    func run(_ script: JSScript, completion: (@Sendable (String?) -> Void)? = nil) {
+    func run(_ script: JSScript, completion: (@Sendable (String?, String?) -> Void)? = nil) {
         queue.async {
             let context = JSContext()
             let bridge = HFScriptBridge()
@@ -250,10 +253,26 @@ final class ScriptRunner: @unchecked Sendable {
 
             var exceptionMessage: String?
             context?.exceptionHandler = { _, exception in
-                exceptionMessage = exception?.toString() ?? "Unknown script error"
+                guard let exception else {
+                    exceptionMessage = "Unknown script error"
+                    return
+                }
+                let message = exception.toString() ?? "Unknown script error"
+                // JSC's error objects carry these nonstandard extensions — worth surfacing
+                // since `exception.toString()` alone drops where in the script it happened.
+                let line = exception.objectForKeyedSubscript("line")?.toInt32()
+                let column = exception.objectForKeyedSubscript("column")?.toInt32()
+                if let line, line > 0 {
+                    let columnSuffix = column.map { ":\($0)" } ?? ""
+                    exceptionMessage = "\(message) (line \(line)\(columnSuffix))"
+                } else {
+                    exceptionMessage = message
+                }
             }
 
             context?.evaluateScript(script.source)
+
+            let output = bridge.logLines.isEmpty ? nil : bridge.logLines.joined(separator: "\n")
 
             if let message = exceptionMessage {
                 HyperLog.event("Script \(script.name) failed: \(message)")
@@ -266,7 +285,7 @@ final class ScriptRunner: @unchecked Sendable {
                     )
                 }
             }
-            completion?(exceptionMessage)
+            completion?(exceptionMessage, output)
         }
     }
 }
@@ -288,6 +307,11 @@ final class ScriptRunner: @unchecked Sendable {
 }
 
 @objc final class HFScriptBridge: NSObject, HFScriptBridgeExporting {
+    /// `HF.log(...)` calls from the current run, read back by `ScriptRunner` once
+    /// `evaluateScript` returns. Only ever touched from the script's own background
+    /// queue (never main), so no synchronization is needed.
+    private(set) var logLines: [String] = []
+
     /// Runs `work` on MainActor and blocks the calling (non-main) thread until it
     /// finishes. Never call this from main — it would deadlock.
     private func onMainSync<T: Sendable>(_ work: @escaping @MainActor () -> T) -> T {
@@ -333,6 +357,7 @@ final class ScriptRunner: @unchecked Sendable {
     }
 
     func log(_ message: String) {
+        logLines.append(message)
         HyperLog.event("Script log: \(message)")
     }
 
