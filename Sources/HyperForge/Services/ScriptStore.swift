@@ -46,6 +46,54 @@ final class ScriptStore: ObservableObject {
             symbol: "hand.wave",
             source: "HF.notify(\"Hello from HyperForge\");"
         ),
+        JSScript(
+            name: "Snap left & notify",
+            symbol: "rectangle.lefthalf.filled",
+            source: """
+            HF.snap("left");
+            HF.notify("Snapped left");
+            """
+        ),
+        JSScript(
+            name: "Uppercase clipboard",
+            symbol: "textformat",
+            source: """
+            var text = HF.clipboardGet();
+            if (text) {
+                HF.clipboardSet(text.toUpperCase());
+                HF.notify("Clipboard uppercased");
+            } else {
+                HF.notify("Clipboard is empty");
+            }
+            """
+        ),
+        JSScript(
+            name: "New timestamped note",
+            symbol: "note.text",
+            source: """
+            var stamp = new Date().toLocaleString();
+            HF.launchApp("com.apple.Notes");
+            HF.sleep(400);
+            HF.pasteText("Note — " + stamp + "\\n");
+            """
+        ),
+        JSScript(
+            name: "Screenshot region to clipboard",
+            symbol: "camera.viewfinder",
+            source: """
+            HF.pressKey("cmd+shift+4");
+            HF.notify("Drag to capture — copied to clipboard");
+            """
+        ),
+        JSScript(
+            name: "Toggle Focus (Shortcut)",
+            symbol: "moon.stars",
+            source: """
+            HF.runShortcut("Toggle Focus");
+            HF.sleep(200);
+            HF.notify("Focus toggled");
+            """
+        ),
     ]
 
     func load() {
