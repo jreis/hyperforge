@@ -64,6 +64,21 @@ enum CommandCatalog {
             )
         }
 
+        for layout in ProfileStore.shared.activeProfile.layouts {
+            items.append(
+                CommandResult(
+                    title: layout.name,
+                    subtitle: "\(layout.windows.count) window\(layout.windows.count == 1 ? "" : "s")",
+                    icon: "rectangle.3.group",
+                    kind: .workspace
+                ) {
+                    Task { @MainActor in
+                        ProfileStore.shared.restoreLayout(layout)
+                    }
+                }
+            )
+        }
+
         for script in ScriptStore.shared.scripts where script.isEnabled {
             let scope = script.bundleID.isEmpty ? "Any app" : script.bundleID
             items.append(

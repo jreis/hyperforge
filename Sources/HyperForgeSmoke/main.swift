@@ -174,6 +174,18 @@ struct HyperForgeSmoke {
             ) == .action("sys-scripts")
         )
         check(
+            "scroll right on L",
+            HyperBindingResolver.resolve(keyCode: HyperKeyCode.l) == .action("scroll-right")
+        )
+        check(
+            "workspaces on ⇧L",
+            HyperBindingResolver.resolve(
+                keyCode: HyperKeyCode.l,
+                shiftDown: true,
+                hyperConsumesShift: false
+            ) == .action("sys-workspaces")
+        )
+        check(
             "every spec still resolves",
             HyperBindingResolver.specs.allSatisfy { spec in
                 if case .action(let id) = HyperBindingResolver.resolve(

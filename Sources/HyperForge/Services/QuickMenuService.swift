@@ -26,6 +26,7 @@ enum QuickMenuService {
         menu.addItem(item("Run Shortcut…", "sparkles.rectangle.stack", #selector(QuickMenuTarget.shortcuts)))
         menu.addItem(item("AX Recipes…", "wand.and.stars", #selector(QuickMenuTarget.recipes)))
         menu.addItem(item("Scripts…", "curlybraces", #selector(QuickMenuTarget.scripts)))
+        menu.addItem(item("Workspaces…", "rectangle.3.group", #selector(QuickMenuTarget.workspaces)))
         menu.addItem(item("Command bar", "sparkles", #selector(QuickMenuTarget.commandBar)))
         menu.addItem(item("Cheat sheet", "keyboard", #selector(QuickMenuTarget.cheatSheet)))
         menu.addItem(.separator())
@@ -61,6 +62,7 @@ final class QuickMenuTarget: NSObject {
     @objc func shortcuts() { ShortcutsService.showMenu() }
     @objc func recipes() { AXRecipeStore.shared.showMenu() }
     @objc func scripts() { ScriptStore.shared.showMenu() }
+    @objc func workspaces() { ProfileStore.shared.showLayoutMenu() }
     @objc func commandBar() {
         AppState.shared.commandBarVisible = true
         AppState.shared.openMainWindow()

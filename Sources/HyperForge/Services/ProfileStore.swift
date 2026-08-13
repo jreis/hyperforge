@@ -1,6 +1,7 @@
 // ProfileStore.swift
 // Persist profiles and the active selection (local-first JSON).
 
+import AppKit
 import Combine
 import Foundation
 import SwiftUI
@@ -90,6 +91,47 @@ final class ProfileStore: ObservableObject {
         Banner.show("Restored “\(layout.name)”")
     }
 
+    func restoreLayoutByName(_ name: String) {
+        if let layout = activeProfile.layouts.first(where: {
+            $0.name.localizedCaseInsensitiveContains(name)
+        }) {
+            restoreLayout(layout)
+        } else {
+            Banner.show(
+                "No layout found",
+                subtitle: "“\(name)”",
+                style: .warning,
+                symbol: "rectangle.3.group"
+            )
+        }
+    }
+
+    /// Popup picker for saved layouts on the active profile — mirrors AXRecipeStore.showMenu().
+    func showLayoutMenu() {
+        let menu = NSMenu(title: "Workspaces")
+        let saved = activeProfile.layouts
+        if saved.isEmpty {
+            menu.addItem(withTitle: "No saved layouts", action: nil, keyEquivalent: "")
+        }
+        for layout in saved {
+            let item = NSMenuItem(
+                title: layout.name,
+                action: #selector(WorkspaceMenuTarget.restoreLayout(_:)),
+                keyEquivalent: ""
+            )
+            item.representedObject = layout.id.uuidString
+            item.target = WorkspaceMenuTarget.shared
+            item.image = NSImage(
+                systemSymbolName: "rectangle.3.group",
+                accessibilityDescription: layout.name
+            )
+            menu.addItem(item)
+        }
+        HyperKeyEngine.shared.beginMenuSession()
+        defer { HyperKeyEngine.shared.endMenuSession() }
+        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+    }
+
     func addTrigger(_ trigger: AutoTrigger) {
         autoTriggers.append(trigger)
         persist()
@@ -136,5 +178,18 @@ final class ProfileStore: ObservableObject {
         if let data = try? JSONEncoder().encode(payload) {
             try? data.write(to: fileURL, options: .atomic)
         }
+    }
+}
+
+@MainActor
+final class WorkspaceMenuTarget: NSObject {
+    static let shared = WorkspaceMenuTarget()
+
+    @objc func restoreLayout(_ sender: NSMenuItem) {
+        guard let idStr = sender.representedObject as? String,
+              let id = UUID(uuidString: idStr),
+              let layout = ProfileStore.shared.activeProfile.layouts.first(where: { $0.id == id })
+        else { return }
+        ProfileStore.shared.restoreLayout(layout)
     }
 }

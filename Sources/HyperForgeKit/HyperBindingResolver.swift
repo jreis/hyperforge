@@ -181,6 +181,12 @@ public enum HyperBindingResolver {
         .init(actionID: "scroll-down", keyCode: HyperKeyCode.j, title: "Scroll Down"),
         .init(actionID: "prod-keepalive", keyCode: HyperKeyCode.k, title: "Keep-Alive"),
         .init(actionID: "scroll-right", keyCode: HyperKeyCode.l, title: "Scroll Right"),
+        .init(
+            actionID: "sys-workspaces",
+            keyCode: HyperKeyCode.l,
+            requiresExtraShift: true,
+            title: "Workspaces (⇧L)"
+        ),
         // Apps
         .init(actionID: "app-chrome", keyCode: HyperKeyCode.one, title: "Chrome"),
         .init(actionID: "app-zed", keyCode: HyperKeyCode.two, title: "Zed"),
@@ -383,8 +389,10 @@ public enum HyperBindingResolver {
             return .action("scroll-down")
         case HyperKeyCode.k where allowed("prod-keepalive"):
             return .action("prod-keepalive")
-        case HyperKeyCode.l where allowed("scroll-right"):
-            return .action("scroll-right")
+        case HyperKeyCode.l:
+            if extraShift, allowed("sys-workspaces") { return .action("sys-workspaces") }
+            if allowed("scroll-right") { return .action("scroll-right") }
+            return .unhandled
         case HyperKeyCode.one where allowed("app-chrome"):
             return .action("app-chrome")
         case HyperKeyCode.two where allowed("app-zed"):

@@ -48,4 +48,18 @@ final class HyperBindingResolverTests: XCTestCase {
         )
         XCTAssertEqual(route, .action("sys-scripts"))
     }
+
+    func testPlainLIsScrollRightNotWorkspaces() {
+        let route = HyperBindingResolver.resolve(keyCode: HyperKeyCode.l)
+        XCTAssertEqual(route, .action("scroll-right"))
+    }
+
+    func testShiftLIsWorkspaces() {
+        let route = HyperBindingResolver.resolve(
+            keyCode: HyperKeyCode.l,
+            shiftDown: true,
+            hyperConsumesShift: false
+        )
+        XCTAssertEqual(route, .action("sys-workspaces"))
+    }
 }
