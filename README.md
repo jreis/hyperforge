@@ -85,11 +85,16 @@ swift run   # launch the app from the build product
 - **Snippets** — local hotstrings; `{{date}}` with custom formats; clipboard / hostname / uuid / lan-ip tokens  
 - **Shortcuts** — Hyper + `'` or ⇧S → run installed macOS Shortcuts  
 - **Scripts** — Hyper + ⇧Y → run saved JavaScript automations (`HF.snap`, `HF.notify`, `HF.clipboardGet/Set`, …); also in Command Bar / Quick Menu  
+- **Workspaces** — Hyper + ⇧L → picker for saved window layouts (Settings → Workspaces to capture/name); also in Command Bar / Quick Menu  
+- **System controls** — Volume / brightness / mute (native OS HUD) and Focus toggle (via a "Toggle Focus" Shortcut you create) — Quick Menu + Command Bar  
+- **Window memory** — opt in an app (Settings → Engine) and HyperForge remembers its window position, restoring it on the app's next cold launch — never fights a window you're actively using  
+- **External triggers** — `hyperforge://run?kind=action&id=<id>` URL scheme (also `kind=script`/`recipe`/`layout`) lets Shortcuts, scripts, or cron fire any catalog action, script, recipe, or saved layout on the running instance  
+- **Space switching** — Next/Previous Space via Quick Menu / Command Bar (posts the standard ⌃→/⌃← shortcut — moving a *window* to another Space has no public macOS API, so that's not implemented)  
 - **Window tools** — halves, quarters, **thirds / two-thirds**, almost-max, tile, undo, next/prev display, mouse warp  
 - **Clipboard history** — local stack on Hyper + ⇧V (plus paste transforms); no background polling  
 - **OCR region** — Hyper + O drag-select → on-device Vision text → clipboard  
 - **Region pin** — Hyper + P stay-on-top capture  
-- **Command bar** — Hyper + Space; offline router + optional local Ollama  
+- **Command bar** — Hyper + Space; offline router + optional local Ollama; fuzzy-launches any installed app, not just the 5 Hyper slots  
 - **Config backup** — Settings → Privacy → export/import JSON (profiles, snippets, Space nav, prefs)  
 - **Cheat sheet** — Hyper + / or `` ` ``; Space bindings grouped (Move / Kill / Clipboard / Mac)
 
@@ -151,6 +156,7 @@ Hold-before-layer (~200 ms default) and blocked apps: **Settings → Engine �
 | Hyper + ' | Run Shortcut |
 | Hyper + Y | AX Recipes |
 | Hyper + ⇧Y | Scripts (JavaScript) |
+| Hyper + ⇧L | Workspaces (saved window layouts) |
 | Space + H/J/K/L | Arrows |
 | Space + X | Kill to end of line |
 | Space + Y / P / U | Copy / paste / undo |
@@ -275,9 +281,9 @@ A full CGEvent-tap engine fits **direct download / open source** better than the
 
 ## Status
 
-**Done:** Doctor, dual Hyper style, Space nav + per-app blocks, snippets, Shortcuts, region pin, OCR region, clipboard history, thirds / almost-max, hold-Hyper HUD, profiles, overrides, config backup, Ollama model-fit, smoke tests.
+**Done:** Doctor, dual Hyper style, Space nav + per-app blocks, snippets, Shortcuts, region pin, OCR region, clipboard history, thirds / almost-max, hold-Hyper HUD, profiles, overrides, config backup, Ollama model-fit, smoke tests, Scripts, Workspaces chord, broader app launcher, system controls, window memory, external triggers, Space switching.
 
-**Maybe later:** MLX without Ollama, demo GIF capture, Sparkle updates.
+**Maybe later:** MLX without Ollama, demo GIF capture, Sparkle updates (needs a hosted appcast + signing key — notarized releases first).
 
 ---
 
