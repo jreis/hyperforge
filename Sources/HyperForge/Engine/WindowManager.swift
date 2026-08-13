@@ -213,6 +213,21 @@ final class WindowManager {
         moveToAdjacentScreen(delta: -1, label: "Previous display")
     }
 
+    /// Switch to the adjacent Space via the standard macOS shortcut (⌃→/⌃←) — there is
+    /// no public API to switch Spaces directly, so this posts the same key combo a
+    /// keyboard or trackpad swipe would. Moving a *window* to another Space has no
+    /// reliable public mechanism at all (only private/undocumented SkyLight APIs),
+    /// so that is intentionally not implemented here.
+    func switchToNextSpace() {
+        EventSynthesizer.postKey(KeyCode.rightArrow, flags: [.maskControl])
+        Banner.show("Next Space", style: .success, symbol: "square.grid.3x1.below.line.grid.1x2")
+    }
+
+    func switchToPreviousSpace() {
+        EventSynthesizer.postKey(KeyCode.leftArrow, flags: [.maskControl])
+        Banner.show("Previous Space", style: .success, symbol: "square.grid.3x1.above.line.grid.1x2")
+    }
+
     private func moveToAdjacentScreen(delta: Int, label: String) {
         guard let win = frontmostWindow() else {
             Banner.show(

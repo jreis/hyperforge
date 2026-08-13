@@ -37,6 +37,15 @@ enum QuickMenuService {
         menu.addItem(item("Copy Finder file text", "doc.text", #selector(QuickMenuTarget.copyFileText)))
         menu.addItem(item("Open selection in editor", "chevron.left.forwardslash.chevron.right", #selector(QuickMenuTarget.openInEditor)))
         menu.addItem(.separator())
+        menu.addItem(item("Volume up", "speaker.wave.3", #selector(QuickMenuTarget.volumeUp)))
+        menu.addItem(item("Volume down", "speaker.wave.1", #selector(QuickMenuTarget.volumeDown)))
+        menu.addItem(item("Mute / unmute", "speaker.slash", #selector(QuickMenuTarget.toggleMute)))
+        menu.addItem(item("Brightness up", "sun.max", #selector(QuickMenuTarget.brightnessUp)))
+        menu.addItem(item("Brightness down", "sun.min", #selector(QuickMenuTarget.brightnessDown)))
+        menu.addItem(item("Toggle Focus", "moon", #selector(QuickMenuTarget.toggleFocus)))
+        menu.addItem(item("Next Space", "square.grid.3x1.below.line.grid.1x2", #selector(QuickMenuTarget.nextSpace)))
+        menu.addItem(item("Previous Space", "square.grid.3x1.above.line.grid.1x2", #selector(QuickMenuTarget.previousSpace)))
+        menu.addItem(.separator())
         menu.addItem(item("Copy IP address", "network", #selector(QuickMenuTarget.copyIP)))
         menu.addItem(item("Copy hostname", "desktopcomputer", #selector(QuickMenuTarget.copyHostname)))
         menu.addItem(item("Link hints", "link.circle", #selector(QuickMenuTarget.linkHints)))
@@ -74,6 +83,14 @@ final class QuickMenuTarget: NSObject {
     @objc func terminalHere() { FinderActions.terminalInFrontFolder() }
     @objc func copyFileText() { FinderActions.copySelectedFileContents() }
     @objc func openInEditor() { FinderActions.openSelectionInEditor() }
+    @objc func volumeUp() { SystemControls.volumeUp() }
+    @objc func volumeDown() { SystemControls.volumeDown() }
+    @objc func toggleMute() { SystemControls.toggleMute() }
+    @objc func brightnessUp() { SystemControls.brightnessUp() }
+    @objc func brightnessDown() { SystemControls.brightnessDown() }
+    @objc func toggleFocus() { SystemControls.toggleFocus() }
+    @objc func nextSpace() { WindowManager.shared.switchToNextSpace() }
+    @objc func previousSpace() { WindowManager.shared.switchToPreviousSpace() }
     @objc func copyIP() { SystemActions.copyPrimaryIP() }
     @objc func copyHostname() { SystemActions.copyHostname() }
     @objc func linkHints() { LinkHintService.shared.toggle() }

@@ -331,6 +331,42 @@ enum CommandRouter {
         {
             add("Keybinding Cheat Sheet", "Hyper + ⇧/", "keyboard", "sys-cheatsheet")
         }
+        func addControl(_ title: String, _ icon: String, matches: [String], run: @escaping () -> Void) {
+            guard q.isEmpty || matches.contains(where: { $0.contains(q) }) else { return }
+            items.append(CommandResult(title: title, subtitle: "System control", icon: icon) { run() })
+        }
+        addControl("Volume Up", "speaker.wave.3", matches: ["volume up", "louder"]) {
+            SystemControls.volumeUp()
+        }
+        addControl("Volume Down", "speaker.wave.1", matches: ["volume down", "quieter"]) {
+            SystemControls.volumeDown()
+        }
+        addControl("Mute / Unmute", "speaker.slash", matches: ["mute", "volume"]) {
+            SystemControls.toggleMute()
+        }
+        addControl("Brightness Up", "sun.max", matches: ["brightness up", "brighter"]) {
+            SystemControls.brightnessUp()
+        }
+        addControl("Brightness Down", "sun.min", matches: ["brightness down", "dimmer"]) {
+            SystemControls.brightnessDown()
+        }
+        addControl("Toggle Focus", "moon", matches: ["focus", "dnd", "do not disturb"]) {
+            SystemControls.toggleFocus()
+        }
+        addControl(
+            "Next Space",
+            "square.grid.3x1.below.line.grid.1x2",
+            matches: ["next space", "space right", "desktop right"]
+        ) {
+            WindowManager.shared.switchToNextSpace()
+        }
+        addControl(
+            "Previous Space",
+            "square.grid.3x1.above.line.grid.1x2",
+            matches: ["previous space", "space left", "desktop left"]
+        ) {
+            WindowManager.shared.switchToPreviousSpace()
+        }
         if q.contains("export") || q.contains("portfolio") {
             items.append(
                 CommandResult(
