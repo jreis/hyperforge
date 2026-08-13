@@ -36,5 +36,16 @@
     <string>HyperForge can capture an optional desktop screenshot when exporting a portfolio demo pack. Window shots of HyperForge itself do not need this.</string>
     <key>NSHumanReadableCopyright</key>
     <string>Copyright © 2026 Jason Reis. Local-first &amp; private by default.</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>app.hyperforge.HyperForge.trigger</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>hyperforge</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>
