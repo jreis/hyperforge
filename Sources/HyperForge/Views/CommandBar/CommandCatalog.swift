@@ -25,6 +25,21 @@ enum CommandCatalog {
             )
         }
 
+        for app in InstalledAppsService.cachedOrRefreshing() {
+            items.append(
+                CommandResult(
+                    title: app.name,
+                    subtitle: "Application",
+                    icon: "app",
+                    kind: .app
+                ) {
+                    Task { @MainActor in
+                        AppLauncher.shared.launchFocusOrMinimize(app.bundleID)
+                    }
+                }
+            )
+        }
+
         for snippet in SnippetStore.shared.snippets where snippet.isEnabled {
             let preview = snippet.expansion
                 .replacingOccurrences(of: "\n", with: " ")
