@@ -77,6 +77,7 @@ final class AppState: ObservableObject {
             KeepAliveService.shared.toggle()
         }
         autoTriggers.start()
+        WindowMemoryStore.shared.start()
         Task { await ollama.ping() }
         trustTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in

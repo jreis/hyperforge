@@ -24,6 +24,7 @@ struct HyperForgeConfigPackage: Codable {
     /// Hyper+1…5 app launch slots.
     var appSlots: [HyperAppSlot]?
     var scripts: [JSScript]?
+    var windowMemoryApps: [WindowMemoryApp]?
 
     struct ProfilesSlice: Codable {
         var profiles: [HyperProfile]
@@ -107,7 +108,8 @@ enum ConfigBackupService {
             ),
             checklistVerified: Array(BindingChecklistStore.shared.verifiedIDs).sorted(),
             appSlots: HyperAppSlotStore.shared.slots,
-            scripts: ScriptStore.shared.scripts
+            scripts: ScriptStore.shared.scripts,
+            windowMemoryApps: WindowMemoryStore.shared.rememberedApps
         )
     }
 
@@ -184,6 +186,9 @@ enum ConfigBackupService {
         }
         if let scripts = package.scripts {
             ScriptStore.shared.replaceAll(scripts)
+        }
+        if let windowMemoryApps = package.windowMemoryApps {
+            WindowMemoryStore.shared.replaceAll(windowMemoryApps)
         }
     }
 

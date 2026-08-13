@@ -14,8 +14,11 @@ struct SettingsView: View {
 
     @ObservedObject private var spaceNav = SpaceNavStore.shared
     @ObservedObject private var appearance = AppearanceStore.shared
+    @ObservedObject private var windowMemory = WindowMemoryStore.shared
     @State private var manualBlockBundle = ""
     @State private var manualBlockName = ""
+    @State private var manualMemoryBundle = ""
+    @State private var manualMemoryName = ""
 
     var body: some View {
         TabView {
@@ -465,6 +468,59 @@ struct SettingsView: View {
                     }
                     .controlSize(.small)
                     .disabled(manualBlockBundle.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            Section("Window memory") {
+                Text("Remember & restore window position")
+                    .font(.system(size: 12, weight: .semibold))
+                Text("For apps you add here, HyperForge remembers that app's window position when you switch away, and restores it the next time the app cold-launches. Never fights a window while you're using it.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(HFTheme.textTertiary)
+
+                ForEach(windowMemory.rememberedApps) { app in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(app.displayTitle)
+                                .font(.system(size: 12, weight: .medium))
+                            Text(app.bundleID)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(HFTheme.textTertiary)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        Button(role: .destructive) {
+                            windowMemory.remove(app)
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(HFTheme.danger.opacity(0.85))
+                    }
+                }
+
+                HStack {
+                    Button {
+                        windowMemory.addFrontmost()
+                    } label: {
+                        Label("Remember frontmost", systemImage: "plus.app")
+                    }
+                    .controlSize(.small)
+                }
+
+                HStack {
+                    TextField("Bundle ID", text: $manualMemoryBundle)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 11, design: .monospaced))
+                    TextField("Name", text: $manualMemoryName)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 100)
+                    Button("Add") {
+                        windowMemory.add(bundleID: manualMemoryBundle, appName: manualMemoryName)
+                        manualMemoryBundle = ""
+                        manualMemoryName = ""
+                    }
+                    .controlSize(.small)
+                    .disabled(manualMemoryBundle.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
             Section("Permissions") {
