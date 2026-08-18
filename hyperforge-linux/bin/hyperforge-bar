@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# hyperforge-bar — command bar + cheat sheet (macOS Hyper+Space / Hyper+/).
+set -euo pipefail
+
+ROOT="${HYPERFORGE_LINUX_ROOT:-$HOME/.local/share/hyperforge-linux}"
+ACTION="${ROOT}/bin/hyperforge-action"
+have() { command -v "$1" >/dev/null 2>&1; }
+
+catalog() {
+  cat <<'EOF'
+win-left	Snap left
+win-right	Snap right
+win-top	Snap top
+win-bottom	Snap bottom
+win-max	Maximize
+win-center	Center
+win-tl	Quarter top-left
+win-tr	Quarter top-right
+win-bl	Quarter bottom-left
+win-br	Quarter bottom-right
+win-tile	Tile all
+win-undo	Undo snap
+win-next	Next monitor
+win-prev	Previous monitor
+win-third-l	Third left
+win-third-c	Third center
+win-third-r	Third right
+win-2third-l	Two-thirds left
+win-2third-r	Two-thirds right
+win-almost-max	Almost-max
+always-on-top	Always on top
+win-min	Minimize
+win-close	Close window
+region-pin	Pin screen region
+region-ocr	OCR region
+snippet-pick	Snippet picker
+clip-show	Clipboard history
+paste-menu	Paste transforms
+warp	Warp mouse to window
+keepalive	Toggle keep-alive
+term	Terminal
+files	Files
+browser	Browser
+editor	Editor
+lock	Lock session
+date	Insert date
+google-clip	Google clipboard
+open-url	Open URL in clipboard
+plain-paste	Plain paste
+hostname	Copy hostname
+config-export	Export config
+cheat-sheet	Cheat sheet
+EOF
+}
+
+cheat_text() {
+  cat <<'EOF'
+HyperForge Linux  (Caps = Hyper)
+
+Window pad
+  ←/→/↑/↓     halves          Enter     maximize
+  7 8 9 0     quarters        6         tile all
+  - = \       thirds          I / O     two-thirds
+  Y           almost-max      C         center
+  Z           undo            [ / ] M   prev / next monitor
+  A           always on top   B / S     minimize
+
+Tools
+  N           pin screen region     Q     OCR region
+  ,           snippets              P     clipboard history
+  V           paste transforms      W     warp mouse
+  K           keep-alive            /     cheat sheet
+  '           command bar
+  T / F / 1 / 2   terminal / files / browser / editor
+
+Space layer (hold Space): HJKL arrows · B/W words · Y/P/C clipboard
+EOF
+}
+
+case "${1:-}" in
+  ""|-h|--help)
+    echo "usage: $0 command-bar | cheat-sheet | --list"
+    ;;
+  --list) catalog ;;
+  cheat-sheet)
+    if have notify-send && [[ "${HF_CHEAT_TOAST:-}" == "1" ]]; then
+      notify-send -a HyperForge -t 8000 "HyperForge" "$(cheat_text)"
+    elif have omarchy-menu-select; then
+      # Searchable; picking a row runs it (same as command bar).
+      exec "$0" command-bar
+    else
+      cheat_text
+    fi
+    ;;
+  command-bar)
+    if ! have omarchy-menu-select; then
+      echo "need omarchy-menu-select" >&2
+      catalog
+      exit 1
+    fi
+    chosen="$(catalog | awk -F'\t' '{print $2}' | omarchy-menu-select "HyperForge")" || exit 0
+    id="$(catalog | awk -F'\t' -v c="$chosen" '$2==c{print $1; exit}')"
+    [[ -n "${id:-}" ]] || exit 0
+    if [[ "$id" == "cheat-sheet" ]]; then
+      cheat_text | omarchy-menu-select "Cheat sheet" >/dev/null || true
+      exit 0
+    fi
+    exec "$ACTION" "$id"
+    ;;
+  *) echo "unknown: $1" >&2; exit 2 ;;
+esac

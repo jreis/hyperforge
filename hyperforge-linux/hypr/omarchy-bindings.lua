@@ -11,6 +11,7 @@
 hl.unbind("SUPER + CTRL + ALT + B") -- was: Show battery remaining
 hl.unbind("SUPER + CTRL + ALT + T") -- was: Show time
 hl.unbind("SUPER + CTRL + ALT + Z") -- was: Reset zoom
+hl.unbind("SUPER + CTRL + ALT + W") -- was: Toggle weather
 
 do
   local hf = os.getenv("HOME") .. "/.local/bin/hyperforge-action"
@@ -43,6 +44,12 @@ do
   h("O", "Hyper two-thirds right", "win-2third-r")
   h("Y", "Hyper almost-max", "win-almost-max")
   h("N", "Hyper pin region", "region-pin", { repeating = false })
+  h("Q", "Hyper OCR region", "region-ocr", { repeating = false })
+  h("W", "Hyper warp mouse", "warp", { repeating = false })
+  h("K", "Hyper keep-alive", "keepalive", { repeating = false })
+  h("V", "Hyper paste transforms", "paste-menu", { repeating = false })
+  h("SLASH", "Hyper cheat sheet", "cheat-sheet", { repeating = false })
+  h("APOSTROPHE", "Hyper command bar", "command-bar", { repeating = false })
   h("COMMA", "Hyper snippet picker", "snippet-pick", { repeating = false })
   h("P", "Hyper clipboard history", "clip-show", { repeating = false })
   h("T", "Hyper terminal", "term")

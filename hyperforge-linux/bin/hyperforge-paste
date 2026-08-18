@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# hyperforge-paste — clipboard transforms (Windows Ctrl+Alt+Shift+V / macOS paste menu).
+#   hyperforge-paste --pick
+#   hyperforge-paste apply <id>
+set -euo pipefail
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+clip_get() {
+  if have wl-paste; then wl-paste 2>/dev/null || true
+  elif have xclip; then xclip -selection clipboard -o 2>/dev/null || true
+  else echo ""
+  fi
+}
+
+clip_set() {
+  if have wl-copy; then printf '%s' "$1" | wl-copy
+  elif have xclip; then printf '%s' "$1" | xclip -selection clipboard
+  else printf '%s\n' "$1"
+  fi
+}
+
+paste_it() {
+  if have wtype; then wtype -M ctrl v -m ctrl
+  elif have ydotool; then ydotool key ctrl+v
+  elif have xdotool; then xdotool key --clearmodifiers ctrl+v
+  fi
+}
+
+b64enc() { printf '%s' "$1" | base64 -w0 2>/dev/null || printf '%s' "$1" | base64; }
+b64dec() { printf '%s' "$1" | base64 -d 2>/dev/null || true; }
+
+urlenc() {
+  python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$1"
+}
+urldec() {
+  python3 -c "import urllib.parse,sys; print(urllib.parse.unquote(sys.argv[1]))" "$1"
+}
+
+apply() {
+  local id="$1" t
+  t="$(clip_get)"
+  case "$id" in
+    lf-comma)     t="${t//$'\r\n'/,}"; t="${t//$'\n'/,}" ;;
+    lf-semi)      t="${t//$'\r\n'/;}"; t="${t//$'\n'/;}" ;;
+    lf-space)     t="${t//$'\r\n'/ }"; t="${t//$'\n'/ }" ;;
+    tab-comma)    t="${t//$'\t'/,}" ;;
+    tab-lf)       t="${t//$'\t'/$'\n'}" ;;
+    plain)        ;;
+    b64-enc)      t="$(b64enc "$t")" ;;
+    b64-dec)      t="$(b64dec "$t")" ;;
+    url-enc)      t="$(urlenc "$t")" ;;
+    url-dec)      t="$(urldec "$t")" ;;
+    or-list)
+      t="$(printf '%s\n' "$t" | awk 'NF{gsub(/^[[:space:]]+|[[:space:]]+$/,""); printf("%s\"%s\"", (n++?", OR ":""), $0)} END{if(n) printf "\n"}' | awk '{print "(" $0 ")"}')"
+      ;;
+    *) echo "unknown transform: $id" >&2; return 2 ;;
+  esac
+  clip_set "$t"
+  paste_it
+}
+
+list_ids() {
+  cat <<'EOF'
+lf-comma	Linefeeds → commas
+lf-semi	Linefeeds → semicolons
+lf-space	Linefeeds → spaces
+tab-comma	Tabs → commas
+tab-lf	Tabs → linefeeds
+plain	Plain text
+b64-enc	Base64 encode
+b64-dec	Base64 decode
+url-enc	URL encode
+url-dec	URL decode
+or-list	Values → quoted OR list
+EOF
+}
+
+case "${1:-}" in
+  ""|-h|--help)
+    echo "usage: $0 --pick | apply <id> | --list"
+    ;;
+  --list) list_ids ;;
+  apply) apply "${2:?id}" ;;
+  --pick)
+    if have omarchy-menu-select; then
+      chosen="$(list_ids | awk -F'\t' '{print $2}' | omarchy-menu-select "Paste transform")" || exit 0
+      id="$(list_ids | awk -F'\t' -v c="$chosen" '$2==c{print $1; exit}')"
+    else
+      echo "need omarchy-menu-select (or run: $0 apply <id>)" >&2
+      exit 1
+    fi
+    [[ -n "${id:-}" ]] && apply "$id"
+    ;;
+  *) echo "unknown: $1" >&2; exit 2 ;;
+esac

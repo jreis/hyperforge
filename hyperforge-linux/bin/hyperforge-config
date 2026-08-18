@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# hyperforge-config — export / import snippets + clipboard history.
+set -euo pipefail
+
+CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hyperforge-linux"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/hyperforge-linux"
+SNIP="$CONF_DIR/snippets.conf"
+CLIP="$DATA_DIR/clipboard-history.dat"
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+json_escape() {
+  python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()), end="")'
+}
+
+case "${1:-}" in
+  ""|-h|--help)
+    echo "usage: $0 export [file] | import <file>"
+    ;;
+  export)
+    dest="${2:-$HOME/Downloads/hyperforge-backup-$(date +%Y-%m-%d).json}"
+    mkdir -p "$(dirname "$dest")"
+    python3 - "$SNIP" "$CLIP" "$dest" <<'PY'
+import json, sys, pathlib, datetime
+snip, clip, dest = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
+blob = {
+    "version": 1,
+    "exported": datetime.datetime.now().isoformat(timespec="seconds"),
+    "snippetsConf": snip.read_text() if snip.is_file() else "",
+    "clipboardHistory": clip.read_text() if clip.is_file() else "",
+}
+dest.write_text(json.dumps(blob, indent=2) + "\n")
+print(dest)
+PY
+    ;;
+  import)
+    src="${2:?file}"
+    python3 - "$src" "$SNIP" "$CLIP" <<'PY'
+import json, sys, pathlib
+src, snip, clip = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
+data = json.loads(src.read_text())
+snip.parent.mkdir(parents=True, exist_ok=True)
+clip.parent.mkdir(parents=True, exist_ok=True)
+if data.get("snippetsConf"):
+    snip.write_text(data["snippetsConf"])
+if "clipboardHistory" in data:
+    clip.write_text(data["clipboardHistory"])
+print("imported", src)
+PY
+    ;;
+  *) echo "unknown: $1" >&2; exit 2 ;;
+esac

@@ -50,8 +50,8 @@ ShowDoctor(*) {
     lines.Push("Tips: Hyper+[ ] next/prev monitor · Win+Esc pauses Hyper")
     lines.Push("edit mute.processes in config.ini for games / RDP")
     lines.Push("")
-    lines.Push("macOS-only (no Windows equivalent shipped here): OCR region, region pin,")
-    lines.Push("Ollama command bar, Shortcuts integration, AX recipe recording.")
+    lines.Push("  Hyper+Y pin region · Q OCR · / cheat sheet · ; command bar · F warp")
+    lines.Push("macOS-only: Shortcuts, AX recipes, Ollama command bar.")
 
     msg := ""
     for line in lines

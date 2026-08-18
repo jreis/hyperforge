@@ -2,7 +2,7 @@
 
 **AHK v2 Hyper Key companion** — Caps → Hyper, window snaps, apps, paste transforms, Explorer power moves.
 
-**Parity target:** current macOS HyperForge window pad (halves/quarters/**thirds/two-thirds/almost-max**/tile-all/undo/monitors), `{{token}}` snippets, and a persisted/pinned/searchable clipboard history. App launch chords stay Windows-native (letter keys differ by design). Not ported — no Windows equivalent shipped here: **OCR region**, **region pin**, the **Ollama command bar**, **Shortcuts** integration, and **AX recipe recording** (all macOS-API-specific).
+**Parity target:** current macOS HyperForge window pad, `{{token}}` snippets, clipboard history, **region pin**, **OCR**, command bar, and cheat sheet. App launch chords stay Windows-native. Not ported: **Shortcuts** and **AX recipe recording**.
 
 Pairs with **[TouchCursor](https://code.google.com/archive/p/touchcursor/)** (or similar) for Space-layer navigation. This project **does not** reimplement SpaceFN.
 
@@ -45,6 +45,11 @@ Caps is held as **Ctrl+Alt+Shift+Win** (same chord family as 4-mod Hyper on macO
 | Hyper + A | Always on top (also Ctrl+Shift+Space) |
 | Hyper + B | Minimize (also XButton1) |
 | Hyper + P | Clipboard history (pinned/searchable) |
+| Hyper + Y | **Pin screen region** (Win+Shift+S, then stay-on-top) |
+| Hyper + Q | **OCR region** → clipboard |
+| Hyper + / | Cheat sheet |
+| Hyper + ; | Command bar (search + run) |
+| Hyper + F | Warp mouse to active window |
 
 macOS disambiguates the third vs. two-thirds chord with Shift (`-` vs `⇧-`). Windows'
 Hyper is a fixed Win+Ctrl+Alt+**Shift** chord (see `CapsHyper.ahk` — Shift is always
@@ -139,7 +144,9 @@ hyperforge-win/
 | Clipboard history | Hyper+V panel, persisted/pinned/searchable | Hyper+P Gui panel, persisted/pinned/searchable |
 | Space layer | Built-in (TouchCursor-style) | **TouchCursor** (external) |
 | Profiles / auto-triggers | Wi‑Fi / app / time, per-app overrides | Not ported — use `[mute]` for a coarse per-process on/off instead |
-| OCR / region pin / command bar / Shortcuts / AX recipes | Built-in (Vision, Ollama, AppleScript, Accessibility) | Not ported — macOS-API-specific |
+| Region pin / OCR | Hyper+P / Hyper+O | Hyper+Y / Hyper+Q (Win+Shift+S + WinRT OCR) |
+| Command bar / cheat sheet | Hyper+Space / Hyper+/ | Hyper+; / Hyper+/ |
+| Shortcuts / AX recipes | Built-in | Not ported — macOS-API-specific |
 | UI | SwiftUI dashboard / Doctor | Tray + config.ini + Doctor |
 | Engine | Swift CGEvent | AutoHotkey v2 |
 | App keys | 1–5, T, F, … | Letter chords (N/V/C/T/E…) — intentional |

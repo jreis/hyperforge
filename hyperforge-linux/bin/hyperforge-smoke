@@ -143,7 +143,8 @@ echo
 # ── Scripts parse ─────────────────────────────────────────────────────
 echo "Scripts parse"
 for f in hyperforge-action hyperforge-snap hyperforge-snippet hyperforge-clip \
-         hyperforge-doctor hyperforge-smoke; do
+         hyperforge-doctor hyperforge-smoke hyperforge-paste hyperforge-bar \
+         hyperforge-config; do
   check "bash -n bin/$f" bash -n "$HERE/$f"
 done
 check "python3 -m py_compile bin/hyperforge-pin" python3 -m py_compile "$HERE/hyperforge-pin"
@@ -198,6 +199,15 @@ win-almost-max almost-max
 MAP
 
 # ── Snap geometry (no compositor) ─────────────────────────────────────
+echo
+echo "Paste / catalog / backup"
+paste_list="$("$HERE/hyperforge-paste" --list)"
+check "paste list has base64" grep -q b64-enc <<<"$paste_list"
+check "bar catalog has region-pin" grep -q region-pin <<<"$("$HERE/hyperforge-bar" --list)"
+cfg_out="$TMP/hf-backup.json"
+"$HERE/hyperforge-config" export "$cfg_out" >/dev/null
+check "config export writes JSON" grep -q '"version"' "$cfg_out"
+
 echo
 echo "Snap geometry"
 geom() { "$SNAP" --print-geom "$@"; }

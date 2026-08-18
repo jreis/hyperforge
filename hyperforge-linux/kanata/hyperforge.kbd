@@ -84,6 +84,11 @@
   clip (cmd HF_BIN/hyperforge-action clip-show)
   pin  (cmd HF_BIN/hyperforge-action region-pin)
   ocr  (cmd HF_BIN/hyperforge-action region-ocr)
+  warp (cmd HF_BIN/hyperforge-action warp)
+  kal  (cmd HF_BIN/hyperforge-action keepalive)
+  xfrm (cmd HF_BIN/hyperforge-action paste-menu)
+  cmdb (cmd HF_BIN/hyperforge-action command-bar)
+  help (cmd HF_BIN/hyperforge-action cheat-sheet)
 
   ;; Space-layer helpers (macOS-ish)
   wback (multi lctl left)
@@ -121,9 +126,9 @@
 ;;   0 Center
 (deflayer hyper
   _   @brws @edit _ _ _ @stil @stl @str @sbl @sbr @thil @thir
-  _   _     _     @plain @sund @term @almx @ourl @twol @twor @clip @spv @snx @thic
-  _   @aot  @smin _ @files @goog _ _ _ _ _ _ @sm
-  _   @sund @scls @sc _ @smin @pin @snx @snip @date _
+  _   @ocr  @warp @plain @sund @term @almx @ourl @twol @twor @clip @spv @snx @thic
+  _   @aot  @smin _ @files @goog _ _ @kal _ _ @cmdb @sm
+  _   @sund @scls @sc @xfrm @smin @pin @snx @snip @date @help
   _   _     _     _ _ _
   @sl @sb   @st   @sr
   @lock _

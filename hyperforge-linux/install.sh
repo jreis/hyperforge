@@ -15,7 +15,7 @@ HF_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hyperforge-linux"
 mkdir -p "$SHARE/bin" "$BIN_DIR" "$KANATA_DIR" "$HF_CONFIG_DIR"
 
 # Scripts
-for f in hyperforge-snap hyperforge-action hyperforge-doctor hyperforge-snippet hyperforge-clip hyperforge-pin; do
+for f in hyperforge-snap hyperforge-action hyperforge-doctor hyperforge-snippet hyperforge-clip hyperforge-pin hyperforge-paste hyperforge-bar hyperforge-config; do
   cp "$ROOT/bin/$f" "$SHARE/bin/$f"
   chmod +x "$SHARE/bin/$f"
   ln -sfn "$SHARE/bin/$f" "$BIN_DIR/$f"

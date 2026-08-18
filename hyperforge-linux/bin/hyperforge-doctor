@@ -129,6 +129,8 @@ echo "HyperForge files"
 [[ -x "$ROOT/bin/hyperforge-snippet" ]] && pass "hyperforge-snippet" || soft "hyperforge-snippet missing — run install.sh"
 [[ -x "$ROOT/bin/hyperforge-clip" ]] && pass "hyperforge-clip" || soft "hyperforge-clip missing — run install.sh"
 [[ -x "$ROOT/bin/hyperforge-pin" ]] && pass "hyperforge-pin" || soft "hyperforge-pin missing — run install.sh"
+[[ -x "$ROOT/bin/hyperforge-paste" ]] && pass "hyperforge-paste" || soft "hyperforge-paste missing — run install.sh"
+[[ -x "$ROOT/bin/hyperforge-bar" ]] && pass "hyperforge-bar" || soft "hyperforge-bar missing — run install.sh"
 have grim && have slurp && pass "grim + slurp (region pin)" \
   || soft "grim + slurp needed for Hyper+N region pin"
 python3 -c 'import gi; gi.require_version("Gtk","4.0"); from gi.repository import Gtk' >/dev/null 2>&1 \

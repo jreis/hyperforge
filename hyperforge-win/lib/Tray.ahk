@@ -9,6 +9,10 @@ InitTray() {
     tray.Add("Pause Hyper (toggle)", ToggleHyperPause)
     tray.Add()
     tray.Add("Reload HyperForge", (*) => Reload())
+    tray.Add("Export config…", (*) => ExportHyperForgeConfig())
+    tray.Add("Import config…", (*) => ImportHyperForgeConfig())
+    tray.Add("Cheat sheet", (*) => ShowCheatSheet())
+    tray.Add("Command bar", (*) => ShowCommandBar())
     tray.Add("Edit config.ini", (*) => {
         cfg := A_ScriptDir "\config.ini"
         if !FileExist(cfg)

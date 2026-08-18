@@ -105,6 +105,12 @@ See [kanata Linux docs](https://github.com/jtroo/kanata/blob/main/docs/setup-lin
 | Hyper + , | **Snippet picker** (rofi/wofi/fzf) |
 | Hyper + P | **Clipboard history** (pinned/searchable picker) |
 | Hyper + N | **Pin screen region** (stay-on-top; copy / save / OCR) |
+| Hyper + Q | **OCR region** → clipboard |
+| Hyper + V | **Paste transforms** (base64, URL, linefeeds…) |
+| Hyper + W | Warp mouse to focused window |
+| Hyper + K | Keep-alive toggle |
+| Hyper + / | Cheat sheet / command catalog |
+| Hyper + ' | **Command bar** (search + run) |
 | Hyper + C | Center |
 | Hyper + A | Always on top / pin (best-effort) |
 | Hyper + B / S | Minimize |
@@ -224,6 +230,9 @@ hyperforge-linux/
 │   ├── hyperforge-snippet   # {{token}} text expansion
 │   ├── hyperforge-clip      # persisted/pinned clipboard history
 │   ├── hyperforge-pin       # stay-on-top region capture
+│   ├── hyperforge-paste     # clipboard transforms
+│   ├── hyperforge-bar       # command bar + cheat sheet
+│   ├── hyperforge-config    # export/import snippets + clip history
 │   ├── hyperforge-doctor
 │   └── hyperforge-smoke     # logic smoke tests (not installed to PATH)
 ├── kanata/
@@ -262,7 +271,8 @@ Adjust `HF_BIN` paths if you install elsewhere (install.sh rewrites them).
 | Clipboard history | Hyper+V panel, persisted/pinned/searchable | Hyper+P picker, persisted/pinned/searchable |
 | Profiles / auto-triggers | Wi‑Fi / app / time, per-app overrides | Not ported — no per-process/per-app layer switching here |
 | Region pin | Hyper+P stay-on-top capture | Hyper+N (grim/slurp + GTK pin; copy / save / OCR) |
-| OCR / command bar / Shortcuts / AX recipes | Built-in (Vision, Ollama, AppleScript, Accessibility) | OCR from the pin menu via tesseract; the rest not ported |
+| OCR / command bar / cheat sheet | Built-in | Hyper+Q OCR · Hyper+' command bar · Hyper+/ cheat sheet |
+| Shortcuts / AX recipes | Built-in | Not ported |
 | Windows | AX / AppKit | hyprctl / sway / wmctrl |
 | UI | SwiftUI + Infernal skin | CLI + notify-send |
 | Goal | Full companion | Same muscle memory |
