@@ -33,6 +33,10 @@ Supporting/AppIcon.iconset/
 /tmp/hyperforge*
 hyperforge-events.log
 
+# Python
+__pycache__/
+*.py[cod]
+
 # Editor / IDE
 .idea/
 .vscode/

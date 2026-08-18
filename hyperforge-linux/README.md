@@ -2,7 +2,7 @@
 
 **Caps → Hyper · Space-layer HJKL · window snaps · snippets · clipboard history** for Linux — same muscle memory as the macOS app.
 
-**Parity target:** current macOS HyperForge window pad (halves/quarters/**thirds/two-thirds/almost-max**/tile-all/undo), `{{token}}` **snippets**, a persisted/pinned **clipboard history**, and the Space nav subset. This is **not** a Swift/AppKit port. Not ported — no Linux equivalent shipped here: **OCR region**, **region pin**, the **Ollama command bar**, **Shortcuts** integration, **AX recipe recording**, and **profiles/auto-triggers** (all macOS-API-specific).
+**Parity target:** current macOS HyperForge window pad (halves/quarters/**thirds/two-thirds/almost-max**/tile-all/undo), `{{token}}` **snippets**, a persisted/pinned **clipboard history**, a **region pin** (stay-on-top capture), and the Space nav subset. This is **not** a Swift/AppKit port. Not ported: the **Ollama command bar**, **Shortcuts** integration, **AX recipe recording**, and **profiles/auto-triggers** (macOS-API-specific).
 
 | Piece | Role |
 |-------|------|
@@ -26,7 +26,7 @@ Sibling of:
 - Linux with either:
   - **Wayland:** Hyprland or Sway (best), or  
   - **X11:** `wmctrl` + `xdotool`
-- **kanata** (or keyd)
+- **kanata** built **with `cmd`** (or keyd). `cargo install kanata` is not enough — use `cargo install kanata --features cmd`. Distro packages named `kanata` / `kanata-bin` are often compiled *without* `cmd`; you want a `cmd`-allowed build.
 - `jq` for Hyprland geometry snaps  
 - Optional: `notify-send`, `wtype` / `ydotool`, `wl-clipboard`
 - Optional: `rofi` or `wofi` for the snippet (Hyper+,) and clipboard (Hyper+P) pickers
@@ -41,13 +41,13 @@ chmod +x install.sh bin/*
 ./install.sh
 ```
 
-Install **kanata**, then:
+Install **kanata with `cmd` enabled**, then:
 
 ```bash
 # foreground test
 kanata -c ~/.config/kanata/hyperforge.kbd
 
-# or user service
+# start with the desktop (Omarchy / UWSM / Hyprland)
 systemctl --user daemon-reload
 systemctl --user enable --now hyperforge-kanata.service
 
@@ -55,12 +55,20 @@ systemctl --user enable --now hyperforge-kanata.service
 systemctl --user enable --now hyperforge-clipboard.service
 ```
 
+On Omarchy the units are `WantedBy=graphical-session.target`, so they start with Hyprland (not at the greeter) and inherit `WAYLAND_DISPLAY` / `HYPRLAND_*` — required for snaps and the clipboard watcher. Do **not** add kanata to `~/.config/hypr/autostart.lua`; the systemd unit already restarts on failure.
+
 Edit `~/.config/hyperforge-linux/snippets.conf` (seeded by `install.sh`) to add your own snippets.
 
 Health check:
 
 ```bash
 hyperforge-doctor
+```
+
+Logic smoke tests (no compositor, uinput, or live kanata — same idea as macOS `swift run HyperForgeSmoke`):
+
+```bash
+./bin/hyperforge-smoke
 ```
 
 ### uinput / permissions
@@ -96,12 +104,14 @@ See [kanata Linux docs](https://github.com/jtroo/kanata/blob/main/docs/setup-lin
 | Hyper + Y | **Almost-max** (~90% centered) |
 | Hyper + , | **Snippet picker** (rofi/wofi/fzf) |
 | Hyper + P | **Clipboard history** (pinned/searchable picker) |
+| Hyper + N | **Pin screen region** (stay-on-top; copy / save / OCR) |
 | Hyper + C | Center |
 | Hyper + A | Always on top / pin (best-effort) |
 | Hyper + B / S | Minimize |
 | Hyper + X | Close |
 | Hyper + Z | Undo layout (Hyprland restores last snap batch) |
-| Hyper + M | Next monitor / output |
+| Hyper + M / ] | Next monitor (keeps the same relative snap) |
+| Hyper + [ | Previous monitor |
 | Hyper + T | Terminal |
 | Hyper + F | Files |
 | Hyper + 1 / 2 | Browser / Editor |
@@ -145,6 +155,20 @@ are chord/picker-triggered instead. Configure `~/.config/hyperforge-linux/snippe
 spawned terminal); `hyperforge-snippet <name>` types one directly (bind it to
 your own chord if you want a specific snippet on a dedicated key).
 
+### Region pin (Hyper + N)
+
+Drag-select a screen region (same slurp/grim path as Omarchy screenshots). The
+capture floats **always-on-top** — drag it, **Ctrl+C** or **Copy** to put the
+image on the clipboard, **Save** to write a PNG under `~/Pictures`, **OCR**
+(if `tesseract` is installed) copies recognized text, **Esc** closes. macOS
+uses Hyper+P for this; Linux Hyper+P is clipboard history.
+
+```bash
+hyperforge-pin            # select + pin
+hyperforge-pin --ocr      # select + OCR → clipboard
+hyperforge-pin --file f.png
+```
+
 ### Clipboard history (Hyper + P)
 
 `hyperforge-clip watch` (via `hyperforge-clipboard.service`) records clipboard
@@ -170,7 +194,7 @@ script); pinned entries never evict.
 | Space + 0 / 4 (or Home/End keys on layer) | Line edges |
 | Space + Q / M | Escape / Return |
 
-Hold threshold default **200ms** (same idea as macOS SpaceFN). Edit `$tap` in `kanata/hyperforge.kbd`.
+Hold threshold default **200ms** (same idea as macOS SpaceFN). Edit `$tap` / `$hold` in `kanata/hyperforge.kbd`.
 
 ---
 
@@ -199,7 +223,9 @@ hyperforge-linux/
 │   ├── hyperforge-action    # Hyper command targets (snaps, apps, snippets, clipboard)
 │   ├── hyperforge-snippet   # {{token}} text expansion
 │   ├── hyperforge-clip      # persisted/pinned clipboard history
-│   └── hyperforge-doctor
+│   ├── hyperforge-pin       # stay-on-top region capture
+│   ├── hyperforge-doctor
+│   └── hyperforge-smoke     # logic smoke tests (not installed to PATH)
 ├── kanata/
 │   └── hyperforge.kbd       # primary config (numpad + Space nav)
 ├── keyd/
@@ -235,7 +261,8 @@ Adjust `HF_BIN` paths if you install elsewhere (install.sh rewrites them).
 | Snippets | Typed-trigger hotstrings, `{{token}}` set | **Same tokens**, chord/picker-triggered (kanata can't watch typed text) |
 | Clipboard history | Hyper+V panel, persisted/pinned/searchable | Hyper+P picker, persisted/pinned/searchable |
 | Profiles / auto-triggers | Wi‑Fi / app / time, per-app overrides | Not ported — no per-process/per-app layer switching here |
-| OCR / region pin / command bar / Shortcuts / AX recipes | Built-in (Vision, Ollama, AppleScript, Accessibility) | Not ported — macOS-API-specific |
+| Region pin | Hyper+P stay-on-top capture | Hyper+N (grim/slurp + GTK pin; copy / save / OCR) |
+| OCR / command bar / Shortcuts / AX recipes | Built-in (Vision, Ollama, AppleScript, Accessibility) | OCR from the pin menu via tesseract; the rest not ported |
 | Windows | AX / AppKit | hyprctl / sway / wmctrl |
 | UI | SwiftUI + Infernal skin | CLI + notify-send |
 | Goal | Full companion | Same muscle memory |
@@ -255,17 +282,26 @@ Adjust `HF_BIN` paths if you install elsewhere (install.sh rewrites them).
 
 | Symptom | Fix |
 |---------|-----|
+| `./bin/hyperforge-smoke` fails | logic regression — see the ✗ line; does not need a running compositor |
+| `cmd is not enabled for this kanata executable` | rebuild with `cargo install kanata --features cmd` (or install a `cmd_allowed` binary) |
+| Caps / Space / chords do nothing | Two common causes: (1) kanata grabbed `System Control` — `sudo usermod -aG input "$USER"` and log out. (2) **Keychron/VIA already maps Caps to Ctrl+Alt+Super** (no `KEY_CAPSLOCK`). On Omarchy, copy `hypr/omarchy-bindings.lua` into `~/.config/hypr/bindings.lua`. |
 | kanata can’t open devices | input group, uinput udev, log out |
-| Snaps do nothing on Hyprland | install `jq`; run `hyperforge-snap left` in a terminal |
+| Snaps do nothing on Hyprland | Hyprland 0.55+ needs Lua `hyprctl dispatch` (this kit now does). Run `hyperforge-snap left` in a terminal — it should float the focused window to the left half. If that works but Caps+arrow does not, hold Caps then press the arrow (or update to `tap-hold-press`). |
 | Numpad pad silent | ensure keyboard sends `kp0`–`kp9`; laptop may need Fn |
-| Space layer feels sticky | lower `$tap` (e.g. 120) in `hyperforge.kbd` |
+| Space layer feels sticky | lower `$tap` / `$hold` (e.g. 120) in `hyperforge.kbd` |
 | Want 4-mod Hyper for apps | use a separate kanata alias with `(multi lctl lalt lmet lsft)` instead of a layer |
-| Hyper+, / Hyper+P do nothing | install `rofi` or `wofi` (or `fzf` + a terminal emulator) |
+| Hyper+, / Hyper+P do nothing | on Omarchy the overlay picker (`omarchy-menu-select`) is used; elsewhere install `rofi` or `wofi`. Release Caps before choosing — leftover Ctrl+Alt+Super turns each letter into another Hyper chord. |
 | Clipboard history stays empty | `systemctl --user enable --now hyperforge-clipboard.service` (not started by `hyperforge-kanata.service`) |
 | Snippet types nothing | check the trigger name matches a key in `~/.config/hyperforge-linux/snippets.conf` (not the reserved `date_format` key) |
 
-Doctor:
+Doctor (session / permissions / helpers):
 
 ```bash
 hyperforge-doctor
+```
+
+Smoke (pure logic — action routing, snap math, snippets, clipboard store, kanata/keyd shape):
+
+```bash
+./bin/hyperforge-smoke
 ```

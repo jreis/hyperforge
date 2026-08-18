@@ -295,11 +295,12 @@ hyperforge-win/README.md        # setup + chords
 [`hyperforge-linux/`](hyperforge-linux/) keeps the same Hyper window pad (including thirds/two-thirds/almost-max), the same `{{token}}` **snippets** (chord/picker-triggered — kanata can't watch typed text), a persisted/pinned **clipboard history** (Hyper+P), and a Space-layer subset via **kanata** (or keyd) plus small snap scripts for Hyprland / Sway / X11.
 
 ```text
-hyperforge-linux/install.sh     # install configs + bin helpers
-hyperforge-linux/README.md      # setup + chords
+hyperforge-linux/install.sh           # install configs + bin helpers
+hyperforge-linux/bin/hyperforge-smoke # logic smoke tests (no compositor)
+hyperforge-linux/README.md            # setup + chords
 ```
 
-**Not ported to Windows or Linux** (macOS-API-specific — Vision, Ollama, AppleScript, Accessibility): OCR region, region pin, the Ollama command bar, Shortcuts integration, AX recipe recording, and profiles/auto-triggers. See each kit's README for its own "Relation to macOS HyperForge" table.
+**Not ported to Windows or Linux** (macOS-API-specific — Vision, Ollama, AppleScript, Accessibility): the Ollama command bar, Shortcuts integration, AX recipe recording, and profiles/auto-triggers. Linux now has a stay-on-top **region pin** (Hyper+N). See each kit's README for its own "Relation to macOS HyperForge" table.
 
 ## Origin
 

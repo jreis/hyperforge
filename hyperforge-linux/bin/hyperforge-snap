@@ -1,18 +1,60 @@
 #!/usr/bin/env bash
 # hyperforge-snap — window snaps for Hyprland, Sway/i3, or X11.
-# Usage: hyperforge-snap <left|right|top|bottom|max|center|tl|tr|bl|br|min|close|next-mon|undo|tile|
+# Usage: hyperforge-snap <left|right|top|bottom|max|center|tl|tr|bl|br|min|close|next-mon|prev-mon|undo|tile|
 #                         third-l|third-c|third-r|twothird-l|twothird-r|almost-max>
+#        hyperforge-snap --print-geom <width> <height> <action>
 # Muscle memory aligned with current macOS HyperForge where the compositor allows.
 set -euo pipefail
 
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# Monitor-relative geometry. Prints: nx ny nw nh. Exit 2 for non-geometry actions.
+compute_geom() {
+  local mx="$1" my="$2" mw="$3" mh="$4" action="$5"
+  local nx="$mx" ny="$my" nw="$mw" nh="$mh"
+  case "$action" in
+    left)        nw=$((mw / 2)); nh=$mh; nx=$mx; ny=$my ;;
+    right)       nw=$((mw / 2)); nh=$mh; nx=$((mx + mw / 2)); ny=$my ;;
+    top)         nw=$mw; nh=$((mh / 2)); nx=$mx; ny=$my ;;
+    bottom)      nw=$mw; nh=$((mh / 2)); nx=$mx; ny=$((my + mh / 2)) ;;
+    max)         nw=$mw; nh=$mh; nx=$mx; ny=$my ;;
+    center)
+      nw=$((mw * 2 / 3)); nh=$((mh * 2 / 3))
+      nx=$((mx + (mw - nw) / 2)); ny=$((my + (mh - nh) / 2))
+      ;;
+    tl)          nw=$((mw / 2)); nh=$((mh / 2)); nx=$mx; ny=$my ;;
+    tr)          nw=$((mw / 2)); nh=$((mh / 2)); nx=$((mx + mw / 2)); ny=$my ;;
+    bl)          nw=$((mw / 2)); nh=$((mh / 2)); nx=$mx; ny=$((my + mh / 2)) ;;
+    br)          nw=$((mw / 2)); nh=$((mh / 2)); nx=$((mx + mw / 2)); ny=$((my + mh / 2)) ;;
+    third-l)     nw=$((mw / 3)); nh=$mh; nx=$mx; ny=$my ;;
+    third-c)     nw=$((mw / 3)); nh=$mh; nx=$((mx + mw / 3)); ny=$my ;;
+    third-r)     nw=$((mw / 3)); nh=$mh; nx=$((mx + 2 * mw / 3)); ny=$my ;;
+    twothird-l)  nw=$((mw * 2 / 3)); nh=$mh; nx=$mx; ny=$my ;;
+    twothird-r)  nw=$((mw * 2 / 3)); nh=$mh; nx=$((mx + mw / 3)); ny=$my ;;
+    almost-max)
+      nw=$((mw * 90 / 100)); nh=$((mh * 90 / 100))
+      nx=$((mx + mw * 5 / 100)); ny=$((my + mh * 5 / 100))
+      ;;
+    *) return 2 ;;
+  esac
+  printf '%s %s %s %s\n' "$nx" "$ny" "$nw" "$nh"
+}
+
+if [[ "${1:-}" == "--print-geom" ]]; then
+  if [[ $# -ne 4 ]]; then
+    echo "usage: $0 --print-geom <width> <height> <action>" >&2
+    exit 2
+  fi
+  compute_geom 0 0 "$2" "$3" "$4"
+  exit $?
+fi
+
 action="${1:-}"
 if [[ -z "$action" ]]; then
-  echo "usage: $0 <left|right|top|bottom|max|center|tl|tr|bl|br|min|close|next-mon|undo|tile|" >&2
+  echo "usage: $0 <left|right|top|bottom|max|center|tl|tr|bl|br|min|close|next-mon|prev-mon|undo|tile|" >&2
   echo "           third-l|third-c|third-r|twothird-l|twothird-r|almost-max>" >&2
   exit 2
 fi
-
-have() { command -v "$1" >/dev/null 2>&1; }
 
 UNDO_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/hyperforge-linux"
 UNDO_FILE="$UNDO_DIR/last-layout.json"
@@ -25,6 +67,143 @@ save_hypr_layout() {
   }]' >"$UNDO_FILE" 2>/dev/null || true
 }
 
+# Hyprland 0.55+ (Omarchy) parses `hyprctl dispatch` as Lua. Old
+# `resizeactive exact W H` dies with "')' expected near 'exact'" (exit 7).
+# Prefer the Lua API; fall back to hyprlang dispatchers on older builds.
+hypr() {
+  local lua="$1"
+  shift
+  hyprctl dispatch "$lua" >/dev/null 2>&1 && return 0
+  [[ $# -gt 0 ]] || return 1
+  hyprctl dispatch "$@" >/dev/null 2>&1
+}
+
+hypr_win() {
+  # $1 = address (0x…) or empty for the active window
+  local addr="${1:-}"
+  local win=""
+  [[ -n "$addr" && "$addr" != "null" ]] && win=", window = \"address:$addr\""
+  printf '%s' "$win"
+}
+
+hypr_float_on() {
+  local addr="${1:-}" win floating
+  win="$(hypr_win "$addr")"
+  if [[ -n "$addr" ]]; then
+    floating="$(hyprctl clients -j | jq -r --arg a "$addr" '.[] | select(.address == $a) | .floating' 2>/dev/null || true)"
+  else
+    floating="$(hyprctl activewindow -j | jq -r '.floating' 2>/dev/null || true)"
+  fi
+  if [[ "$floating" != "true" ]]; then
+    hypr "hl.dsp.window.float({ action = \"toggle\"${win} })" togglefloating 1 ${addr:+"address:$addr"}
+  fi
+}
+
+hypr_place() {
+  local addr="$1" nx="$2" ny="$3" nw="$4" nh="$5"
+  local win
+  win="$(hypr_win "$addr")"
+  hypr_float_on "$addr"
+  hypr "hl.dsp.window.resize({ x = ${nw}, y = ${nh}${win} })" \
+    resizeactive exact "$nw" "$nh" ${addr:+"address:$addr"}
+  hypr "hl.dsp.window.move({ x = ${nx}, y = ${ny}${win} })" \
+    moveactive exact "$nx" "$ny" ${addr:+"address:$addr"}
+}
+
+hypr_gap() {
+  # $1 = general:gaps_out | general:gaps_in
+  hyprctl getoption "$1" -j 2>/dev/null | jq -r '
+    if .css then (.css | split(" ")[0])
+    elif .int then .int
+    else 0 end
+  ' 2>/dev/null || echo 0
+}
+
+# Usable monitor rect in *logical* pixels (Hyprland move/resize units).
+# width/height from hyprctl are physical; x/y and window size are logical.
+# Subtract reserved (bar) and gaps_out so a "max" snap matches a tiled full window.
+hypr_mon_rect() {
+  local mon_id="$1" gout
+  gout="$(hypr_gap general:gaps_out)"
+  [[ "$gout" =~ ^[0-9]+$ ]] || gout=0
+  hyprctl monitors -j | jq -r --argjson id "$mon_id" --argjson gout "$gout" '
+    (map(select(.id == $id)) | .[0] // .[0]) as $m
+    | (if ($m.scale // 1) == 0 then 1 else ($m.scale // 1) end) as $s
+    | ($m.reserved // [0,0,0,0]) as $r
+    | (($m.width / $s) | floor) as $lw
+    | (($m.height / $s) | floor) as $lh
+    | "\($m.x + $r[0] + $gout) \($m.y + $r[1] + $gout) \($lw - $r[0] - $r[2] - 2 * $gout) \($lh - $r[1] - $r[3] - 2 * $gout)"
+  '
+}
+
+# Monitor id whose logical bounds contain the window center (more reliable
+# than .monitor after a float/resize across outputs).
+hypr_mon_at_point() {
+  local px="$1" py="$2"
+  hyprctl monitors -j | jq -r --argjson px "$px" --argjson py "$py" '
+    map(select(
+      (if (.scale // 1) == 0 then 1 else (.scale // 1) end) as $s
+      | ((.width / $s) | floor) as $lw
+      | ((.height / $s) | floor) as $lh
+      | $px >= .x and $px < (.x + $lw) and $py >= .y and $py < (.y + $lh)
+    ))
+    | if length == 0 then empty else .[0].id end
+  '
+}
+
+# Cycle the active window to the next/prev monitor (left-to-right).
+# Floating windows keep the same relative snap (left half stays left half).
+# Tiled windows stay tiled on the destination.
+hypr_move_mon() {
+  local delta="$1"
+  local win floating dest_id dest_name n cur=-1 i
+  local atx aty ww hh mon_id
+  win="$(hyprctl activewindow -j)"
+  floating="$(jq -r '.floating' <<<"$win")"
+  read -r atx aty ww hh < <(jq -r '"\(.at[0]) \(.at[1]) \(.size[0]) \(.size[1])"' <<<"$win")
+  mon_id="$(hypr_mon_at_point "$((atx + ww / 2))" "$((aty + hh / 2))")"
+  [[ -n "$mon_id" ]] || mon_id="$(jq -r '.monitor' <<<"$win")"
+
+  mapfile -t ids < <(hyprctl monitors -j | jq -r 'sort_by(.x) | .[].id')
+  n="${#ids[@]}"
+  if [[ "$n" -lt 2 ]]; then
+    echo "hyperforge-snap: only one monitor" >&2
+    return 1
+  fi
+  for i in "${!ids[@]}"; do
+    if [[ "${ids[$i]}" == "$mon_id" ]]; then cur="$i"; break; fi
+  done
+  [[ "$cur" -ge 0 ]] || cur=0
+  dest_id="${ids[$(( (cur + delta + n) % n ))]}"
+  dest_name="$(hyprctl monitors -j | jq -r --argjson id "$dest_id" '.[] | select(.id == $id) | .name')"
+
+  if [[ "$floating" != "true" ]]; then
+    hypr "hl.dsp.window.move({ monitor = \"${dest_name}\" })" movewindow "mon:${dest_name}"
+    return
+  fi
+
+  local sx sy sw sh dx dy dw dh nx ny nw nh
+  read -r sx sy sw sh < <(hypr_mon_rect "$mon_id")
+  read -r dx dy dw dh < <(hypr_mon_rect "$dest_id")
+  [[ "$sw" -lt 1 ]] && sw=1
+  [[ "$sh" -lt 1 ]] && sh=1
+  nw=$(( ww * dw / sw ))
+  nh=$(( hh * dh / sh ))
+  nx=$(( dx + (atx - sx) * dw / sw ))
+  ny=$(( dy + (aty - sy) * dh / sh ))
+  [[ "$nw" -gt "$dw" ]] && nw=$dw
+  [[ "$nh" -gt "$dh" ]] && nh=$dh
+  [[ "$nw" -lt 1 ]] && nw=1
+  [[ "$nh" -lt 1 ]] && nh=1
+  [[ "$nx" -lt "$dx" ]] && nx=$dx
+  [[ "$ny" -lt "$dy" ]] && ny=$dy
+  [[ $((nx + nw)) -gt $((dx + dw)) ]] && nx=$((dx + dw - nw))
+  [[ $((ny + nh)) -gt $((dy + dh)) ]] && ny=$((dy + dh - nh))
+
+  hypr "hl.dsp.window.move({ monitor = \"${dest_name}\" })" movewindow "mon:${dest_name}"
+  hypr_place "" "$nx" "$ny" "$nw" "$nh"
+}
+
 # ── Hyprland (geometry) ───────────────────────────────────────────────
 snap_hypr() {
   if ! have jq; then
@@ -32,32 +211,45 @@ snap_hypr() {
     exit 1
   fi
   case "$action" in
-    min)   hyprctl dispatch movetoworkspacesilent special:minimized >/dev/null; return ;;
-    close) hyprctl dispatch killactive >/dev/null; return ;;
-    next-mon) hyprctl dispatch movewindow mon:+1 >/dev/null; return ;;
+    min)
+      hypr 'hl.dsp.window.move({ workspace = "special:minimized", follow = false })' \
+        movetoworkspacesilent special:minimized
+      return
+      ;;
+    close)
+      hypr 'hl.dsp.window.close()' killactive
+      return
+      ;;
+    next-mon)
+      hypr_move_mon +1
+      return
+      ;;
+    prev-mon)
+      hypr_move_mon -1
+      return
+      ;;
     undo)
       if [[ -f "$UNDO_FILE" ]]; then
-        # Best-effort restore of last tile/snap batch addresses
         while read -r addr fx fy fw fh; do
           [[ -z "$addr" || "$addr" == "null" ]] && continue
-          hyprctl dispatch focuswindow "address:$addr" >/dev/null 2>&1 || continue
-          hyprctl dispatch togglefloating 1 >/dev/null 2>&1 || true
-          hyprctl dispatch resizeactive exact "$fw" "$fh" >/dev/null 2>&1 || true
-          hyprctl dispatch moveactive exact "$fx" "$fy" >/dev/null 2>&1 || true
+          hypr "hl.dsp.focus({ window = \"address:$addr\" })" focuswindow "address:$addr" || continue
+          hypr_place "$addr" "$fx" "$fy" "$fw" "$fh" || true
         done < <(jq -r '.[] | "\(.address) \(.at[0]) \(.at[1]) \(.size[0]) \(.size[1])"' "$UNDO_FILE" 2>/dev/null)
         rm -f "$UNDO_FILE"
       else
-        hyprctl dispatch togglefloating 0 >/dev/null 2>&1 || true
+        local floating
+        floating="$(hyprctl activewindow -j | jq -r '.floating' 2>/dev/null || true)"
+        if [[ "$floating" == "true" ]]; then
+          hypr 'hl.dsp.window.float({ action = "toggle" })' togglefloating 0
+        fi
       fi
       return
       ;;
     tile)
       save_hypr_layout
-      local mon_id clients n cols rows i
+      local mon_id clients n cols rows i mx my mw mh
       mon_id="$(hyprctl activewindow -j | jq -r '.monitor')"
-      read -r mx my mw mh < <(hyprctl monitors -j | jq -r --argjson id "$mon_id" '
-        (map(select(.id == $id)) | .[0] // .[0]) | "\(.x) \(.y) \(.width) \(.height)"
-      ')
+      read -r mx my mw mh < <(hypr_mon_rect "$mon_id")
       mapfile -t clients < <(hyprctl clients -j | jq -r --argjson mid "$mon_id" '
         [.[] | select(.mapped == true and .hidden == false and .monitor == $mid
           and (.workspace.id // 0) > 0)]
@@ -76,10 +268,7 @@ snap_hypr() {
       for addr in "${clients[@]}"; do
         local col=$((i % cols)) row=$((i / cols))
         local nx=$((mx + col * cellw)) ny=$((my + row * cellh))
-        hyprctl dispatch focuswindow "address:$addr" >/dev/null
-        hyprctl dispatch togglefloating 1 >/dev/null 2>&1 || true
-        hyprctl dispatch resizeactive exact "$cellw" "$cellh" >/dev/null
-        hyprctl dispatch moveactive exact "$nx" "$ny" >/dev/null
+        hypr_place "$addr" "$nx" "$ny" "$cellw" "$cellh"
         i=$((i + 1))
       done
       return
@@ -88,41 +277,16 @@ snap_hypr() {
 
   save_hypr_layout
 
-  local mon_id
+  local mon_id geom mx my mw mh nx ny nw nh
   mon_id="$(hyprctl activewindow -j | jq -r '.monitor')"
-  read -r mx my mw mh < <(hyprctl monitors -j | jq -r --argjson id "$mon_id" '
-    (map(select(.id == $id)) | .[0] // .[0]) | "\(.x) \(.y) \(.width) \(.height)"
-  ')
+  read -r mx my mw mh < <(hypr_mon_rect "$mon_id")
 
-  local nx="$mx" ny="$my" nw="$mw" nh="$mh"
-  case "$action" in
-    left)   nw=$((mw / 2)); nh=$mh; nx=$mx; ny=$my ;;
-    right)  nw=$((mw / 2)); nh=$mh; nx=$((mx + mw / 2)); ny=$my ;;
-    top)    nw=$mw; nh=$((mh / 2)); nx=$mx; ny=$my ;;
-    bottom) nw=$mw; nh=$((mh / 2)); nx=$mx; ny=$((my + mh / 2)) ;;
-    max)    nw=$mw; nh=$mh; nx=$mx; ny=$my ;;
-    center)
-      # Keep-ish size: 2/3 (mac center keeps size; geometry fallback)
-      nw=$((mw * 2 / 3)); nh=$((mh * 2 / 3))
-      nx=$((mx + (mw - nw) / 2)); ny=$((my + (mh - nh) / 2))
-      ;;
-    tl) nw=$((mw / 2)); nh=$((mh / 2)); nx=$mx; ny=$my ;;
-    tr) nw=$((mw / 2)); nh=$((mh / 2)); nx=$((mx + mw / 2)); ny=$my ;;
-    bl) nw=$((mw / 2)); nh=$((mh / 2)); nx=$mx; ny=$((my + mh / 2)) ;;
-    br) nw=$((mw / 2)); nh=$((mh / 2)); nx=$((mx + mw / 2)); ny=$((my + mh / 2)) ;;
-    third-l)     nw=$((mw / 3)); nh=$mh; nx=$mx; ny=$my ;;
-    third-c)     nw=$((mw / 3)); nh=$mh; nx=$((mx + mw / 3)); ny=$my ;;
-    third-r)     nw=$((mw / 3)); nh=$mh; nx=$((mx + 2 * mw / 3)); ny=$my ;;
-    twothird-l)  nw=$((mw * 2 / 3)); nh=$mh; nx=$mx; ny=$my ;;
-    twothird-r)  nw=$((mw * 2 / 3)); nh=$mh; nx=$((mx + mw / 3)); ny=$my ;;
-    almost-max)  nw=$((mw * 90 / 100)); nh=$((mh * 90 / 100)); nx=$((mx + mw * 5 / 100)); ny=$((my + mh * 5 / 100)) ;;
-    *) echo "unknown action: $action" >&2; exit 2 ;;
-  esac
-
-  # Floating exact place is the most reliable half/quarter snap across Hyprland versions
-  hyprctl dispatch togglefloating 1 >/dev/null 2>&1 || true
-  hyprctl dispatch resizeactive exact "$nw" "$nh" >/dev/null
-  hyprctl dispatch moveactive exact "$nx" "$ny" >/dev/null
+  geom="$(compute_geom "$mx" "$my" "$mw" "$mh" "$action")" || {
+    echo "unknown action: $action" >&2
+    exit 2
+  }
+  read -r nx ny nw nh <<<"$geom"
+  hypr_place "" "$nx" "$ny" "$nw" "$nh"
 }
 
 # ── Sway ──────────────────────────────────────────────────────────────
@@ -147,7 +311,8 @@ snap_sway() {
     almost-max) $msg "fullscreen disable; floating enable; resize set 90 ppt 90 ppt; move position center" ;;
     min)    $msg "move window to scratchpad" ;;
     close)  $msg kill ;;
-    next-mon) $msg "move workspace to output right" ;;
+    next-mon) $msg "move container to output right" ;;
+    prev-mon) $msg "move container to output left" ;;
     undo)   $msg "floating disable" ;;
     tile)
       # Best-effort: equal-split tiling on the focused container tree
@@ -165,33 +330,15 @@ snap_x11() {
     echo "hyperforge-snap: need wmctrl + xdotool on X11" >&2
     exit 1
   fi
-  local win sw sh
+  local win sw sh geom nx ny nw nh
   win="$(xdotool getactivewindow)"
   read -r sw sh < <(xdpyinfo | awk '/dimensions/{print $2}' | tr 'x' ' ')
-  local nw=$sw nh=$sh nx=0 ny=0
   case "$action" in
-    left)   nw=$((sw / 2)); nh=$sh; nx=0; ny=0 ;;
-    right)  nw=$((sw / 2)); nh=$sh; nx=$((sw / 2)); ny=0 ;;
-    top)    nw=$sw; nh=$((sh / 2)); nx=0; ny=0 ;;
-    bottom) nw=$sw; nh=$((sh / 2)); nx=0; ny=$((sh / 2)) ;;
     max)    wmctrl -ir "$win" -b add,maximized_vert,maximized_horz; return ;;
-    center)
-      nw=$((sw * 2 / 3)); nh=$((sh * 2 / 3))
-      nx=$(((sw - nw) / 2)); ny=$(((sh - nh) / 2))
-      ;;
-    tl) nw=$((sw / 2)); nh=$((sh / 2)); nx=0; ny=0 ;;
-    tr) nw=$((sw / 2)); nh=$((sh / 2)); nx=$((sw / 2)); ny=0 ;;
-    bl) nw=$((sw / 2)); nh=$((sh / 2)); nx=0; ny=$((sh / 2)) ;;
-    br) nw=$((sw / 2)); nh=$((sh / 2)); nx=$((sw / 2)); ny=$((sh / 2)) ;;
-    third-l)    nw=$((sw / 3)); nh=$sh; nx=0; ny=0 ;;
-    third-c)    nw=$((sw / 3)); nh=$sh; nx=$((sw / 3)); ny=0 ;;
-    third-r)    nw=$((sw / 3)); nh=$sh; nx=$((2 * sw / 3)); ny=0 ;;
-    twothird-l) nw=$((sw * 2 / 3)); nh=$sh; nx=0; ny=0 ;;
-    twothird-r) nw=$((sw * 2 / 3)); nh=$sh; nx=$((sw / 3)); ny=0 ;;
-    almost-max) nw=$((sw * 9 / 10)); nh=$((sh * 9 / 10)); nx=$((sw / 20)); ny=$((sh / 20)) ;;
     min) xdotool windowminimize "$win"; return ;;
     close) wmctrl -ic "$win"; return ;;
     next-mon) wmctrl -ir "$win" -b remove,maximized_vert,maximized_horz; return ;;
+    prev-mon) wmctrl -ir "$win" -b remove,maximized_vert,maximized_horz; return ;;
     undo) wmctrl -ir "$win" -b remove,maximized_vert,maximized_horz; return ;;
     tile)
       # Simple equal grid of visible windows on root geometry
@@ -210,7 +357,13 @@ snap_x11() {
       done
       return
       ;;
-    *) echo "unknown: $action" >&2; exit 2 ;;
+    *)
+      geom="$(compute_geom 0 0 "$sw" "$sh" "$action")" || {
+        echo "unknown: $action" >&2
+        exit 2
+      }
+      read -r nx ny nw nh <<<"$geom"
+      ;;
   esac
   wmctrl -ir "$win" -b remove,maximized_vert,maximized_horz
   wmctrl -ir "$win" -e "0,$nx,$ny,$nw,$nh"

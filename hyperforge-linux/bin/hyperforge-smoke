@@ -1,0 +1,434 @@
+#!/usr/bin/env bash
+# hyperforge-smoke — pure-logic smoke tests (no compositor / uinput / live kanata).
+# Analog of macOS `swift run HyperForgeSmoke`.
+# Run from anywhere:  hyperforge-linux/bin/hyperforge-smoke
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$HERE/.." && pwd)"
+ACTION="$HERE/hyperforge-action"
+SNAP="$HERE/hyperforge-snap"
+SNIP="$HERE/hyperforge-snippet"
+CLIP="$HERE/hyperforge-clip"
+KBD="$ROOT/kanata/hyperforge.kbd"
+KEYD="$ROOT/keyd/hyperforge.conf"
+
+failed=0
+passed=0
+skipped=0
+
+have() { command -v "$1" >/dev/null 2>&1; }
+quiet() { "$@" >/dev/null; }
+
+check() {
+  local name="$1"
+  shift
+  if "$@"; then
+    echo "  ✓ $name"
+    passed=$((passed + 1))
+  else
+    echo "  ✗ $name"
+    failed=$((failed + 1))
+  fi
+}
+
+check_eq() {
+  local name="$1" got="$2" want="$3"
+  if [[ "$got" == "$want" ]]; then
+    echo "  ✓ $name"
+    passed=$((passed + 1))
+  else
+    echo "  ✗ $name"
+    echo "      got:  ${got@Q}"
+    echo "      want: ${want@Q}"
+    failed=$((failed + 1))
+  fi
+}
+
+skip() {
+  echo "  ~ $1"
+  skipped=$((skipped + 1))
+}
+
+# Tokens in a top-level (defsrc) / (deflayer NAME) body. Ignores ;; comments.
+count_layer_tokens() {
+  local file="$1" header="$2"
+  awk -v header="$header" '
+    BEGIN { started = 0; n = 0 }
+    {
+      line = $0
+      sub(/[ \t]*;;.*/, "", line)
+    }
+    !started {
+      if (index(line, header) == 1) {
+        started = 1
+        line = substr(line, length(header) + 1)
+        gsub(/[()]/, " ", line)
+        gsub(/^[ \t]+|[ \t]+$/, "", line)
+        if (line != "") n += split(line, _, /[ \t]+/)
+      }
+      next
+    }
+    /^[ \t]*$/ { next }
+    /^\(/ { exit }
+    /^\)/ { exit }
+    {
+      gsub(/[()]/, " ", line)
+      gsub(/^[ \t]+|[ \t]+$/, "", line)
+      if (line != "") n += split(line, _, /[ \t]+/)
+    }
+    END { print n + 0 }
+  ' "$file"
+}
+
+action_ids() {
+  awk '
+    /^  [A-Za-z0-9_|-]+)([ \t]|$)/ {
+      s = $0
+      sub(/).*/, "", s)
+      gsub(/^ +/, "", s)
+      n = split(s, a, /\|/)
+      for (i = 1; i <= n; i++) {
+        if (a[i] != "" && a[i] != "*" && a[i] !~ /^-/) print a[i]
+      }
+    }
+  ' "$ACTION" | sort -u
+}
+
+kbd_action_ids() {
+  grep -oE 'hyperforge-action[[:space:]]+[A-Za-z0-9_-]+' "$KBD" \
+    | awk '{print $2}' | sort -u
+}
+
+# Action ids actually placed on a deflayer (ignores unused defalias helpers).
+kbd_bound_action_ids() {
+  awk '
+    /^\(deflayer / { on = 1; next }
+    on && /^\(/ { on = 0 }
+    on && /^\)/ { on = 0 }
+    on {
+      sub(/;;.*/, "")
+      n = split($0, a, /[ \t]+/)
+      for (i = 1; i <= n; i++) {
+        if (a[i] ~ /^@/) {
+          s = a[i]
+          sub(/^@/, "", s)
+          print s
+        }
+      }
+    }
+  ' "$KBD" | sort -u | while read -r alias; do
+    awk -v al="$alias" '
+      $1 == al && /hyperforge-action/ {
+        id = $NF
+        gsub(/[()]/, "", id)
+        print id
+      }
+    ' "$KBD"
+  done | sort -u
+}
+
+keyd_action_ids() {
+  grep -oE 'hyperforge-action[[:space:]]+[A-Za-z0-9_-]+' "$KEYD" \
+    | awk '{print $2}' | sort -u
+}
+
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/hf-smoke.XXXXXX")"
+trap 'rm -rf "$TMP"' EXIT
+
+echo "HyperForge Linux — smoke tests"
+echo "root: $ROOT"
+echo
+
+# ── Scripts parse ─────────────────────────────────────────────────────
+echo "Scripts parse"
+for f in hyperforge-action hyperforge-snap hyperforge-snippet hyperforge-clip \
+         hyperforge-doctor hyperforge-smoke; do
+  check "bash -n bin/$f" bash -n "$HERE/$f"
+done
+check "python3 -m py_compile bin/hyperforge-pin" python3 -m py_compile "$HERE/hyperforge-pin"
+check "pin --help" "$HERE/hyperforge-pin" --help
+check "bash -n install.sh" bash -n "$ROOT/install.sh"
+
+# ── Action routing (stub snap; never launch apps / lock / type) ───────
+echo
+echo "Action routing"
+check "action --help exits 0" quiet "$ACTION" --help
+help_lists_thirds() { "$ACTION" --help | grep -q win-third-l; }
+check "help lists thirds" help_lists_thirds
+rc=0
+"$ACTION" not-a-real-action >/dev/null 2>&1 || rc=$?
+check "unknown action exits 2" test "$rc" -eq 2
+
+STUB_ROOT="$TMP/root"
+mkdir -p "$STUB_ROOT/bin"
+cat >"$STUB_ROOT/bin/hyperforge-snap" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*"
+EOF
+chmod +x "$STUB_ROOT/bin/hyperforge-snap"
+
+while IFS=' ' read -r aid snap_arg; do
+  [[ -z "$aid" ]] && continue
+  got="$(HYPERFORGE_LINUX_ROOT="$STUB_ROOT" "$ACTION" "$aid")"
+  check_eq "action $aid → snap $snap_arg" "$got" "$snap_arg"
+done <<'MAP'
+win-left left
+win-right right
+win-top top
+win-bottom bottom
+win-max max
+win-center center
+win-tl tl
+win-tr tr
+win-bl bl
+win-br br
+win-min min
+win-close close
+win-next next-mon
+win-prev prev-mon
+win-undo undo
+win-tile tile
+win-third-l third-l
+win-third-c third-c
+win-third-r third-r
+win-2third-l twothird-l
+win-2third-r twothird-r
+win-almost-max almost-max
+MAP
+
+# ── Snap geometry (no compositor) ─────────────────────────────────────
+echo
+echo "Snap geometry"
+geom() { "$SNAP" --print-geom "$@"; }
+
+check_eq "left 1920x1080"   "$(geom 1920 1080 left)"   "0 0 960 1080"
+check_eq "right 1920x1080"  "$(geom 1920 1080 right)"  "960 0 960 1080"
+check_eq "top 1920x1080"    "$(geom 1920 1080 top)"    "0 0 1920 540"
+check_eq "bottom 1920x1080" "$(geom 1920 1080 bottom)" "0 540 1920 540"
+check_eq "max 1920x1080"    "$(geom 1920 1080 max)"    "0 0 1920 1080"
+check_eq "center 1920x1080" "$(geom 1920 1080 center)" "320 180 1280 720"
+check_eq "tl 1920x1080"     "$(geom 1920 1080 tl)"     "0 0 960 540"
+check_eq "tr 1920x1080"     "$(geom 1920 1080 tr)"     "960 0 960 540"
+check_eq "bl 1920x1080"     "$(geom 1920 1080 bl)"     "0 540 960 540"
+check_eq "br 1920x1080"     "$(geom 1920 1080 br)"     "960 540 960 540"
+check_eq "third-l"          "$(geom 1920 1080 third-l)"     "0 0 640 1080"
+check_eq "third-c"          "$(geom 1920 1080 third-c)"     "640 0 640 1080"
+check_eq "third-r"          "$(geom 1920 1080 third-r)"     "1280 0 640 1080"
+check_eq "twothird-l"       "$(geom 1920 1080 twothird-l)"  "0 0 1280 1080"
+check_eq "twothird-r"       "$(geom 1920 1080 twothird-r)"  "640 0 1280 1080"
+check_eq "almost-max"       "$(geom 1920 1080 almost-max)"  "96 54 1728 972"
+
+# Odd width: integer split must not overshoot.
+check_eq "left 1919"  "$(geom 1919 1080 left)"  "0 0 959 1080"
+check_eq "right 1919" "$(geom 1919 1080 right)" "959 0 959 1080"
+
+rc=0
+geom 1920 1080 not-a-snap >/dev/null 2>&1 || rc=$?
+check "unknown geom action exits 2" test "$rc" -eq 2
+
+# ── Snippets (print/expand only — never wtype) ────────────────────────
+echo
+echo "Snippets"
+CFG_HOME="$TMP/cfg"
+mkdir -p "$CFG_HOME/hyperforge-linux"
+cp "$ROOT/snippets.example.conf" "$CFG_HOME/hyperforge-linux/snippets.conf"
+snip() { XDG_CONFIG_HOME="$CFG_HOME" "$SNIP" "$@"; }
+
+check "snippet --help exits 0" quiet "$SNIP" --help
+check_eq "print email" "$(snip --print email)" "you@example.com"
+want_sig="$(printf 'Thanks,\nYour Name')"
+check_eq "print sig expands \\n" "$(snip --print sig)" "$want_sig"
+check_eq "print date" "$(snip --print date)" "today: $(date +%Y-%m-%d)"
+check_eq "print host" "$(snip --print host)" "$(hostname)"
+
+uuid="$(snip --print uuid)"
+uuid_ok() {
+  grep -Eq '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' <<<"$uuid"
+}
+check "print uuid looks like a uuid" uuid_ok
+
+ip="$(snip --print ip)"
+check "print ip does not leave {{lan-ip}}" test "$ip" != '{{lan-ip}}'
+
+rc=0
+snip --print date_format >/dev/null 2>&1 || rc=$?
+check "date_format is not a snippet" test "$rc" -ne 0
+rc=0
+snip --print missing-name >/dev/null 2>&1 || rc=$?
+check "missing snippet name fails" test "$rc" -ne 0
+
+check_eq "expand date" \
+  "$("$SNIP" --expand '{{date}}')" "$(date +%Y-%m-%d)"
+check_eq "expand date format" \
+  "$("$SNIP" --expand '{{date:MM/dd/yyyy}}')" "$(date +%m/%d/%Y)"
+check_eq "expand hostname" \
+  "$("$SNIP" --expand '{{hostname}}')" "$(hostname)"
+check_eq "expand literal newlines" \
+  "$("$SNIP" --expand 'a\nb')" "$(printf 'a\nb')"
+
+STUB_BIN="$TMP/path"
+mkdir -p "$STUB_BIN"
+printf '%s\n' '#!/bin/sh' 'printf %s CLIPTEXT' >"$STUB_BIN/wl-paste"
+chmod +x "$STUB_BIN/wl-paste"
+check_eq "expand clipboard (stub wl-paste)" \
+  "$(PATH="$STUB_BIN:$PATH" "$SNIP" --expand '{{clipboard}}')" "CLIPTEXT"
+
+# ── Clipboard store (isolated XDG; no watcher / picker / paste) ───────
+echo
+echo "Clipboard store"
+DATA_HOME="$TMP/data"
+store() { XDG_DATA_HOME="$DATA_HOME" "$CLIP" "$@"; }
+STORE="$DATA_HOME/hyperforge-linux/clipboard-history.dat"
+decode_texts() {
+  [[ -f "$STORE" ]] || return 0
+  while IFS=$'\t' read -r _p b64; do
+    [[ -z "${b64:-}" ]] && continue
+    printf '%s' "$b64" | base64 -d
+    printf '\n'
+  done <"$STORE"
+}
+
+store __record "alpha"
+store __record "beta"
+check_eq "newest first" "$(decode_texts)" "$(printf 'beta\nalpha\n')"
+
+store __record "   "
+store __record ""
+check_eq "whitespace not recorded" "$(decode_texts)" "$(printf 'beta\nalpha\n')"
+
+store __record "beta"
+check_eq "re-record moves to front, no dup" "$(decode_texts)" "$(printf 'beta\nalpha\n')"
+
+# Pin preserve: flip the flag on "beta", re-record, still pinned, still one row.
+{
+  while IFS=$'\t' read -r p b64; do
+    text="$(printf '%s' "$b64" | base64 -d)"
+    if [[ "$text" == "beta" ]]; then p=1; fi
+    printf '%s\t%s\n' "$p" "$b64"
+  done <"$STORE"
+} >"$STORE.pin" && mv "$STORE.pin" "$STORE"
+store __record "beta"
+pin_flag="$(awk -F'\t' 'NR==1{print $1}' "$STORE")"
+n_lines="$(grep -c . "$STORE" || true)"
+check_eq "re-record preserves pin" "$pin_flag" "1"
+check_eq "still two entries after pinned re-record" "$n_lines" "2"
+
+# Unpinned cap is 20; pinned never evicts.
+for i in $(seq 1 25); do
+  store __record "item-$i"
+done
+unpinned="$(awk -F'\t' '$1!="1"{c++} END{print c+0}' "$STORE")"
+has_pin="$(awk -F'\t' '$1=="1"{found=1} END{print found+0}' "$STORE")"
+check_eq "unpinned cap 20" "$unpinned" "20"
+check_eq "pinned survives unpinned flood" "$has_pin" "1"
+
+long="$(head -c 8001 /dev/zero | tr '\0' x)"
+store __record "$long"
+first="$(head -1 "$STORE" | cut -f2 | base64 -d | wc -c)"
+check_eq "records truncate at 8000" "$first" "8000"
+
+# ── Kanata config shape ───────────────────────────────────────────────
+echo
+echo "Kanata config"
+src_n="$(count_layer_tokens "$KBD" '(defsrc')"
+base_n="$(count_layer_tokens "$KBD" '(deflayer base')"
+hyper_n="$(count_layer_tokens "$KBD" '(deflayer hyper')"
+nav_n="$(count_layer_tokens "$KBD" '(deflayer nav')"
+check "defsrc has keys" test "$src_n" -gt 40
+check_eq "base layer length = defsrc ($src_n)" "$base_n" "$src_n"
+check_eq "hyper layer length = defsrc ($src_n)" "$hyper_n" "$src_n"
+check_eq "nav layer length = defsrc ($src_n)" "$nav_n" "$src_n"
+
+kbd_has_cap_th() {
+  grep -qE 'cap \(tap-hold-press \$tap \$hold esc \(layer-while-held hyper\)\)' "$KBD"
+}
+kbd_has_spc_th() {
+  grep -qE 'spc \(tap-hold-press \$tap \$hold spc \(layer-while-held nav\)\)' "$KBD"
+}
+defvar_has_tap() { awk '/^\(defvar/,/^\)/' "$KBD" | grep -qE '^[[:space:]]+tap[[:space:]]+200'; }
+defvar_has_hold() { awk '/^\(defvar/,/^\)/' "$KBD" | grep -qE '^[[:space:]]+hold[[:space:]]+200'; }
+defvar_no_dollar_tap() { ! awk '/^\(defvar/,/^\)/' "$KBD" | grep -q '\$tap'; }
+check "tap-hold cap is 4-arg" kbd_has_cap_th
+check "tap-hold spc is 4-arg" kbd_has_spc_th
+check "defvar tap is a bare name" defvar_has_tap
+check "defvar hold is a bare name" defvar_has_hold
+check "defvar does not name \$tap" defvar_no_dollar_tap
+check "source kbd still has HF_BIN placeholders" grep -q 'HF_BIN/hyperforge-action' "$KBD"
+check "danger-enable-cmd yes" grep -q 'danger-enable-cmd yes' "$KBD"
+
+# Every (cmd ... action-id) must be a real hyperforge-action arm.
+missing_kbd=0
+while read -r id; do
+  [[ -z "$id" ]] && continue
+  if ! action_ids | grep -qx "$id"; then
+    echo "  ✗ kanata action id not in hyperforge-action: $id"
+    missing_kbd=$((missing_kbd + 1))
+    failed=$((failed + 1))
+  fi
+done < <(kbd_action_ids)
+if [[ "$missing_kbd" -eq 0 ]]; then
+  echo "  ✓ all kanata cmd action ids exist"
+  passed=$((passed + 1))
+fi
+
+rewritten="$TMP/hyperforge.kbd"
+sed "s|HF_BIN|$TMP/hf-bin|g" "$KBD" >"$rewritten"
+rewrite_has_no_hf_bin() { ! grep -q HF_BIN "$rewritten"; }
+check "install rewrite leaves no HF_BIN" rewrite_has_no_hf_bin
+
+if have kanata; then
+  if kanata --check -c "$rewritten" >/dev/null 2>&1; then
+    echo "  ✓ kanata --check"
+    passed=$((passed + 1))
+  else
+    echo "  ✗ kanata --check"
+    kanata --check -c "$rewritten" 2>&1 | tail -20 | sed 's/^/      /'
+    failed=$((failed + 1))
+  fi
+else
+  skip "kanata not in PATH (skip --check)"
+fi
+
+# ── keyd parity ───────────────────────────────────────────────────────
+echo
+echo "keyd config"
+keyd_has_layers() { grep -q '^\[hyper\]' "$KEYD" && grep -q '^\[nav\]' "$KEYD"; }
+keyd_rewrite_clean() { ! grep -q HF_BIN < <(sed "s|HF_BIN|$TMP/hf-bin|g" "$KEYD"); }
+check "keyd has [hyper] and [nav]" keyd_has_layers
+check "keyd still has HF_BIN placeholders" grep -q 'HF_BIN/hyperforge-action' "$KEYD"
+check "install rewrite of keyd leaves no HF_BIN" keyd_rewrite_clean
+
+missing_keyd=0
+while read -r id; do
+  [[ -z "$id" ]] && continue
+  if ! action_ids | grep -qx "$id"; then
+    echo "  ✗ keyd action id not in hyperforge-action: $id"
+    missing_keyd=$((missing_keyd + 1))
+    failed=$((failed + 1))
+  fi
+done < <(keyd_action_ids)
+if [[ "$missing_keyd" -eq 0 ]]; then
+  echo "  ✓ all keyd command action ids exist"
+  passed=$((passed + 1))
+fi
+
+kbd_set="$(kbd_bound_action_ids | tr '\n' ' ')"
+keyd_set="$(keyd_action_ids | tr '\n' ' ')"
+check_eq "kanata layers and keyd bind the same action ids" "$keyd_set" "$kbd_set"
+
+# ── systemd units ─────────────────────────────────────────────────────
+echo
+echo "systemd units"
+check "kanata unit points at hyperforge.kbd" \
+  grep -q 'hyperforge.kbd' "$ROOT/systemd/hyperforge-kanata.service"
+check "clipboard unit runs hyperforge-clip watch" \
+  grep -q 'hyperforge-clip watch' "$ROOT/systemd/hyperforge-clipboard.service"
+
+echo
+if [[ "$failed" -eq 0 ]]; then
+  echo "Summary: $passed passed · $skipped skipped · 0 failed"
+  exit 0
+fi
+echo "Summary: $passed passed · $skipped skipped · $failed failed"
+exit 1

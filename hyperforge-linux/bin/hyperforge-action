@@ -47,12 +47,13 @@ case "$id" in
   ""|-h|--help)
     echo "usage: $0 <action-id>"
     echo "  snaps: win-left win-right win-top win-bottom win-max win-center"
-    echo "         win-tl win-tr win-bl win-br win-min win-close win-next win-undo win-tile"
+    echo "         win-tl win-tr win-bl win-br win-min win-close win-next win-prev win-undo win-tile"
     echo "         win-third-l win-third-c win-third-r win-2third-l win-2third-r win-almost-max"
     echo "  apps:  term browser editor files"
     echo "  sys:   lock hostname date google-clip plain-paste open-url always-on-top"
     echo "  snippet: snippet <name> | snippet-pick"
     echo "  clip:  clip-show clip-pin"
+    echo "  pin:   region-pin region-ocr"
     exit 0
     ;;
   win-left)   exec "$SNAP" left ;;
@@ -68,6 +69,7 @@ case "$id" in
   win-min)    exec "$SNAP" min ;;
   win-close)  exec "$SNAP" close ;;
   win-next)   exec "$SNAP" next-mon ;;
+  win-prev)   exec "$SNAP" prev-mon ;;
   win-undo)   exec "$SNAP" undo ;;
   win-tile)   exec "$SNAP" tile ;;
   win-third-l)   exec "$SNAP" third-l ;;
@@ -81,6 +83,8 @@ case "$id" in
   snippet-pick) exec "${ROOT}/bin/hyperforge-snippet" --pick ;;
   clip-show)   exec "${ROOT}/bin/hyperforge-clip" show ;;
   clip-pin)    exec "${ROOT}/bin/hyperforge-clip" pin ;;
+  region-pin)  exec "${ROOT}/bin/hyperforge-pin" ;;
+  region-ocr)  exec "${ROOT}/bin/hyperforge-pin" --ocr ;;
 
   term)
     if have ghostty; then exec ghostty
@@ -154,7 +158,9 @@ case "$id" in
     ;;
   always-on-top)
     if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] && have hyprctl; then
-      hyprctl dispatch pin active >/dev/null 2>&1 || hyprctl dispatch togglefloating >/dev/null
+      if ! hyprctl dispatch 'hl.dsp.window.pin({})' >/dev/null 2>&1; then
+        hyprctl dispatch pin active >/dev/null 2>&1 || hyprctl dispatch togglefloating >/dev/null
+      fi
       notify "Pin / float toggled"
     elif [[ -n "${SWAYSOCK:-}" ]] && have swaymsg; then
       swaymsg sticky toggle >/dev/null

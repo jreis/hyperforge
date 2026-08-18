@@ -40,7 +40,52 @@ clip_set() {
   fi
 }
 
+wait_mods_up() {
+  if have python3; then
+    python3 - <<'PY' || true
+import sys, time
+try:
+    from evdev import InputDevice, ecodes, list_devices
+except ImportError:
+    time.sleep(0.4)
+    sys.exit(0)
+mods = {
+    ecodes.KEY_LEFTCTRL, ecodes.KEY_RIGHTCTRL,
+    ecodes.KEY_LEFTALT, ecodes.KEY_RIGHTALT,
+    ecodes.KEY_LEFTMETA, ecodes.KEY_RIGHTMETA,
+    ecodes.KEY_LEFTSHIFT, ecodes.KEY_RIGHTSHIFT,
+    ecodes.KEY_CAPSLOCK,
+}
+devs = []
+for path in list_devices():
+    try:
+        d = InputDevice(path)
+        if set(d.capabilities().get(ecodes.EV_KEY, [])) & mods:
+            devs.append(d)
+    except OSError:
+        pass
+deadline = time.time() + 4
+while time.time() < deadline:
+    held = set()
+    for d in devs:
+        try:
+            held |= set(d.active_keys()) & mods
+        except OSError:
+            pass
+    if not held:
+        break
+    time.sleep(0.03)
+PY
+  else
+    sleep 0.4
+  fi
+  if have wtype; then
+    wtype -m ctrl -m alt -m win -m shift 2>/dev/null || true
+  fi
+}
+
 paste_focused() {
+  wait_mods_up
   if have wtype; then wtype -M ctrl v -m ctrl
   elif have ydotool; then ydotool key ctrl+v
   elif have xdotool; then xdotool key --clearmodifiers ctrl+v
@@ -140,24 +185,18 @@ pick_entry() {
   fi
 
   local idx=-1 chosen i
-  if have rofi; then
+  wait_mods_up
+  if have omarchy-menu-select; then
+    chosen="$(printf '%s\n' "${labels[@]}" | omarchy-menu-select "Clipboard")" || return 1
+    for i in "${!labels[@]}"; do [[ "${labels[$i]}" == "$chosen" ]] && idx="$i" && break; done
+  elif have rofi; then
     chosen="$(printf '%s\n' "${labels[@]}" | rofi -dmenu -p "Clipboard" -format i)" || return 1
     idx="$chosen"
   elif have wofi; then
     chosen="$(printf '%s\n' "${labels[@]}" | wofi --dmenu -p "Clipboard")" || return 1
     for i in "${!labels[@]}"; do [[ "${labels[$i]}" == "$chosen" ]] && idx="$i" && break; done
-  elif have fzf; then
-    local term
-    for term in x-terminal-emulator ghostty kitty alacritty wezterm gnome-terminal; do
-      have "$term" || continue
-      "$term" -e bash -c 'printf "%s\n" "$@" | fzf > /tmp/hyperforge-clip-pick' _ "${labels[@]}"
-      chosen="$(cat /tmp/hyperforge-clip-pick 2>/dev/null || true)"
-      rm -f /tmp/hyperforge-clip-pick
-      for i in "${!labels[@]}"; do [[ "${labels[$i]}" == "$chosen" ]] && idx="$i" && break; done
-      break
-    done
   else
-    notify "Install rofi or wofi for the clipboard picker"
+    notify "No overlay picker (omarchy-menu-select / rofi / wofi)"
     return 1
   fi
   [[ "$idx" -ge 0 ]] || return 1

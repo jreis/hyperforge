@@ -20,6 +20,20 @@ echo
 echo "Input stack"
 if have kanata; then
   pass "kanata $(kanata --version 2>/dev/null | head -1 || echo installed)"
+  # HyperForge's window/snippet/clipboard chords are (cmd ...) actions.
+  # cargo's default kanata binary is compiled *without* cmd.
+  cmd_probe="$(mktemp)"
+  cat >"$cmd_probe" <<'EOF'
+(defcfg danger-enable-cmd yes)
+(defsrc a)
+(deflayer base (cmd true))
+EOF
+  if kanata --check -c "$cmd_probe" >/dev/null 2>&1; then
+    pass "kanata was compiled with cmd (required for HyperForge actions)"
+  else
+    bad "kanata was compiled without cmd — rebuild: cargo install kanata --features cmd"
+  fi
+  rm -f "$cmd_probe"
 else
   soft "kanata not in PATH (primary recommended engine)"
 fi
@@ -29,10 +43,56 @@ else
   soft "keyd not installed (optional)"
 fi
 
-if [[ -r /dev/input/event0 ]] || id -nG 2>/dev/null | grep -qE '\b(input|plugdev)\b'; then
-  pass "input device access looks OK (group or perms)"
+# Real keyboards advertise sysrq+kbd+leds. "System Control" / power buttons
+# do not — and those are the nodes kanata can still open without the input group.
+readable_kbds=0
+unreadable_kbds=0
+while IFS= read -r ev; do
+  [[ -z "$ev" || ! -e "$ev" ]] && continue
+  if [[ -r "$ev" ]]; then
+    readable_kbds=$((readable_kbds + 1))
+  else
+    unreadable_kbds=$((unreadable_kbds + 1))
+  fi
+done < <(awk '
+  BEGIN { RS = ""; FS = "\n" }
+  /Handlers=.*sysrq.*kbd.*leds/ {
+    for (i = 1; i <= NF; i++) {
+      if ($i !~ /^H: Handlers=/) continue
+      n = split($i, a, /[ \t]+/)
+      for (j = 1; j <= n; j++) if (a[j] ~ /^event[0-9]+$/) print "/dev/input/" a[j]
+    }
+  }
+' /proc/bus/input/devices 2>/dev/null)
+
+in_input_group=0
+id -nG 2>/dev/null | grep -qE '\b(input|plugdev)\b' && in_input_group=1
+
+if [[ "$readable_kbds" -gt 0 ]]; then
+  pass "can read $readable_kbds real keyboard device(s)"
+elif [[ "$in_input_group" -eq 1 ]]; then
+  soft "in 'input' group but no keyboard is readable in this session — log out / back in"
 else
-  soft "may need user in 'input' group or uinput udev rules for kanata"
+  bad "cannot read any real keyboard — sudo usermod -aG input \"$USER\" then log out"
+fi
+if [[ "$unreadable_kbds" -gt 0 && "$readable_kbds" -eq 0 ]]; then
+  soft "$unreadable_kbds keyboard node(s) exist but are root:input 660 (this is why Caps/arrows do nothing)"
+fi
+
+if systemctl --user is-active --quiet hyperforge-kanata.service 2>/dev/null; then
+  since="$(systemctl --user show hyperforge-kanata.service -p ActiveEnterTimestamp --value 2>/dev/null || true)"
+  regs="$(journalctl --user -u hyperforge-kanata.service --since "${since:-1 hour ago}" --no-pager 2>/dev/null | grep 'registering /dev/input' || true)"
+  if [[ -z "$regs" ]]; then
+    soft "hyperforge-kanata is running but has not registered any device yet"
+  elif printf '%s\n' "$regs" | grep -Eqi 'Keyboard|^.*registering.*Keychron Keychron V5 Max"$' \
+    || printf '%s\n' "$regs" | grep -vEi 'System Control|Consumer Control|Mouse' | grep -q registering; then
+    pass "kanata registered a real keyboard"
+    printf '%s\n' "$regs" | sed 's/^/      /'
+  else
+    bad "kanata only grabbed a control interface, not the keyboard:"
+    printf '%s\n' "$regs" | sed 's/^/      /'
+    soft "fix: sudo usermod -aG input \"$USER\" && log out — then systemctl --user restart hyperforge-kanata"
+  fi
 fi
 
 if [[ -f /dev/uinput ]] || [[ -e /dev/uinput ]]; then
@@ -68,6 +128,13 @@ echo "HyperForge files"
 [[ -x "$ROOT/bin/hyperforge-action" ]] && pass "hyperforge-action" || bad "hyperforge-action missing"
 [[ -x "$ROOT/bin/hyperforge-snippet" ]] && pass "hyperforge-snippet" || soft "hyperforge-snippet missing — run install.sh"
 [[ -x "$ROOT/bin/hyperforge-clip" ]] && pass "hyperforge-clip" || soft "hyperforge-clip missing — run install.sh"
+[[ -x "$ROOT/bin/hyperforge-pin" ]] && pass "hyperforge-pin" || soft "hyperforge-pin missing — run install.sh"
+have grim && have slurp && pass "grim + slurp (region pin)" \
+  || soft "grim + slurp needed for Hyper+N region pin"
+python3 -c 'import gi; gi.require_version("Gtk","4.0"); from gi.repository import Gtk' >/dev/null 2>&1 \
+  && pass "GTK 4 (pin window)" \
+  || soft "GTK 4 + PyGObject needed for the pin window"
+have tesseract && pass "tesseract (pin OCR)" || soft "tesseract optional — pin menu OCR"
 [[ -f "$HOME/.config/kanata/hyperforge.kbd" ]] && pass "~/.config/kanata/hyperforge.kbd" \
   || soft "kanata config not installed yet"
 
@@ -80,10 +147,15 @@ if [[ -f "$SNIP_CONF" ]]; then
 else
   soft "no snippets.conf yet — run install.sh (seeds $SNIP_CONF)"
 fi
-have rofi && pass "rofi (snippet/clipboard picker)" \
-  || have wofi && pass "wofi (snippet/clipboard picker)" \
-  || have fzf && soft "fzf found — picker needs a terminal emulator too" \
-  || soft "install rofi or wofi for the Hyper+, and Hyper+P pickers"
+if have omarchy-menu-select; then
+  pass "omarchy-menu-select (snippet/clipboard picker)"
+elif have rofi; then
+  pass "rofi (snippet/clipboard picker)"
+elif have wofi; then
+  pass "wofi (snippet/clipboard picker)"
+else
+  soft "install rofi/wofi, or use Omarchy (omarchy-menu-select) for Hyper+, / Hyper+P"
+fi
 
 echo
 echo "Clipboard history (Hyper+P)"
@@ -107,8 +179,8 @@ have wtype && pass "wtype (type into focused apps on Wayland)" || soft "wtype or
 have wl-copy && pass "wl-copy" || soft "wl-clipboard for Wayland copy"
 
 echo
-echo "macOS-only (no Linux equivalent shipped here): OCR region, region pin,"
-echo "Ollama command bar, Shortcuts integration, AX recipe recording, profiles/auto-triggers."
+echo "macOS-only (no Linux equivalent shipped here): Ollama command bar,"
+echo "Shortcuts integration, AX recipe recording, profiles/auto-triggers."
 
 echo
 echo "Summary: $ok ok · $warn warnings · $fail failures"

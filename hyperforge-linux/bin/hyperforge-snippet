@@ -35,6 +35,76 @@ type_text() {
   fi
 }
 
+# Caps on this Keychron is firmware Hyper (Ctrl+Alt+Super). If we type while
+# those mods are still down, Hyprland treats every letter as a Hyper chord.
+wait_mods_up() {
+  if have python3; then
+    python3 - <<'PY' || true
+import sys, time
+try:
+    from evdev import InputDevice, ecodes, list_devices
+except ImportError:
+    time.sleep(0.4)
+    sys.exit(0)
+mods = {
+    ecodes.KEY_LEFTCTRL, ecodes.KEY_RIGHTCTRL,
+    ecodes.KEY_LEFTALT, ecodes.KEY_RIGHTALT,
+    ecodes.KEY_LEFTMETA, ecodes.KEY_RIGHTMETA,
+    ecodes.KEY_LEFTSHIFT, ecodes.KEY_RIGHTSHIFT,
+    ecodes.KEY_CAPSLOCK,
+}
+devs = []
+for path in list_devices():
+    try:
+        d = InputDevice(path)
+        if set(d.capabilities().get(ecodes.EV_KEY, [])) & mods:
+            devs.append(d)
+    except OSError:
+        pass
+deadline = time.time() + 4
+while time.time() < deadline:
+    held = set()
+    for d in devs:
+        try:
+            held |= set(d.active_keys()) & mods
+        except OSError:
+            pass
+    if not held:
+        break
+    time.sleep(0.03)
+PY
+  else
+    sleep 0.4
+  fi
+  if have wtype; then
+    wtype -m ctrl -m alt -m win -m shift 2>/dev/null || true
+  fi
+}
+
+clip_set() {
+  local t="$1"
+  if have wl-copy; then printf '%s' "$t" | wl-copy
+  elif have xclip; then printf '%s' "$t" | xclip -selection clipboard
+  fi
+}
+
+# Paste via clipboard so we never inject unmodified key events one-by-one
+# while Hyper is still held.
+paste_text() {
+  local t="$1"
+  wait_mods_up
+  if have wl-copy || have xclip; then
+    clip_set "$t"
+    sleep 0.05
+    if have wtype; then wtype -M ctrl v -m ctrl
+    elif have ydotool; then ydotool key ctrl+v
+    elif have xdotool; then xdotool key --clearmodifiers ctrl+v
+    else notify "Copied snippet (no paste key)"; fi
+  else
+    type_text "$t"
+  fi
+}
+
 clip_get() {
   if have wl-paste; then wl-paste 2>/dev/null || true
   elif have xclip; then xclip -selection clipboard -o 2>/dev/null || true
@@ -128,33 +198,28 @@ list_names() {
 lookup() {
   local name="$1"
   [[ -f "$CONF" ]] || return 1
+  [[ "$name" == "date_format" ]] && return 1
   awk -F= -v n="$name" '!/^#/ && $1==n {sub(/^[^=]+=/,""); print; found=1} END{exit !found}' "$CONF"
 }
 
 pick_name() {
-  local names picker
+  local names
   names="$(list_names)"
   if [[ -z "$names" ]]; then
     notify "No snippets configured — edit $CONF"
     return 1
   fi
-  if have rofi; then
+  wait_mods_up
+  if have omarchy-menu-select; then
+    printf '%s\n' "$names" | omarchy-menu-select "Snippet"
+  elif have rofi; then
     printf '%s\n' "$names" | rofi -dmenu -p "Snippet"
   elif have wofi; then
     printf '%s\n' "$names" | wofi --dmenu -p "Snippet"
-  elif have fzf; then
-    local term
-    for term in x-terminal-emulator ghostty kitty alacritty wezterm gnome-terminal; do
-      have "$term" || continue
-      "$term" -e bash -c "printf '%s\n' \"\$1\" | fzf > /tmp/hyperforge-snippet-pick" _ "$names"
-      cat /tmp/hyperforge-snippet-pick 2>/dev/null
-      rm -f /tmp/hyperforge-snippet-pick
-      return 0
-    done
-    notify "fzf found but no terminal emulator to run it in"
-    return 1
+  elif have fuzzel; then
+    printf '%s\n' "$names" | fuzzel --dmenu -p "Snippet"
   else
-    notify "Install rofi or wofi for the snippet picker"
+    notify "No overlay picker (omarchy-menu-select / rofi / wofi)"
     return 1
   fi
 }
@@ -162,10 +227,28 @@ pick_name() {
 main() {
   local arg="${1:-}"
   if [[ -z "$arg" || "$arg" == "-h" || "$arg" == "--help" ]]; then
-    echo "usage: $0 <name>   (type that snippet's expansion)"
-    echo "       $0 --pick   (choose a snippet via rofi/wofi/fzf)"
+    echo "usage: $0 <name>     (type that snippet's expansion)"
+    echo "       $0 --pick     (choose a snippet via rofi/wofi/fzf)"
+    echo "       $0 --print <name>    (print expansion; no type)"
+    echo "       $0 --expand <text>   (resolve tokens in text; no type)"
     echo "config: $CONF"
     exit 0
+  fi
+  if [[ "$arg" == "--expand" ]]; then
+    [[ -n "${2:-}" ]] || { echo "usage: $0 --expand <text>" >&2; exit 2; }
+    printf '%s' "$(resolve_tokens "$2")"
+    return 0
+  fi
+  if [[ "$arg" == "--print" ]]; then
+    arg="${2:-}"
+    [[ -n "$arg" ]] || { echo "usage: $0 --print <name>" >&2; exit 2; }
+    local expansion
+    if ! expansion="$(lookup "$arg")"; then
+      echo "No snippet named \"$arg\" — edit $CONF" >&2
+      exit 1
+    fi
+    printf '%s' "$(resolve_tokens "$expansion")"
+    return 0
   fi
   if [[ "$arg" == "--pick" ]]; then
     arg="$(pick_name || true)"
@@ -176,7 +259,12 @@ main() {
     notify "No snippet named \"$arg\" — edit $CONF"
     exit 1
   fi
-  type_text "$(resolve_tokens "$expansion")"
+  if [[ "${HF_SNIPPET_TYPED:-}" == "1" ]]; then
+    wait_mods_up
+    type_text "$(resolve_tokens "$expansion")"
+  else
+    paste_text "$(resolve_tokens "$expansion")"
+  fi
 }
 
 main "$@"

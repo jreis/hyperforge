@@ -15,7 +15,7 @@ HF_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hyperforge-linux"
 mkdir -p "$SHARE/bin" "$BIN_DIR" "$KANATA_DIR" "$HF_CONFIG_DIR"
 
 # Scripts
-for f in hyperforge-snap hyperforge-action hyperforge-doctor hyperforge-snippet hyperforge-clip; do
+for f in hyperforge-snap hyperforge-action hyperforge-doctor hyperforge-snippet hyperforge-clip hyperforge-pin; do
   cp "$ROOT/bin/$f" "$SHARE/bin/$f"
   chmod +x "$SHARE/bin/$f"
   ln -sfn "$SHARE/bin/$f" "$BIN_DIR/$f"
@@ -44,9 +44,16 @@ fi
 mkdir -p "$SYSTEMD_USER"
 if [[ -f "$ROOT/systemd/hyperforge-kanata.service" ]]; then
   cp "$ROOT/systemd/hyperforge-kanata.service" "$SYSTEMD_USER/hyperforge-kanata.service"
-  # Point at real kanata if only in path
+  # cargo installs to ~/.cargo/bin, which is often missing from this script's PATH
+  KANATA_PATH=""
   if command -v kanata >/dev/null 2>&1; then
     KANATA_PATH="$(command -v kanata)"
+  elif [[ -x "$HOME/.cargo/bin/kanata" ]]; then
+    KANATA_PATH="$HOME/.cargo/bin/kanata"
+  elif [[ -x /usr/bin/kanata ]]; then
+    KANATA_PATH="/usr/bin/kanata"
+  fi
+  if [[ -n "$KANATA_PATH" ]]; then
     sed -i.bak "s|%h/.local/bin/kanata|$KANATA_PATH|g" "$SYSTEMD_USER/hyperforge-kanata.service" 2>/dev/null \
       || sed -i '' "s|%h/.local/bin/kanata|$KANATA_PATH|g" "$SYSTEMD_USER/hyperforge-kanata.service" 2>/dev/null \
       || true
@@ -75,8 +82,11 @@ echo "✓ Installed."
 echo
 echo "Next steps:"
 echo "  1. Install kanata:  https://github.com/jtroo/kanata/releases"
-echo "     (or package: cargo install kanata / yay -S kanata / etc.)"
-echo "  2. uinput access: ensure /dev/uinput is usable (udev rules / input group)."
+echo "     cargo:  cargo install kanata --features cmd"
+echo "     (plain \`cargo install kanata\` cannot run HyperForge's (cmd ...) actions)"
+echo "  2. Keyboard access: sudo usermod -aG input \"\$USER\"  (then log out)."
+echo "     Without this, kanata often only sees a 'System Control' interface and"
+echo "     Caps/Space chords do nothing. Also ensure /dev/uinput is writable."
 echo "  3. Run once:       kanata -c $KANATA_DIR/hyperforge.kbd"
 echo "  4. Autostart:      systemctl --user enable --now hyperforge-kanata.service"
 echo "  5. Clipboard history (optional): systemctl --user enable --now hyperforge-clipboard.service"

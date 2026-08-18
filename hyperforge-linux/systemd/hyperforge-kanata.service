@@ -2,15 +2,16 @@
 Description=HyperForge kanata (Caps Hyper + Space nav)
 Documentation=https://github.com/jreis/hyperforge/tree/main/hyperforge-linux
 After=graphical-session.target
+PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/kanata -c %h/.config/kanata/hyperforge.kbd
+# install.sh rewrites the kanata path. --no-wait is required under systemd.
+ExecStart=%h/.local/bin/kanata --no-wait -c %h/.config/kanata/hyperforge.kbd
 Restart=on-failure
 RestartSec=2
 
-# Uncomment if kanata is installed system-wide:
-# ExecStart=/usr/bin/kanata -c %h/.config/kanata/hyperforge.kbd
-
 [Install]
-WantedBy=default.target
+# graphical-session.target (not default.target): start with the Hyprland/UWSM
+# session so (cmd ...) children inherit WAYLAND_DISPLAY / HYPRLAND_*.
+WantedBy=graphical-session.target

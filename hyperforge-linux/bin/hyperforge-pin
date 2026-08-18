@@ -1,0 +1,398 @@
+#!/usr/bin/env python3
+"""HyperForge region pin — Snipaste-style stay-on-top capture (macOS Hyper+P parity).
+
+  hyperforge-pin           drag-select a region, then float it on top
+  hyperforge-pin --file F  pin an existing image
+  hyperforge-pin --ocr     drag-select, OCR to clipboard (no pin)
+
+Esc during slurp cancels. On a pin: Esc closes, Ctrl+C copies, Ctrl+S saves.
+Right-click or the toolbar: Copy · Save · OCR · Close.
+"""
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+from datetime import datetime
+from pathlib import Path
+
+APP_ID = "app.hyperforge.pin"
+
+
+def have(cmd: str) -> bool:
+    return shutil.which(cmd) is not None
+
+
+def notify(msg: str) -> None:
+    if have("notify-send"):
+        subprocess.run(
+            ["notify-send", "-a", "HyperForge", "-t", "1800", "HyperForge", msg],
+            check=False,
+        )
+    else:
+        print(msg, file=sys.stderr)
+
+
+def wait_mods_up() -> None:
+    """Don't start slurp / type while firmware Hyper (Ctrl+Alt+Super) is down."""
+    try:
+        from evdev import InputDevice, ecodes, list_devices
+    except ImportError:
+        time.sleep(0.35)
+        return
+    mods = {
+        ecodes.KEY_LEFTCTRL,
+        ecodes.KEY_RIGHTCTRL,
+        ecodes.KEY_LEFTALT,
+        ecodes.KEY_RIGHTALT,
+        ecodes.KEY_LEFTMETA,
+        ecodes.KEY_RIGHTMETA,
+        ecodes.KEY_LEFTSHIFT,
+        ecodes.KEY_RIGHTSHIFT,
+        ecodes.KEY_CAPSLOCK,
+    }
+    devs = []
+    for path in list_devices():
+        try:
+            d = InputDevice(path)
+            if set(d.capabilities().get(ecodes.EV_KEY, [])) & mods:
+                devs.append(d)
+        except OSError:
+            pass
+    deadline = time.time() + 4
+    while time.time() < deadline:
+        held: set[int] = set()
+        for d in devs:
+            try:
+                held |= set(d.active_keys()) & mods
+            except OSError:
+                pass
+        if not held:
+            break
+        time.sleep(0.03)
+
+
+def pictures_dir() -> Path:
+    xdg = os.environ.get("XDG_PICTURES_DIR")
+    if xdg:
+        return Path(xdg)
+    dirs = Path.home() / ".config" / "user-dirs.dirs"
+    if dirs.is_file():
+        for line in dirs.read_text().splitlines():
+            if line.startswith("XDG_PICTURES_DIR="):
+                raw = line.split("=", 1)[1].strip().strip('"')
+                return Path(os.path.expandvars(raw))
+    return Path.home() / "Pictures"
+
+
+def capture_region() -> tuple[Path, tuple[int, int] | None] | None:
+    """Return (png, (logical_w, logical_h)) or None if cancelled."""
+    if not have("grim"):
+        notify("grim is required for region pin")
+        return None
+    wait_mods_up()
+    geo = ""
+    if have("omarchy-capture-region"):
+        try:
+            geo = subprocess.check_output(
+                ["omarchy-capture-region", "region"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            ).strip()
+        except subprocess.CalledProcessError:
+            return None
+    elif have("slurp"):
+        try:
+            geo = subprocess.check_output(
+                ["slurp"], text=True, stderr=subprocess.DEVNULL
+            ).strip()
+        except subprocess.CalledProcessError:
+            return None
+    else:
+        notify("slurp (or omarchy-capture-region) is required")
+        return None
+    if not geo:
+        return None
+    logical = None
+    # slurp: "X,Y WxH"
+    parts = geo.replace(",", " ").split()
+    if len(parts) >= 3 and "x" in parts[2]:
+        try:
+            w_s, h_s = parts[2].split("x", 1)
+            logical = (max(1, int(w_s)), max(1, int(h_s)))
+        except ValueError:
+            logical = None
+    runtime = Path(os.environ.get("XDG_RUNTIME_DIR", tempfile.gettempdir()))
+    dest = runtime / f"hyperforge-pin-{uuid.uuid4().hex}.png"
+    try:
+        subprocess.check_call(["grim", "-g", geo, str(dest)])
+    except subprocess.CalledProcessError:
+        notify("Capture failed")
+        return None
+    if not dest.is_file() or dest.stat().st_size < 8:
+        notify("Capture produced no image")
+        return None
+    return dest, logical
+
+
+def copy_png(path: Path) -> bool:
+    if have("wl-copy"):
+        data = path.read_bytes()
+        r = subprocess.run(
+            ["wl-copy", "--type", "image/png"], input=data, check=False
+        )
+        return r.returncode == 0
+    if have("xclip"):
+        r = subprocess.run(
+            ["xclip", "-selection", "clipboard", "-t", "image/png", str(path)],
+            check=False,
+        )
+        return r.returncode == 0
+    return False
+
+
+def ocr_png(path: Path) -> str | None:
+    if not have("tesseract"):
+        notify("tesseract is not installed")
+        return None
+    try:
+        text = subprocess.check_output(
+            ["tesseract", str(path), "stdout"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except subprocess.CalledProcessError:
+        notify("OCR failed")
+        return None
+    if not text:
+        notify("No text found")
+        return None
+    if have("wl-copy"):
+        subprocess.run(["wl-copy"], input=text.encode(), check=False)
+    notify("OCR → clipboard")
+    return text
+
+
+def show_pin(path: Path, logical: tuple[int, int] | None) -> int:
+    import gi
+
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("Gdk", "4.0")
+    from gi.repository import Gdk, Gio, GLib, Gtk
+
+    app = Gtk.Application(application_id=APP_ID)
+
+    def on_activate(_app: Gtk.Application) -> None:
+        pix = None
+        try:
+            from gi.repository import GdkPixbuf
+
+            pix = GdkPixbuf.Pixbuf.new_from_file(str(path))
+        except Exception as exc:
+            notify(f"Could not load capture: {exc}")
+            app.quit()
+            return
+
+        img_w, img_h = pix.get_width(), pix.get_height()
+        view_w, view_h = logical if logical else (img_w, img_h)
+
+        display = Gdk.Display.get_default()
+        max_w, max_h = 1600, 900
+        if display is not None:
+            mon = display.get_monitors().get_item(0)
+            if mon is not None:
+                geo = mon.get_geometry()
+                max_w = max(200, int(geo.width * 0.95))
+                max_h = max(160, int(geo.height * 0.90))
+        fit = min(max_w / view_w, max_h / view_h, 1.0)
+        win_w = max(80, int(view_w * fit))
+        win_h = max(60, int(view_h * fit))
+
+        win = Gtk.ApplicationWindow(application=app, title="HyperForge Pin")
+        win.set_default_size(win_w, win_h + 36)
+        win.set_resizable(True)
+        win.set_decorated(False)
+
+        css = Gtk.CssProvider()
+        css.load_from_data(
+            b"""
+            window.hyperforge-pin { background: #111; }
+            .pin-bar { background: #1c1917; padding: 4px 6px; }
+            .pin-bar button { padding: 2px 8px; min-height: 0; }
+            .pin-frame { border: 2px solid #f97316; }
+            """
+        )
+        Gtk.StyleContext.add_provider_for_display(
+            display or Gdk.Display.get_default(),
+            css,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
+        win.add_css_class("hyperforge-pin")
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        bar.add_css_class("pin-bar")
+
+        def btn(label: str, cb) -> Gtk.Button:
+            b = Gtk.Button(label=label)
+            b.connect("clicked", lambda *_: cb())
+            bar.append(b)
+            return b
+
+        def do_copy() -> None:
+            if copy_png(path):
+                notify("Copied pin")
+            else:
+                notify("Copy failed")
+
+        def do_save() -> None:
+            dest_dir = pictures_dir()
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            name = f"pin-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.png"
+            dialog = Gtk.FileDialog(initial_name=name)
+            dialog.set_initial_folder(Gio.File.new_for_path(str(dest_dir)))
+
+            def saved(_d, result) -> None:
+                try:
+                    f = dialog.save_finish(result)
+                except GLib.GError:
+                    return
+                if f is None:
+                    return
+                out = Path(f.get_path())
+                out.write_bytes(path.read_bytes())
+                notify(f"Saved {out.name}")
+
+            dialog.save(win, None, saved)
+
+        def do_ocr() -> None:
+            ocr_png(path)
+
+        def do_close() -> None:
+            win.close()
+
+        btn("Copy", do_copy)
+        btn("Save", do_save)
+        if have("tesseract"):
+            btn("OCR", do_ocr)
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        bar.append(spacer)
+        btn("Close", do_close)
+
+        picture = Gtk.Picture.new_for_filename(str(path))
+        picture.set_can_shrink(True)
+        picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+        picture.set_hexpand(True)
+        picture.set_vexpand(True)
+        picture.add_css_class("pin-frame")
+        picture.set_size_request(win_w, win_h)
+
+        def begin_move(gesture, _n, x, y) -> None:
+            native = win.get_native()
+            if native is None:
+                return
+            surface = native.get_surface()
+            device = gesture.get_current_event_device()
+            if surface is None or device is None or not hasattr(surface, "begin_move"):
+                return
+            event = gesture.get_last_event(gesture.get_current_sequence())
+            ts = event.get_time() if event is not None else Gdk.CURRENT_TIME
+            surface.begin_move(device, 1, int(x), int(y), ts)
+
+        drag = Gtk.GestureClick(button=1)
+        drag.connect("pressed", begin_move)
+        picture.add_controller(drag)
+        bar_drag = Gtk.GestureClick(button=1)
+        bar_drag.connect("pressed", begin_move)
+        bar.add_controller(bar_drag)
+
+        menu = Gtk.Popover()
+        menu.set_has_arrow(False)
+        menu_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        menu_items = [
+            ("Copy image", do_copy),
+            ("Save image…", do_save),
+        ]
+        if have("tesseract"):
+            menu_items.append(("OCR → clipboard", do_ocr))
+        menu_items.append(("Close pin", do_close))
+        for label, cb in menu_items:
+            item = Gtk.Button(label=label, hexpand=True)
+            item.connect(
+                "clicked",
+                lambda _b, fn=cb: (menu.popdown(), fn()),
+            )
+            menu_box.append(item)
+        menu.set_child(menu_box)
+        menu.set_parent(picture)
+
+        right = Gtk.GestureClick(button=3)
+        def on_right(_g, _n, x, y) -> None:
+            rect = Gdk.Rectangle()
+            rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
+            menu.set_pointing_to(rect)
+            menu.popup()
+
+        right.connect("pressed", on_right)
+        picture.add_controller(right)
+
+        keys = Gtk.EventControllerKey()
+
+        def on_key(_c, keyval, _code, state) -> bool:
+            ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
+            if keyval == Gdk.KEY_Escape:
+                do_close()
+                return True
+            if ctrl and keyval in (Gdk.KEY_c, Gdk.KEY_C):
+                do_copy()
+                return True
+            if ctrl and keyval in (Gdk.KEY_s, Gdk.KEY_S):
+                do_save()
+                return True
+            return False
+
+        keys.connect("key-pressed", on_key)
+        win.add_controller(keys)
+
+        root.append(bar)
+        root.append(picture)
+        win.set_child(root)
+        win.present()
+        notify("Region pinned  ·  Esc closes · Ctrl+C copies")
+
+    app.connect("activate", on_activate)
+    return app.run(None)
+
+
+def main() -> int:
+    args = sys.argv[1:]
+    if args and args[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    if args and args[0] == "--ocr":
+        captured = capture_region()
+        if captured is None:
+            return 0
+        path, _ = captured
+        ocr_png(path)
+        return 0
+    if args[:1] == ["--file"] and len(args) >= 2:
+        path = Path(args[1])
+        if not path.is_file():
+            print(f"no such file: {path}", file=sys.stderr)
+            return 1
+        return show_pin(path, None)
+    captured = capture_region()
+    if captured is None:
+        return 0
+    path, logical = captured
+    return show_pin(path, logical)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -25,13 +25,19 @@
   kp0 kp1 kp2 kp3 kp4 kp5 kp6 kp7 kp8 kp9
 )
 
+;; kanata 1.11+ tap-hold is:
+;;   (tap-hold[-press] <tap-repress-timeout> <hold-timeout> <tap-action> <hold-action>)
+;; tap-hold-press activates Hyper/nav as soon as another key is pressed
+;; (Caps+arrow chord). Plain tap-hold waits the full hold timeout first.
+;; defvar names are bare; prefix with $ only when referencing them.
 (defvar
-  $tap 200
+  tap  200
+  hold 200
 )
 
 (defalias
-  cap (tap-hold $tap esc (layer-while-held hyper))
-  spc (tap-hold $tap spc (layer-while-held nav))
+  cap (tap-hold-press $tap $hold esc (layer-while-held hyper))
+  spc (tap-hold-press $tap $hold spc (layer-while-held nav))
 
   sl   (cmd HF_BIN/hyperforge-action win-left)
   sr   (cmd HF_BIN/hyperforge-action win-right)
@@ -46,6 +52,7 @@
   smin (cmd HF_BIN/hyperforge-action win-min)
   scls (cmd HF_BIN/hyperforge-action win-close)
   snx  (cmd HF_BIN/hyperforge-action win-next)
+  spv  (cmd HF_BIN/hyperforge-action win-prev)
   sund (cmd HF_BIN/hyperforge-action win-undo)
   stil (cmd HF_BIN/hyperforge-action win-tile)
   aot  (cmd HF_BIN/hyperforge-action always-on-top)
@@ -75,6 +82,8 @@
   ;; Snippets (Hyper+,) and clipboard history (Hyper+P) — macOS Hyper+, / Hyper+V parity.
   snip (cmd HF_BIN/hyperforge-action snippet-pick)
   clip (cmd HF_BIN/hyperforge-action clip-show)
+  pin  (cmd HF_BIN/hyperforge-action region-pin)
+  ocr  (cmd HF_BIN/hyperforge-action region-ocr)
 
   ;; Space-layer helpers (macOS-ish)
   wback (multi lctl left)
@@ -112,9 +121,9 @@
 ;;   0 Center
 (deflayer hyper
   _   @brws @edit _ _ _ @stil @stl @str @sbl @sbr @thil @thir
-  _   _     _     @plain @sund @term @almx @ourl @twol @twor @clip _ _ @thic
+  _   _     _     @plain @sund @term @almx @ourl @twol @twor @clip @spv @snx @thic
   _   @aot  @smin _ @files @goog _ _ _ _ _ _ @sm
-  _   @sund @scls @sc _ @smin _ @snx @snip @date _
+  _   @sund @scls @sc _ @smin @pin @snx @snip @date _
   _   _     _     _ _ _
   @sl @sb   @st   @sr
   @lock _
