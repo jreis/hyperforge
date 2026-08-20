@@ -292,7 +292,7 @@ hyperforge-win/README.md        # setup + chords
 
 ## Linux (kanata / keyd)
 
-[`hyperforge-linux/`](hyperforge-linux/) keeps the same Hyper window pad (including thirds/two-thirds/almost-max), the same `{{token}}` **snippets** (chord/picker-triggered — kanata can't watch typed text), a persisted/pinned **clipboard history** (Hyper+P), and a Space-layer subset via **kanata** (or keyd) plus small snap scripts for Hyprland / Sway / X11.
+[`hyperforge-linux/`](hyperforge-linux/) keeps the same Hyper window pad (including thirds/two-thirds/almost-max), the same `{{token}}` **snippets** (typed `@@` / `,sig` hotstrings plus the Hyper+, picker), a persisted/pinned **clipboard history** (Hyper+P), and a Space-layer subset via **kanata** (or keyd) plus small snap scripts for Hyprland / Sway / X11.
 
 ```text
 hyperforge-linux/install.sh           # install configs + bin helpers

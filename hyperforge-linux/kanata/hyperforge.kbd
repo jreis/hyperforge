@@ -10,6 +10,10 @@
   process-unmapped-keys yes
   danger-enable-cmd yes
   concurrent-tap-hold yes
+  ;; Typed snippet hotstrings (@@, ,sig, …) — see hyperforge-snippets.kbd.
+  sequence-always-on yes
+  sequence-input-mode visible-backspaced
+  sequence-timeout 3000
 )
 
 ;; US ANSI + numpad — every layer must match this length/order
@@ -150,3 +154,7 @@
   home end
   _ _ _ _ _ _ _ _ _ _
 )
+
+;; Typed snippet hotstrings compiled from snippets.conf.
+;; Missing file is ignored — run: hyperforge-snippet --sync
+(include hyperforge-snippets.kbd)

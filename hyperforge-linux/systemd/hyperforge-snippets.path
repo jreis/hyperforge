@@ -1,0 +1,9 @@
+[Unit]
+Description=HyperForge snippet config watcher
+Documentation=https://github.com/jreis/hyperforge/tree/main/hyperforge-linux
+
+[Path]
+PathModified=%h/.config/hyperforge-linux/snippets.conf
+
+[Install]
+WantedBy=graphical-session.target

@@ -1,0 +1,8 @@
+[Unit]
+Description=HyperForge snippet → kanata sequence compile
+Documentation=https://github.com/jreis/hyperforge/tree/main/hyperforge-linux
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/hyperforge-snippet --sync

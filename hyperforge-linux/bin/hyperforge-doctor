@@ -141,13 +141,35 @@ have tesseract && pass "tesseract (pin OCR)" || soft "tesseract optional — pin
   || soft "kanata config not installed yet"
 
 echo
-echo "Snippets (Hyper+,)"
+echo "Snippets (typed hotstrings + Hyper+,)"
 SNIP_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hyperforge-linux/snippets.conf"
 if [[ -f "$SNIP_CONF" ]]; then
   n=$(grep -cE '^[^#=]+=' "$SNIP_CONF" 2>/dev/null || echo 0)
   pass "snippets.conf — $n configured"
+  if grep -qE '^@@=' "$SNIP_CONF" 2>/dev/null; then
+    pass "@@ trigger present (typed email expansion)"
+  else
+    soft "no @@ trigger — add @@=you@example.com to $SNIP_CONF (or hyperforge-snippet --seed)"
+  fi
 else
   soft "no snippets.conf yet — run install.sh (seeds $SNIP_CONF)"
+fi
+KBD_INST="${XDG_CONFIG_HOME:-$HOME/.config}/kanata/hyperforge.kbd"
+SNIP_KBD="${XDG_CONFIG_HOME:-$HOME/.config}/kanata/hyperforge-snippets.kbd"
+if [[ -f "$KBD_INST" ]] && grep -q 'sequence-always-on yes' "$KBD_INST"; then
+  pass "kanata sequence-always-on (typed snippet hotstrings)"
+else
+  soft "kanata config missing sequence-always-on — re-run install.sh"
+fi
+if [[ -f "$SNIP_KBD" ]] && grep -q 'defseq' "$SNIP_KBD"; then
+  pass "hyperforge-snippets.kbd compiled"
+else
+  soft "no compiled snippet sequences — hyperforge-snippet --sync"
+fi
+if systemctl --user is-active --quiet hyperforge-snippets.path 2>/dev/null; then
+  pass "hyperforge-snippets.path watching snippets.conf"
+else
+  soft "hyperforge-snippets.path not enabled — systemctl --user enable --now hyperforge-snippets.path"
 fi
 if have omarchy-menu-select; then
   pass "omarchy-menu-select (snippet/clipboard picker)"

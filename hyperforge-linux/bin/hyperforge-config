@@ -47,6 +47,9 @@ if "clipboardHistory" in data:
     clip.write_text(data["clipboardHistory"])
 print("imported", src)
 PY
+    if have hyperforge-snippet; then
+      hyperforge-snippet --sync || true
+    fi
     ;;
   *) echo "unknown: $1" >&2; exit 2 ;;
 esac

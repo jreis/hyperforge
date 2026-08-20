@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # hyperforge-snippet — text-expansion snippets (macOS HyperForge Snippets parity).
 #
-# kanata/keyd can't watch typed text for hotstring triggers like AHK or the macOS
-# app do, so snippets here are chord/picker-triggered instead of typed-trigger-based:
-#   hyperforge-snippet <name>   — type the named snippet's expansion into the focused window
+#   hyperforge-snippet <name>   — paste the named snippet into the focused window
+#   hyperforge-snippet --type <name> — type it (used by kanata hotstring sequences)
 #   hyperforge-snippet --pick   — rofi/wofi/dmenu picker over all configured snippets
+#   hyperforge-snippet --sync   — compile typed triggers into kanata sequences + reload
 #
-# Config: ~/.config/hyperforge-linux/snippets.conf, "name=expansion" per line.
+# Config: ~/.config/hyperforge-linux/snippets.conf, "trigger=expansion" per line.
+# The key is both the picker name and the typed hotstring. Triggers that contain
+# punctuation (@@, ,sig, ,date) expand as you type via kanata sequence-always-on;
+# all-letter names stay picker-only so "email" doesn't fire mid-word.
 # Tokens (same set as macOS SnippetStore): {{date}}, {{date:yyyy-MM-dd}} (per-token
 # format override), {{clipboard}}, {{hostname}}, {{uuid}}, {{lan-ip}}. `\n` expands
 # to a real newline for multi-line snippets. Never add a shell/exec token here —
@@ -17,6 +20,9 @@ set -euo pipefail
 CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hyperforge-linux"
 CONF="$CONF_DIR/snippets.conf"
 ROOT="${HYPERFORGE_LINUX_ROOT:-$HOME/.local/share/hyperforge-linux}"
+KANATA_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/kanata"
+SNIP_KBD="$KANATA_DIR/hyperforge-snippets.kbd"
+SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
@@ -202,6 +208,228 @@ lookup() {
   awk -F= -v n="$name" '!/^#/ && $1==n {sub(/^[^=]+=/,""); print; found=1} END{exit !found}' "$CONF"
 }
 
+# US ANSI key names matching kanata/hyperforge.kbd defsrc. Typed hotstrings
+# only fire for triggers that include punctuation (@@, ,sig) so picker labels
+# like "email" don't expand mid-word. See --keys / --compile-kanata.
+snippet_py() {
+  python3 - "$1" "$CONF" "${2:-}" <<'PY'
+import re, sys
+from pathlib import Path
+
+mode, conf, extra = sys.argv[1], Path(sys.argv[2]), sys.argv[3]
+
+PLAIN = {c: c for c in "abcdefghijklmnopqrstuvwxyz0123456789"}
+PLAIN.update({
+    "`": "grv", "-": "-", "=": "=", "[": "[", "]": "]",
+    "\\": "\\", ";": ";", "'": "'", ",": ",", ".": ".",
+    "/": "/", " ": "spc", "\t": "tab", "\n": "ret",
+})
+SHIFT = {c.upper(): c.lower() for c in "abcdefghijklmnopqrstuvwxyz"}
+SHIFT.update({
+    "~": "grv", "!": "1", "@": "2", "#": "3", "$": "4",
+    "%": "5", "^": "6", "&": "7", "*": "8", "(": "9", ")": "0",
+    "_": "-", "+": "=", "{": "[", "}": "]", "|": "\\",
+    ":": ";", '"': "'", "<": ",", ">": ".", "?": "/",
+})
+
+
+def digitify(k):
+    # Bare 2 in S-(...) is parsed as a macro delay, not KEY_2.
+    return f"Digit{k}" if k in "0123456789" else k
+
+
+def tokens(trigger):
+    """List of (shifted, keyname). keyname is the unshifted kanata key."""
+    out = []
+    for ch in trigger:
+        if ch in PLAIN:
+            out.append((False, PLAIN[ch]))
+        elif ch in SHIFT:
+            out.append((True, SHIFT[ch]))
+        else:
+            return None
+    return out
+
+
+def seq_held(toks):
+    """Hold-shift form: @@ is (S-(Digit2 Digit2)), not (S-2 S-2).
+
+    (S-2 S-2) means release and repress Shift between the two @s. People
+    type @@ by holding Shift and tapping 2 twice; that is S-(2 2).
+    """
+    parts = []
+    i = 0
+    n = len(toks)
+    while i < n:
+        shifted, key = toks[i]
+        if shifted:
+            group = []
+            while i < n and toks[i][0]:
+                group.append(digitify(toks[i][1]))
+                i += 1
+            if len(group) == 1:
+                parts.append("S-" + group[0])
+            else:
+                parts.append("S-(" + " ".join(group) + ")")
+        else:
+            parts.append(key)
+            i += 1
+    return "(" + " ".join(parts) + ")"
+
+
+def seq_repress(toks):
+    """Shift released between shifted keys: (S-2 S-2)."""
+    parts = []
+    for shifted, key in toks:
+        parts.append(("S-" + key) if shifted else key)
+    return "(" + " ".join(parts) + ")"
+
+
+def sequences_for(trigger):
+    toks = tokens(trigger)
+    if not toks:
+        return []
+    held, repress = seq_held(toks), seq_repress(toks)
+    if held == repress:
+        return [held]
+    return [held, repress]
+
+
+def typed_ok(name):
+    if name in ("date_format", "") or len(name) < 2 or '"' in name:
+        return False
+    if not re.search(r"[^A-Za-z0-9]", name):
+        return False
+    return tokens(name) is not None
+
+
+def parse_conf():
+    items = []
+    if not conf.is_file():
+        return items
+    for line in conf.read_text().splitlines():
+        raw = line.strip()
+        if not raw or raw.startswith("#") or "=" not in raw:
+            continue
+        name, exp = raw.split("=", 1)
+        if name:
+            items.append((name, exp))
+    return items
+
+
+if mode == "keys":
+    if not typed_ok(extra):
+        sys.exit(1)
+    sys.stdout.write(" ".join(sequences_for(extra)))
+    sys.exit(0)
+
+if mode == "will-type":
+    sys.exit(0 if typed_ok(extra) else 1)
+
+if mode != "compile":
+    sys.exit(2)
+
+snip_bin, dest = extra.split("\n", 1)
+lines = [
+    ";; Generated by hyperforge-snippet --sync — do not edit.",
+    f";; Source: {conf}",
+    ";; After editing snippets.conf, run: hyperforge-snippet --sync",
+    "",
+]
+typed = [(n, e) for n, e in parse_conf() if typed_ok(n)]
+if not typed:
+    lines.append(";; No typed triggers. Use punctuation in the name (@@, ,sig).")
+    lines.append("")
+    text = "\n".join(lines)
+else:
+    vkeys = ["(defvirtualkeys"]
+    seqs = ["(defseq"]
+    n = 0
+    for name, _exp in typed:
+        for seq in sequences_for(name):
+            ident = f"hf-s{n}"
+            n += 1
+            vkeys.append(f'  {ident} (cmd {snip_bin} --type "{name}")')
+            seqs.append(f"  {ident} {seq}")
+    vkeys.append(")")
+    seqs.append(")")
+    lines.extend(vkeys)
+    lines.append("")
+    lines.extend(seqs)
+    lines.append("")
+    text = "\n".join(lines)
+
+if dest == "-":
+    sys.stdout.write(text)
+else:
+    out = Path(dest)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_name(out.name + ".tmp")
+    tmp.write_text(text)
+    tmp.replace(out)
+PY
+}
+
+trigger_keys() { snippet_py keys "$1"; }
+
+will_type() { snippet_py will-type "$1"; }
+
+compile_kanata() {
+  local dest="${1:-$SNIP_KBD}"
+  snippet_py compile "$(printf '%s\n%s' "$SELF" "$dest")"
+}
+
+# Add macOS-default typed triggers without overwriting existing keys.
+seed_defaults() {
+  mkdir -p "$CONF_DIR"
+  [[ -f "$CONF" ]] || : >"$CONF"
+  local name fallback from src val
+  get_val() {
+    awk -F= -v n="$1" '!/^#/ && $1==n {sub(/^[^=]+=/,""); print; exit}' "$CONF"
+  }
+  add_if_missing() {
+    name="$1"
+    fallback="$2"
+    from="${3:-}"
+    grep -q "^${name}=" "$CONF" 2>/dev/null && return 0
+    val="$fallback"
+    if [[ -n "$from" ]]; then
+      src="$(get_val "$from")"
+      [[ -n "$src" ]] && val="$src"
+    fi
+    printf '%s=%s\n' "$name" "$val" >>"$CONF"
+    echo "seeded $name" >&2
+  }
+  add_if_missing '@@' 'you@example.com' 'email'
+  add_if_missing ',sig' 'Thanks,\nYour Name' 'sig'
+  add_if_missing ',date' '{{date}}'
+  add_if_missing ',v' '{{clipboard}}'
+  add_if_missing ',host' '{{hostname}}' 'host'
+}
+
+is_real_user_config() {
+  [[ "${XDG_CONFIG_HOME:-$HOME/.config}" == "$HOME/.config" ]]
+}
+
+sync_kanata() {
+  local before="" after=""
+  [[ -f "$SNIP_KBD" ]] && before="$(cat "$SNIP_KBD")"
+  compile_kanata "$SNIP_KBD"
+  after="$(cat "$SNIP_KBD")"
+  echo "wrote $SNIP_KBD" >&2
+  if [[ "$before" == "$after" ]]; then
+    return 0
+  fi
+  if is_real_user_config && command -v systemctl >/dev/null 2>&1 \
+     && systemctl --user is-active --quiet hyperforge-kanata.service 2>/dev/null; then
+    if systemctl --user restart hyperforge-kanata.service; then
+      echo "restarted hyperforge-kanata.service" >&2
+    else
+      echo "kanata reload failed — start it with: systemctl --user start hyperforge-kanata.service" >&2
+    fi
+  fi
+}
+
 pick_name() {
   local names
   names="$(list_names)"
@@ -225,14 +453,28 @@ pick_name() {
 }
 
 main() {
-  local arg="${1:-}"
+  local arg="${1:-}" type_mode=0
+  if [[ "${HF_SNIPPET_TYPED:-}" == "1" ]]; then
+    type_mode=1
+  fi
   if [[ -z "$arg" || "$arg" == "-h" || "$arg" == "--help" ]]; then
-    echo "usage: $0 <name>     (type that snippet's expansion)"
-    echo "       $0 --pick     (choose a snippet via rofi/wofi/fzf)"
+    echo "usage: $0 <name>     (paste that snippet's expansion)"
+    echo "       $0 --type <name>     (type it — used by kanata hotstrings)"
+    echo "       $0 --pick            (choose a snippet via rofi/wofi/fzf)"
     echo "       $0 --print <name>    (print expansion; no type)"
     echo "       $0 --expand <text>   (resolve tokens in text; no type)"
+    echo "       $0 --keys <trigger>  (print kanata defseq keys; no type)"
+    echo "       $0 --compile-kanata [path|-]  (write/print kanata sequences)"
+    echo "       $0 --seed            (add macOS default triggers if missing)"
+    echo "       $0 --sync            (compile sequences + reload kanata)"
     echo "config: $CONF"
     exit 0
+  fi
+  if [[ "$arg" == "--type" ]]; then
+    type_mode=1
+    shift
+    arg="${1:-}"
+    [[ -n "$arg" ]] || { echo "usage: $0 --type <name>" >&2; exit 2; }
   fi
   if [[ "$arg" == "--expand" ]]; then
     [[ -n "${2:-}" ]] || { echo "usage: $0 --expand <text>" >&2; exit 2; }
@@ -250,6 +492,23 @@ main() {
     printf '%s' "$(resolve_tokens "$expansion")"
     return 0
   fi
+  if [[ "$arg" == "--keys" ]]; then
+    [[ -n "${2:-}" ]] || { echo "usage: $0 --keys <trigger>" >&2; exit 2; }
+    trigger_keys "$2"
+    return 0
+  fi
+  if [[ "$arg" == "--compile-kanata" ]]; then
+    compile_kanata "${2:-$SNIP_KBD}"
+    return 0
+  fi
+  if [[ "$arg" == "--seed" ]]; then
+    seed_defaults
+    return 0
+  fi
+  if [[ "$arg" == "--sync" ]]; then
+    sync_kanata
+    return 0
+  fi
   if [[ "$arg" == "--pick" ]]; then
     arg="$(pick_name || true)"
     [[ -z "$arg" ]] && exit 0
@@ -259,7 +518,7 @@ main() {
     notify "No snippet named \"$arg\" — edit $CONF"
     exit 1
   fi
-  if [[ "${HF_SNIPPET_TYPED:-}" == "1" ]]; then
+  if [[ "$type_mode" -eq 1 ]]; then
     wait_mods_up
     type_text "$(resolve_tokens "$expansion")"
   else

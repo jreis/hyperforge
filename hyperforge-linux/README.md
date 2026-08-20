@@ -10,7 +10,7 @@
 | **[keyd](https://github.com/rvaiya/keyd)** (optional) | Same idea as a system service |
 | **`hyperforge-snap`** | Half / quarter / **third / two-thirds / almost-max** / max / **tile** for **Hyprland**, **Sway**, or **X11** |
 | **`hyperforge-action`** | Apps, lock, date, google clipboard, plain paste, open URL, snippet + clipboard dispatch |
-| **`hyperforge-snippet`** | `{{token}}` text-expansion snippets — direct or via a picker |
+| **`hyperforge-snippet`** | `{{token}}` text-expansion snippets — typed hotstrings (`@@`) or picker |
 | **`hyperforge-clip`** | Persisted, pinned, searchable clipboard history |
 | **`hyperforge-doctor`** | Setup health check |
 
@@ -57,7 +57,7 @@ systemctl --user enable --now hyperforge-clipboard.service
 
 On Omarchy the units are `WantedBy=graphical-session.target`, so they start with Hyprland (not at the greeter) and inherit `WAYLAND_DISPLAY` / `HYPRLAND_*` — required for snaps and the clipboard watcher. Do **not** add kanata to `~/.config/hypr/autostart.lua`; the systemd unit already restarts on failure.
 
-Edit `~/.config/hyperforge-linux/snippets.conf` (seeded by `install.sh`) to add your own snippets.
+Edit `~/.config/hyperforge-linux/snippets.conf` (seeded by `install.sh`) to add your own snippets, then `hyperforge-snippet --sync`.
 
 Health check:
 
@@ -141,12 +141,13 @@ kanata's Hyper layer doesn't force Shift down the way the 4-mod bridges do, but
 sharing a physical key with an OS-level Shift press is still fragile, so
 two-thirds and almost-max get their own keys (I / O / Y) instead.
 
-### Snippets (Hyper + ,)
+### Snippets (typed hotstrings + Hyper + ,)
 
-`hyperforge-snippet` types `{{token}}` text expansions — kanata/keyd can't watch
-typed text for hotstring triggers like AHK or the macOS app do, so snippets here
-are chord/picker-triggered instead. Configure `~/.config/hyperforge-linux/snippets.conf`
-(`name=expansion`, seeded from `snippets.example.conf`):
+`hyperforge-snippet` expands `{{token}}` text the same way as macOS. Typing a
+trigger like `@@` or `,sig` replaces itself (kanata `sequence-always-on` +
+`visible-backspaced`). Hyper+, still opens a picker. Configure
+`~/.config/hyperforge-linux/snippets.conf` (`trigger=expansion`, seeded from
+`snippets.example.conf`):
 
 | Token | Expands to |
 |-------|------------|
@@ -157,9 +158,21 @@ are chord/picker-triggered instead. Configure `~/.config/hyperforge-linux/snippe
 | `{{uuid}}` | A fresh random UUID |
 | `{{lan-ip}}` | First non-loopback IPv4 address |
 
-`\n` expands to a real newline. Hyper+, opens a picker (rofi/wofi, or fzf in a
-spawned terminal); `hyperforge-snippet <name>` types one directly (bind it to
-your own chord if you want a specific snippet on a dedicated key).
+`\n` expands to a real newline. Triggers that contain punctuation (`@@`, `,sig`,
+`,date`) expand as you type; all-letter names stay picker-only so typing the
+word "email" doesn't fire. After editing the config:
+
+```bash
+hyperforge-snippet --sync    # rewrite ~/.config/kanata/hyperforge-snippets.kbd
+                             # and restart hyperforge-kanata if it is running
+```
+
+`install.sh` seeds the macOS defaults (`@@`, `,sig`, `,date`, `,v`, `,host`)
+without overwriting keys you already have. Optional: `systemctl --user enable
+--now hyperforge-snippets.path` recompiles when the file changes.
+
+Hyper+, opens a picker (rofi/wofi); `hyperforge-snippet <name>` pastes one
+directly. keyd has no typed-hotstring equivalent — picker/chord only.
 
 ### Region pin (Hyper + N)
 
@@ -227,7 +240,7 @@ hyperforge-linux/
 ├── bin/
 │   ├── hyperforge-snap      # window geometry + tile + thirds/2-thirds/almost-max
 │   ├── hyperforge-action    # Hyper command targets (snaps, apps, snippets, clipboard)
-│   ├── hyperforge-snippet   # {{token}} text expansion
+│   ├── hyperforge-snippet   # {{token}} text expansion + typed hotstrings
 │   ├── hyperforge-clip      # persisted/pinned clipboard history
 │   ├── hyperforge-pin       # stay-on-top region capture
 │   ├── hyperforge-paste     # clipboard transforms
@@ -241,7 +254,9 @@ hyperforge-linux/
 │   └── hyperforge.conf      # optional system keyd
 └── systemd/
     ├── hyperforge-kanata.service
-    └── hyperforge-clipboard.service
+    ├── hyperforge-clipboard.service
+    ├── hyperforge-snippets.service
+    └── hyperforge-snippets.path
 ```
 
 ---
@@ -267,7 +282,7 @@ Adjust `HF_BIN` paths if you install elsewhere (install.sh rewrites them).
 | Input | CGEvent + Karabiner | **kanata** / keyd |
 | Space layer | Built into app | kanata `nav` layer (subset) |
 | Window pad | Arrows · numpad · thirds/2-thirds/almost-max · 6 tile · Z undo | **Same chords**, 2/3 + almost-max on I/O/Y (no Shift disambiguation) |
-| Snippets | Typed-trigger hotstrings, `{{token}}` set | **Same tokens**, chord/picker-triggered (kanata can't watch typed text) |
+| Snippets | Typed-trigger hotstrings, `{{token}}` set | **Same tokens + typed triggers** (`@@`, `,sig`) via kanata sequences; Hyper+, picker still works |
 | Clipboard history | Hyper+V panel, persisted/pinned/searchable | Hyper+P picker, persisted/pinned/searchable |
 | Profiles / auto-triggers | Wi‑Fi / app / time, per-app overrides | Not ported — no per-process/per-app layer switching here |
 | Region pin | Hyper+P stay-on-top capture | Hyper+N (grim/slurp + GTK pin; copy / save / OCR) |
@@ -303,6 +318,7 @@ Adjust `HF_BIN` paths if you install elsewhere (install.sh rewrites them).
 | Hyper+, / Hyper+P do nothing | on Omarchy the overlay picker (`omarchy-menu-select`) is used; elsewhere install `rofi` or `wofi`. Release Caps before choosing — leftover Ctrl+Alt+Super turns each letter into another Hyper chord. |
 | Clipboard history stays empty | `systemctl --user enable --now hyperforge-clipboard.service` (not started by `hyperforge-kanata.service`) |
 | Snippet types nothing | check the trigger name matches a key in `~/.config/hyperforge-linux/snippets.conf` (not the reserved `date_format` key) |
+| Typing `@@` does nothing | `@@=you@example.com` in snippets.conf, then `hyperforge-snippet --sync`, then restart kanata. Re-run `install.sh` if `hyperforge.kbd` has no `sequence-always-on`. Edit the email value to yours. |
 
 Doctor (session / permissions / helpers):
 

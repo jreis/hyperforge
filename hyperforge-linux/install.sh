@@ -65,8 +65,21 @@ if [[ -f "$ROOT/systemd/hyperforge-clipboard.service" ]]; then
   cp "$ROOT/systemd/hyperforge-clipboard.service" "$SYSTEMD_USER/hyperforge-clipboard.service"
   echo "→ systemd user unit: hyperforge-clipboard.service (clipboard history watcher)"
 fi
+if [[ -f "$ROOT/systemd/hyperforge-snippets.service" ]]; then
+  cp "$ROOT/systemd/hyperforge-snippets.service" "$SYSTEMD_USER/hyperforge-snippets.service"
+  echo "→ systemd user unit: hyperforge-snippets.service (compile typed snippet sequences)"
+fi
+if [[ -f "$ROOT/systemd/hyperforge-snippets.path" ]]; then
+  cp "$ROOT/systemd/hyperforge-snippets.path" "$SYSTEMD_USER/hyperforge-snippets.path"
+  echo "→ systemd user unit: hyperforge-snippets.path (recompile when snippets.conf changes)"
+fi
 
 export HYPERFORGE_LINUX_ROOT="$SHARE"
+# macOS-default typed triggers (@@, ,sig, …) + kanata sequence file
+if [[ -x "$SHARE/bin/hyperforge-snippet" ]]; then
+  "$SHARE/bin/hyperforge-snippet" --seed || true
+  "$SHARE/bin/hyperforge-snippet" --sync || true
+fi
 # Persist for shells
 ENV_LINE="export HYPERFORGE_LINUX_ROOT=\"$SHARE\""
 for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
@@ -90,13 +103,14 @@ echo "     Caps/Space chords do nothing. Also ensure /dev/uinput is writable."
 echo "  3. Run once:       kanata -c $KANATA_DIR/hyperforge.kbd"
 echo "  4. Autostart:      systemctl --user enable --now hyperforge-kanata.service"
 echo "  5. Clipboard history (optional): systemctl --user enable --now hyperforge-clipboard.service"
-echo "  6. Edit snippets:  $HF_CONFIG_DIR/snippets.conf"
-echo "  7. Health check:   hyperforge-doctor"
+echo "  6. Typed snippets (optional):    systemctl --user enable --now hyperforge-snippets.path"
+echo "  7. Edit snippets:  $HF_CONFIG_DIR/snippets.conf   then: hyperforge-snippet --sync"
+echo "  8. Health check:   hyperforge-doctor"
 echo
 echo "Try:"
 echo "  • Hold Caps + ←/→/↑/↓  — window snap"
 echo "  • Hold Caps + -/=/\\    — left/right third · i/o two-thirds · y almost-max"
-echo "  • Hold Caps + ,        — snippet picker · Caps + P — clipboard history"
+echo "  • Type @@              — email snippet · Caps + , — snippet picker · Caps + P — clipboard"
 echo "  • Hold Space + H/J/K/L — arrows"
 echo "  • Tap Caps             — Escape"
 echo "  • Tap Space            — space"

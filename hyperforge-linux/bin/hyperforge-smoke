@@ -246,20 +246,20 @@ cp "$ROOT/snippets.example.conf" "$CFG_HOME/hyperforge-linux/snippets.conf"
 snip() { XDG_CONFIG_HOME="$CFG_HOME" "$SNIP" "$@"; }
 
 check "snippet --help exits 0" quiet "$SNIP" --help
-check_eq "print email" "$(snip --print email)" "you@example.com"
+check_eq "print @@" "$(snip --print '@@')" "you@example.com"
 want_sig="$(printf 'Thanks,\nYour Name')"
-check_eq "print sig expands \\n" "$(snip --print sig)" "$want_sig"
-check_eq "print date" "$(snip --print date)" "today: $(date +%Y-%m-%d)"
-check_eq "print host" "$(snip --print host)" "$(hostname)"
+check_eq "print ,sig expands \\n" "$(snip --print ',sig')" "$want_sig"
+check_eq "print ,date" "$(snip --print ',date')" "$(date +%Y-%m-%d)"
+check_eq "print ,host" "$(snip --print ',host')" "$(hostname)"
 
-uuid="$(snip --print uuid)"
+uuid="$(snip --print ',uuid')"
 uuid_ok() {
   grep -Eq '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' <<<"$uuid"
 }
-check "print uuid looks like a uuid" uuid_ok
+check "print ,uuid looks like a uuid" uuid_ok
 
-ip="$(snip --print ip)"
-check "print ip does not leave {{lan-ip}}" test "$ip" != '{{lan-ip}}'
+ip="$(snip --print ',ip')"
+check "print ,ip does not leave {{lan-ip}}" test "$ip" != '{{lan-ip}}'
 
 rc=0
 snip --print date_format >/dev/null 2>&1 || rc=$?
@@ -276,6 +276,38 @@ check_eq "expand hostname" \
   "$("$SNIP" --expand '{{hostname}}')" "$(hostname)"
 check_eq "expand literal newlines" \
   "$("$SNIP" --expand 'a\nb')" "$(printf 'a\nb')"
+
+check_eq "keys @@" "$(snip --keys '@@')" "(S-(Digit2 Digit2)) (S-2 S-2)"
+check_eq "keys ,sig" "$(snip --keys ',sig')" "(, s i g)"
+check_eq "keys ,v" "$(snip --keys ',v')" "(, v)"
+rc=0
+snip --keys email >/dev/null 2>&1 || rc=$?
+check "all-letter email is not a typed trigger" test "$rc" -ne 0
+rc=0
+snip --keys a >/dev/null 2>&1 || rc=$?
+check "single-letter trigger is skipped" test "$rc" -ne 0
+
+compiled="$(snip --compile-kanata -)"
+check "compile emits held-shift @@" grep -q 'S-(Digit2 Digit2)' <<<"$compiled"
+check "compile emits repress-shift @@" grep -q '(S-2 S-2)' <<<"$compiled"
+check "compile emits ,sig sequence" grep -q '(, s i g)' <<<"$compiled"
+compile_skips_date_format() { grep -q date_format <<<"$compiled" && return 1; return 0; }
+check "compile does not emit date_format" compile_skips_date_format
+check "compile uses --type" grep -q -- '--type "@@"' <<<"$compiled"
+
+# --seed adds missing macOS triggers without clobbering existing keys.
+SEED_HOME="$TMP/seed"
+mkdir -p "$SEED_HOME/hyperforge-linux"
+printf '%s\n' 'email=me@work.test' 'sig=Cheers,' >"$SEED_HOME/hyperforge-linux/snippets.conf"
+XDG_CONFIG_HOME="$SEED_HOME" "$SNIP" --seed >/dev/null
+seeded="$(cat "$SEED_HOME/hyperforge-linux/snippets.conf")"
+check "seed keeps existing email=" grep -qx 'email=me@work.test' <<<"$seeded"
+check "seed copies email into @@" grep -qx '@@=me@work.test' <<<"$seeded"
+check "seed copies sig into ,sig" grep -qx ',sig=Cheers,' <<<"$seeded"
+check "seed adds ,v" grep -qx ',v={{clipboard}}' <<<"$seeded"
+XDG_CONFIG_HOME="$SEED_HOME" "$SNIP" --seed >/dev/null
+check_eq "seed is idempotent" \
+  "$(cat "$SEED_HOME/hyperforge-linux/snippets.conf")" "$seeded"
 
 STUB_BIN="$TMP/path"
 mkdir -p "$STUB_BIN"
@@ -366,6 +398,9 @@ check "defvar hold is a bare name" defvar_has_hold
 check "defvar does not name \$tap" defvar_no_dollar_tap
 check "source kbd still has HF_BIN placeholders" grep -q 'HF_BIN/hyperforge-action' "$KBD"
 check "danger-enable-cmd yes" grep -q 'danger-enable-cmd yes' "$KBD"
+check "sequence-always-on yes" grep -q 'sequence-always-on yes' "$KBD"
+check "sequence-input-mode visible-backspaced" grep -q 'sequence-input-mode visible-backspaced' "$KBD"
+check "includes generated snippet sequences" grep -q '(include hyperforge-snippets.kbd)' "$KBD"
 
 # Every (cmd ... action-id) must be a real hyperforge-action arm.
 missing_kbd=0
@@ -387,13 +422,30 @@ sed "s|HF_BIN|$TMP/hf-bin|g" "$KBD" >"$rewritten"
 rewrite_has_no_hf_bin() { ! grep -q HF_BIN "$rewritten"; }
 check "install rewrite leaves no HF_BIN" rewrite_has_no_hf_bin
 
+KANATA_BIN=""
 if have kanata; then
-  if kanata --check -c "$rewritten" >/dev/null 2>&1; then
+  KANATA_BIN="$(command -v kanata)"
+elif [[ -x "$HOME/.cargo/bin/kanata" ]]; then
+  KANATA_BIN="$HOME/.cargo/bin/kanata"
+fi
+if [[ -n "$KANATA_BIN" ]]; then
+  if "$KANATA_BIN" --check -c "$rewritten" >/dev/null 2>&1; then
     echo "  ✓ kanata --check"
     passed=$((passed + 1))
   else
     echo "  ✗ kanata --check"
-    kanata --check -c "$rewritten" 2>&1 | tail -20 | sed 's/^/      /'
+    "$KANATA_BIN" --check -c "$rewritten" 2>&1 | tail -20 | sed 's/^/      /'
+    failed=$((failed + 1))
+  fi
+  # Include the compiled hotstring file next to the rewritten kbd.
+  snip --compile-kanata "$TMP/hyperforge-snippets.kbd"
+  cp "$rewritten" "$TMP/hyperforge-with-snips.kbd"
+  if "$KANATA_BIN" --check -c "$TMP/hyperforge-with-snips.kbd" >/dev/null 2>&1; then
+    echo "  ✓ kanata --check with compiled snippets"
+    passed=$((passed + 1))
+  else
+    echo "  ✗ kanata --check with compiled snippets"
+    "$KANATA_BIN" --check -c "$TMP/hyperforge-with-snips.kbd" 2>&1 | tail -20 | sed 's/^/      /'
     failed=$((failed + 1))
   fi
 else
@@ -434,6 +486,10 @@ check "kanata unit points at hyperforge.kbd" \
   grep -q 'hyperforge.kbd' "$ROOT/systemd/hyperforge-kanata.service"
 check "clipboard unit runs hyperforge-clip watch" \
   grep -q 'hyperforge-clip watch' "$ROOT/systemd/hyperforge-clipboard.service"
+check "snippets path unit watches snippets.conf" \
+  grep -q 'snippets.conf' "$ROOT/systemd/hyperforge-snippets.path"
+check "snippets oneshot runs --sync" \
+  grep -q 'hyperforge-snippet --sync' "$ROOT/systemd/hyperforge-snippets.service"
 
 echo
 if [[ "$failed" -eq 0 ]]; then
