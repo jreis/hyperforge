@@ -3,6 +3,7 @@
 # Usage: hyperforge-snap <left|right|top|bottom|max|center|tl|tr|bl|br|min|close|next-mon|prev-mon|undo|tile|
 #                         third-l|third-c|third-r|twothird-l|twothird-r|almost-max>
 #        hyperforge-snap --print-geom <width> <height> <action>
+#        hyperforge-snap --print-split <width> <height> <action> <n_others> [gaps_in] [border]
 # Muscle memory aligned with current macOS HyperForge where the compositor allows.
 set -euo pipefail
 
@@ -40,6 +41,159 @@ compute_geom() {
   printf '%s %s %s %s\n' "$nx" "$ny" "$nw" "$nh"
 }
 
+# Inset a rect by top/right/bottom/left. Clamps size to >= 1.
+inset_rect() {
+  local x="$1" y="$2" w="$3" h="$4" t="$5" r="$6" b="$7" l="$8"
+  x=$((x + l))
+  y=$((y + t))
+  w=$((w - l - r))
+  h=$((h - t - b))
+  if (( w < 1 )); then w=1; fi
+  if (( h < 1 )); then h=1; fi
+  printf '%s %s %s %s\n' "$x" "$y" "$w" "$h"
+}
+
+# Rects that remain after placing (sx,sy,sw,sh) inside (mx,my,mw,mh).
+leftover_rects() {
+  local mx="$1" my="$2" mw="$3" mh="$4" sx="$5" sy="$6" sw="$7" sh="$8"
+  local mx2=$((mx + mw)) my2=$((my + mh)) sx2=$((sx + sw)) sy2=$((sy + sh))
+  if (( sx > mx )); then
+    printf '%s %s %s %s\n' "$mx" "$sy" "$((sx - mx))" "$sh"
+  fi
+  if (( sx2 < mx2 )); then
+    printf '%s %s %s %s\n' "$sx2" "$sy" "$((mx2 - sx2))" "$sh"
+  fi
+  if (( sy > my )); then
+    printf '%s %s %s %s\n' "$mx" "$my" "$mw" "$((sy - my))"
+  fi
+  if (( sy2 < my2 )); then
+    printf '%s %s %s %s\n' "$mx" "$sy2" "$mw" "$((my2 - sy2))"
+  fi
+}
+
+# Shrink edges of a rect that do not sit on the usable monitor edge (gaps_in).
+inset_inner_edges() {
+  local mx="$1" my="$2" mw="$3" mh="$4"
+  local x="$5" y="$6" w="$7" h="$8"
+  local gt="$9" gr="${10}" gb="${11}" gl="${12}"
+  local mx2=$((mx + mw)) my2=$((my + mh))
+  local t=0 r=0 b=0 l=0
+  if (( x > mx )); then l=$gl; fi
+  if (( y > my )); then t=$gt; fi
+  if (( x + w < mx2 )); then r=$gr; fi
+  if (( y + h < my2 )); then b=$gb; fi
+  inset_rect "$x" "$y" "$w" "$h" "$t" "$r" "$b" "$l"
+}
+
+# Grid n windows into an outer rect. Prints inner rects (border-inset).
+grid_place() {
+  local mx="$1" my="$2" mw="$3" mh="$4" n="$5" gin_x="$6" gin_y="$7" border="$8"
+  local cols rows cellw cellh i col row x y
+  if (( n < 1 )); then return 0; fi
+  if (( n == 1 )); then
+    inset_rect "$mx" "$my" "$mw" "$mh" "$border" "$border" "$border" "$border"
+    return 0
+  fi
+  cols=$(awk -v n="$n" 'BEGIN{print int(sqrt(n)+0.999)}')
+  rows=$(( (n + cols - 1) / cols ))
+  if (( cols < 1 )); then cols=1; fi
+  if (( rows < 1 )); then rows=1; fi
+  cellw=$(( (mw - (cols - 1) * gin_x) / cols ))
+  cellh=$(( (mh - (rows - 1) * gin_y) / rows ))
+  if (( cellw < 1 )); then cellw=1; fi
+  if (( cellh < 1 )); then cellh=1; fi
+  i=0
+  while (( i < n )); do
+    col=$((i % cols))
+    row=$((i / cols))
+    x=$((mx + col * (cellw + gin_x)))
+    y=$((my + row * (cellh + gin_y)))
+    inset_rect "$x" "$y" "$cellw" "$cellh" "$border" "$border" "$border" "$border"
+    i=$((i + 1))
+  done
+}
+
+# Snap the first window; lay the rest into leftover space so they don't overlap.
+# Prints one inner rect per window (active first). Overlay snaps (max/center/
+# almost-max) never reflow — leftover is a frame or empty.
+layout_split() {
+  local mw="$1" mh="$2" action="$3" n_others="$4"
+  local gin="${5:-0}" border="${6:-0}"
+  local mx=0 my=0 geom sx sy sw sh
+  local gin_t="$gin" gin_r="$gin" gin_b="$gin" gin_l="$gin"
+  local gin_x gin_y
+  local leftovers=() largest="" largest_a=-1 a
+  local lx ly lw lh r i sorted
+
+  [[ "$gin" =~ ^[0-9]+$ ]] || gin=0
+  [[ "$border" =~ ^[0-9]+$ ]] || border=0
+  [[ "$n_others" =~ ^[0-9]+$ ]] || n_others=0
+  gin_t=$gin; gin_r=$gin; gin_b=$gin; gin_l=$gin
+  gin_x=$((gin_l + gin_r))
+  gin_y=$((gin_t + gin_b))
+
+  if [[ "$action" == "tile" ]]; then
+    grid_place "$mx" "$my" "$mw" "$mh" "$((n_others + 1))" "$gin_x" "$gin_y" "$border"
+    return 0
+  fi
+
+  geom="$(compute_geom "$mx" "$my" "$mw" "$mh" "$action")" || return 2
+  read -r sx sy sw sh <<<"$geom"
+
+  case "$action" in
+    max|center|almost-max) n_others=0 ;;
+  esac
+
+  if (( n_others > 0 )); then
+    mapfile -t leftovers < <(leftover_rects "$mx" "$my" "$mw" "$mh" "$sx" "$sy" "$sw" "$sh")
+    if (( ${#leftovers[@]} == 0 )); then
+      n_others=0
+    fi
+  fi
+
+  if (( n_others > 0 )); then
+    read -r sx sy sw sh < <(inset_inner_edges "$mx" "$my" "$mw" "$mh" "$sx" "$sy" "$sw" "$sh" \
+      "$gin_t" "$gin_r" "$gin_b" "$gin_l")
+    for i in "${!leftovers[@]}"; do
+      read -r lx ly lw lh <<<"${leftovers[$i]}"
+      leftovers[$i]="$(inset_inner_edges "$mx" "$my" "$mw" "$mh" "$lx" "$ly" "$lw" "$lh" \
+        "$gin_t" "$gin_r" "$gin_b" "$gin_l")"
+    done
+  fi
+
+  inset_rect "$sx" "$sy" "$sw" "$sh" "$border" "$border" "$border" "$border"
+
+  if (( n_others < 1 )); then
+    return 0
+  fi
+
+  if (( n_others <= ${#leftovers[@]} )); then
+    # One sibling per leftover, largest first.
+    local sorted=()
+    mapfile -t sorted < <(printf '%s\n' "${leftovers[@]}" | awk '{
+      print ($3*$4), $0
+    }' | sort -nr | awk '{ $1=""; sub(/^ /,""); print }')
+    i=0
+    while (( i < n_others )); do
+      read -r lx ly lw lh <<<"${sorted[$i]}"
+      inset_rect "$lx" "$ly" "$lw" "$lh" "$border" "$border" "$border" "$border"
+      i=$((i + 1))
+    done
+    return 0
+  fi
+
+  for r in "${leftovers[@]}"; do
+    read -r lx ly lw lh <<<"$r"
+    a=$((lw * lh))
+    if (( a > largest_a )); then
+      largest_a=$a
+      largest="$r"
+    fi
+  done
+  read -r lx ly lw lh <<<"$largest"
+  grid_place "$lx" "$ly" "$lw" "$lh" "$n_others" "$gin_x" "$gin_y" "$border"
+}
+
 if [[ "${1:-}" == "--print-geom" ]]; then
   if [[ $# -ne 4 ]]; then
     echo "usage: $0 --print-geom <width> <height> <action>" >&2
@@ -49,10 +203,22 @@ if [[ "${1:-}" == "--print-geom" ]]; then
   exit $?
 fi
 
+if [[ "${1:-}" == "--print-split" ]]; then
+  # usage: --print-split <width> <height> <action> <n_others> [gaps_in] [border]
+  if [[ $# -lt 5 || $# -gt 7 ]]; then
+    echo "usage: $0 --print-split <width> <height> <action> <n_others> [gaps_in] [border]" >&2
+    exit 2
+  fi
+  layout_split "$2" "$3" "$4" "$5" "${6:-0}" "${7:-0}"
+  exit $?
+fi
+
 action="${1:-}"
 if [[ -z "$action" ]]; then
   echo "usage: $0 <left|right|top|bottom|max|center|tl|tr|bl|br|min|close|next-mon|prev-mon|undo|tile|" >&2
   echo "           third-l|third-c|third-r|twothird-l|twothird-r|almost-max>" >&2
+  echo "       $0 --print-geom <width> <height> <action>" >&2
+  echo "       $0 --print-split <width> <height> <action> <n_others> [gaps_in] [border]" >&2
   exit 2
 fi
 
@@ -110,29 +276,44 @@ hypr_place() {
     moveactive exact "$nx" "$ny" ${addr:+"address:$addr"}
 }
 
-hypr_gap() {
-  # $1 = general:gaps_out | general:gaps_in
+# Prints CSS gap sides: top right bottom left (integers).
+hypr_css_gaps() {
   hyprctl getoption "$1" -j 2>/dev/null | jq -r '
-    if .css then (.css | split(" ")[0])
-    elif .int then .int
-    else 0 end
-  ' 2>/dev/null || echo 0
+    if .css then
+      (.css | split(" ") | map(tonumber)) as $g
+      | (if ($g | length) == 1 then [$g[0], $g[0], $g[0], $g[0]]
+         elif ($g | length) == 2 then [$g[0], $g[1], $g[0], $g[1]]
+         elif ($g | length) == 3 then [$g[0], $g[1], $g[2], $g[1]]
+         else $g[0:4] end)
+      | join(" ")
+    elif .int then "\(.int) \(.int) \(.int) \(.int)"
+    else "0 0 0 0" end
+  ' 2>/dev/null || echo "0 0 0 0"
+}
+
+hypr_border() {
+  hyprctl getoption general:border_size -j 2>/dev/null | jq -r '.int // 0' 2>/dev/null || echo 0
 }
 
 # Usable monitor rect in *logical* pixels (Hyprland move/resize units).
 # width/height from hyprctl are physical; x/y and window size are logical.
-# Subtract reserved (bar) and gaps_out so a "max" snap matches a tiled full window.
+# Subtract reserved (bar / exclusive zones) and gaps_out so a "max" snap
+# matches a tiled full window on Omarchy.
 hypr_mon_rect() {
-  local mon_id="$1" gout
-  gout="$(hypr_gap general:gaps_out)"
-  [[ "$gout" =~ ^[0-9]+$ ]] || gout=0
-  hyprctl monitors -j | jq -r --argjson id "$mon_id" --argjson gout "$gout" '
+  local mon_id="$1" gt=0 gr=0 gb=0 gl=0
+  read -r gt gr gb gl < <(hypr_css_gaps general:gaps_out)
+  [[ "$gt" =~ ^[0-9]+$ ]] || gt=0
+  [[ "$gr" =~ ^[0-9]+$ ]] || gr=0
+  [[ "$gb" =~ ^[0-9]+$ ]] || gb=0
+  [[ "$gl" =~ ^[0-9]+$ ]] || gl=0
+  hyprctl monitors -j | jq -r --argjson id "$mon_id" \
+    --argjson gt "$gt" --argjson gr "$gr" --argjson gb "$gb" --argjson gl "$gl" '
     (map(select(.id == $id)) | .[0] // .[0]) as $m
     | (if ($m.scale // 1) == 0 then 1 else ($m.scale // 1) end) as $s
     | ($m.reserved // [0,0,0,0]) as $r
     | (($m.width / $s) | floor) as $lw
     | (($m.height / $s) | floor) as $lh
-    | "\($m.x + $r[0] + $gout) \($m.y + $r[1] + $gout) \($lw - $r[0] - $r[2] - 2 * $gout) \($lh - $r[1] - $r[3] - 2 * $gout)"
+    | "\($m.x + $r[0] + $gl) \($m.y + $r[1] + $gt) \($lw - $r[0] - $r[2] - $gl - $gr) \($lh - $r[1] - $r[3] - $gt - $gb)"
   '
 }
 
@@ -247,46 +428,133 @@ snap_hypr() {
       ;;
     tile)
       save_hypr_layout
-      local mon_id clients n cols rows i mx my mw mh
-      mon_id="$(hyprctl activewindow -j | jq -r '.monitor')"
-      read -r mx my mw mh < <(hypr_mon_rect "$mon_id")
-      mapfile -t clients < <(hyprctl clients -j | jq -r --argjson mid "$mon_id" '
-        [.[] | select(.mapped == true and .hidden == false and .monitor == $mid
-          and (.workspace.id // 0) > 0)]
-        | sort_by(.at[1], .at[0])
-        | .[].address
-      ')
-      n="${#clients[@]}"
-      if [[ "$n" -lt 1 ]]; then
-        echo "hyperforge-snap: nothing to tile" >&2
-        return 1
-      fi
-      cols=$(awk -v n="$n" 'BEGIN{print int(sqrt(n)+0.999)}')
-      rows=$(( (n + cols - 1) / cols ))
-      local cellw=$((mw / cols)) cellh=$((mh / rows))
-      i=0
-      for addr in "${clients[@]}"; do
-        local col=$((i % cols)) row=$((i / cols))
-        local nx=$((mx + col * cellw)) ny=$((my + row * cellh))
-        hypr_place "$addr" "$nx" "$ny" "$cellw" "$cellh"
-        i=$((i + 1))
-      done
+      hypr_tile_workspace
       return
       ;;
   esac
 
   save_hypr_layout
+  hypr_snap_with_siblings
+}
 
-  local mon_id geom mx my mw mh nx ny nw nh
-  mon_id="$(hyprctl activewindow -j | jq -r '.monitor')"
+# Addresses on the same workspace+monitor that a snap should make room for.
+# Skips pinned pop-outs / PiP / webcam overlays, special workspaces, and small
+# floats (Omarchy dialogs). Tiled windows and large floats (previous snaps)
+# are included so they reflow into leftover space instead of being covered.
+hypr_sibling_addrs() {
+  local mon_id="$1" ws_id="$2" self="$3" area="$4"
+  if (( area < 1 )); then area=1; fi
+  hyprctl clients -j | jq -r --argjson mid "$mon_id" --argjson ws "$ws_id" \
+    --arg self "$self" --argjson area "$area" '
+    .[] | select(
+      .mapped == true and .hidden == false
+      and .monitor == $mid
+      and ((.workspace.id // 0) == $ws)
+      and ((.workspace.id // 0) > 0)
+      and .address != $self
+      and .pinned != true
+      and ((.fullscreen // 0) == 0)
+      and (
+        .floating != true
+        or ((.size[0] * .size[1]) >= ($area * 0.18))
+      )
+    )
+    | .address
+  '
+}
+
+hypr_gaps_in_one() {
+  local t r b l
+  read -r t r b l < <(hypr_css_gaps general:gaps_in)
+  [[ "$t" =~ ^[0-9]+$ ]] || t=0
+  # layout_split takes a uniform gaps_in; use the top value (Omarchy is even).
+  printf '%s\n' "$t"
+}
+
+hypr_place_layout() {
+  # stdin: "nx ny nw nh" lines; $1, $2, ... = addresses (same order)
+  local mx="$1" my="$2"
+  shift 2
+  local addrs=("$@")
+  local i=0 nx ny nw nh line
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    read -r nx ny nw nh <<<"$line"
+    nx=$((nx + mx))
+    ny=$((ny + my))
+    hypr_place "${addrs[$i]}" "$nx" "$ny" "$nw" "$nh"
+    i=$((i + 1))
+  done
+}
+
+hypr_tile_workspace() {
+  local win mon_id ws_id mx my mw mh
+  local gin border clients n
+  win="$(hyprctl activewindow -j)"
+  mon_id="$(jq -r '.monitor' <<<"$win")"
+  ws_id="$(jq -r '.workspace.id' <<<"$win")"
   read -r mx my mw mh < <(hypr_mon_rect "$mon_id")
+  gin="$(hypr_gaps_in_one)"
+  border="$(hypr_border)"
+  [[ "$border" =~ ^[0-9]+$ ]] || border=0
+  mapfile -t clients < <(hyprctl clients -j | jq -r --argjson mid "$mon_id" --argjson ws "$ws_id" '
+    [.[] | select(
+      .mapped == true and .hidden == false
+      and .monitor == $mid
+      and ((.workspace.id // 0) == $ws)
+      and ((.workspace.id // 0) > 0)
+      and .pinned != true
+    )]
+    | sort_by(.at[1], .at[0])
+    | .[].address
+  ')
+  n="${#clients[@]}"
+  if [[ "$n" -lt 1 ]]; then
+    echo "hyperforge-snap: nothing to tile" >&2
+    return 1
+  fi
+  layout_split "$mw" "$mh" tile "$((n - 1))" "$gin" "$border" \
+    | hypr_place_layout "$mx" "$my" "${clients[@]}"
+}
 
-  geom="$(compute_geom "$mx" "$my" "$mw" "$mh" "$action")" || {
+hypr_snap_with_siblings() {
+  local win addr mon_id ws_id mx my mw mh
+  local gin border siblings n_others
+  local nx ny nw nh
+  win="$(hyprctl activewindow -j)"
+  addr="$(jq -r '.address' <<<"$win")"
+  mon_id="$(jq -r '.monitor' <<<"$win")"
+  ws_id="$(jq -r '.workspace.id' <<<"$win")"
+  read -r mx my mw mh < <(hypr_mon_rect "$mon_id")
+  gin="$(hypr_gaps_in_one)"
+  border="$(hypr_border)"
+  [[ "$border" =~ ^[0-9]+$ ]] || border=0
+
+  mapfile -t siblings < <(hypr_sibling_addrs "$mon_id" "$ws_id" "$addr" "$((mw * mh))")
+  n_others="${#siblings[@]}"
+
+  local lines=() split_out
+  split_out="$(layout_split "$mw" "$mh" "$action" "$n_others" "$gin" "$border")" || {
     echo "unknown action: $action" >&2
     exit 2
   }
-  read -r nx ny nw nh <<<"$geom"
-  hypr_place "" "$nx" "$ny" "$nw" "$nh"
+  mapfile -t lines <<<"$split_out"
+  if (( ${#lines[@]} < 1 )); then
+    echo "unknown action: $action" >&2
+    exit 2
+  fi
+
+  read -r nx ny nw nh <<<"${lines[0]}"
+  hypr_place "$addr" "$((nx + mx))" "$((ny + my))" "$nw" "$nh"
+
+  local i=1
+  while (( i < ${#lines[@]} && i - 1 < n_others )); do
+    read -r nx ny nw nh <<<"${lines[$i]}"
+    hypr_place "${siblings[$((i - 1))]}" "$((nx + mx))" "$((ny + my))" "$nw" "$nh"
+    i=$((i + 1))
+  done
+
+  hypr "hl.dsp.focus({ window = \"address:$addr\" })" focuswindow "address:$addr"
 }
 
 # ── Sway ──────────────────────────────────────────────────────────────

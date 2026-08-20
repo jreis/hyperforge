@@ -8,7 +8,7 @@
 |-------|------|
 | **[kanata](https://github.com/jtroo/kanata)** (preferred) | Caps Hyper layer + Space nav layer + numpad pad |
 | **[keyd](https://github.com/rvaiya/keyd)** (optional) | Same idea as a system service |
-| **`hyperforge-snap`** | Half / quarter / **third / two-thirds / almost-max** / max / **tile** for **Hyprland**, **Sway**, or **X11** |
+| **`hyperforge-snap`** | Half / quarter / **third / two-thirds / almost-max** / max / **tile** for **Hyprland**, **Sway**, or **X11**. On Hyprland, side/third/quarter snaps reflow other windows on the workspace into the leftover region (Omarchy gaps/borders, skipping pinned pop-outs). |
 | **`hyperforge-action`** | Apps, lock, date, google clipboard, plain paste, open URL, snippet + clipboard dispatch |
 | **`hyperforge-snippet`** | `{{token}}` text-expansion snippets — typed hotstrings (`@@`) or picker |
 | **`hyperforge-clip`** | Persisted, pinned, searchable clipboard history |
@@ -311,7 +311,7 @@ Adjust `HF_BIN` paths if you install elsewhere (install.sh rewrites them).
 | `cmd is not enabled for this kanata executable` | rebuild with `cargo install kanata --features cmd` (or install a `cmd_allowed` binary) |
 | Caps / Space / chords do nothing | Two common causes: (1) kanata grabbed `System Control` — `sudo usermod -aG input "$USER"` and log out. (2) **Keychron/VIA already maps Caps to Ctrl+Alt+Super** (no `KEY_CAPSLOCK`). On Omarchy, copy `hypr/omarchy-bindings.lua` into `~/.config/hypr/bindings.lua`. |
 | kanata can’t open devices | input group, uinput udev, log out |
-| Snaps do nothing on Hyprland | Hyprland 0.55+ needs Lua `hyprctl dispatch` (this kit now does). Run `hyperforge-snap left` in a terminal — it should float the focused window to the left half. If that works but Caps+arrow does not, hold Caps then press the arrow (or update to `tap-hold-press`). |
+| Snaps do nothing on Hyprland | Hyprland 0.55+ needs Lua `hyprctl dispatch` (this kit now does). Run `hyperforge-snap left` in a terminal — it should float the focused window to the left half and move other workspace windows into the leftover region. If that works but Caps+arrow does not, hold Caps then press the arrow (or update to `tap-hold-press`). |
 | Numpad pad silent | ensure keyboard sends `kp0`–`kp9`; laptop may need Fn |
 | Space layer feels sticky | lower `$tap` / `$hold` (e.g. 120) in `hyperforge.kbd` |
 | Want 4-mod Hyper for apps | use a separate kanata alias with `(multi lctl lalt lmet lsft)` instead of a layer |

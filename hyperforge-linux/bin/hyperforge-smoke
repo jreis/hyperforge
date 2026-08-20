@@ -237,6 +237,25 @@ rc=0
 geom 1920 1080 not-a-snap >/dev/null 2>&1 || rc=$?
 check "unknown geom action exits 2" test "$rc" -eq 2
 
+# Sibling reflow (Omarchy: leftover windows occupy the complementary region).
+split() { "$SNAP" --print-split "$@"; }
+check_eq "split left 0 others" "$(split 1920 1080 left 0)" "0 0 960 1080"
+check_eq "split left 1 other" "$(split 1920 1080 left 1)" $'0 0 960 1080\n960 0 960 1080'
+check_eq "split right 1 other" "$(split 1920 1080 right 1)" $'960 0 960 1080\n0 0 960 1080'
+check_eq "split top 1 other" "$(split 1920 1080 top 1)" $'0 0 1920 540\n0 540 1920 540'
+check_eq "split third-l 1 other" "$(split 1920 1080 third-l 1)" $'0 0 640 1080\n640 0 1280 1080'
+check_eq "split twothird-l 1 other" "$(split 1920 1080 twothird-l 1)" $'0 0 1280 1080\n1280 0 640 1080'
+check_eq "split tl 1 other uses bottom leftover" "$(split 1920 1080 tl 1)" $'0 0 960 540\n0 540 1920 540'
+check_eq "split left gin5 border2" "$(split 1920 1080 left 1 5 2)" $'2 2 951 1076\n967 2 951 1076'
+check_eq "split left 0 others still insets border" "$(split 1920 1080 left 0 5 2)" "2 2 956 1076"
+check_eq "split max ignores siblings" "$(split 1920 1080 max 3)" "0 0 1920 1080"
+check_eq "split center ignores siblings" "$(split 1920 1080 center 1)" "320 180 1280 720"
+check_eq "split tile 4" "$(split 1920 1080 tile 3)" $'0 0 960 540\n960 0 960 540\n0 540 960 540\n960 540 960 540'
+
+rc=0
+split 1920 1080 not-a-snap 1 >/dev/null 2>&1 || rc=$?
+check "unknown split action exits 2" test "$rc" -eq 2
+
 # ── Snippets (print/expand only — never wtype) ────────────────────────
 echo
 echo "Snippets"
