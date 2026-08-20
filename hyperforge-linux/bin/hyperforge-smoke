@@ -203,7 +203,12 @@ echo
 echo "Paste / catalog / backup"
 paste_list="$("$HERE/hyperforge-paste" --list)"
 check "paste list has base64" grep -q b64-enc <<<"$paste_list"
-check "bar catalog has region-pin" grep -q region-pin <<<"$("$HERE/hyperforge-bar" --list)"
+bar_list="$("$HERE/hyperforge-bar" --list)"
+check "bar catalog has region-pin" grep -q region-pin <<<"$bar_list"
+check "bar catalog lists Hyper chord" grep -q $'win-left\tSnap left\tHyper+' <<<"$bar_list"
+check "bar catalog lists cheat-sheet chord" grep -q $'cheat-sheet\tCheat sheet\tHyper+/' <<<"$bar_list"
+check "bar catalog lists Space+H" grep -q $'space-h\tSpace · Left\tSpace+H' <<<"$bar_list"
+check "bar catalog lists Space+Y copy" grep -q $'space-y\tSpace · Copy\tSpace+Y' <<<"$bar_list"
 cfg_out="$TMP/hf-backup.json"
 "$HERE/hyperforge-config" export "$cfg_out" >/dev/null
 check "config export writes JSON" grep -q '"version"' "$cfg_out"

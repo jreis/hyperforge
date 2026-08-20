@@ -6,88 +6,129 @@ ROOT="${HYPERFORGE_LINUX_ROOT:-$HOME/.local/share/hyperforge-linux}"
 ACTION="${ROOT}/bin/hyperforge-action"
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# id, label, chord — chords match kanata hyperforge.kbd / Omarchy bindings.lua.
 catalog() {
   cat <<'EOF'
-win-left	Snap left
-win-right	Snap right
-win-top	Snap top
-win-bottom	Snap bottom
-win-max	Maximize
-win-center	Center
-win-tl	Quarter top-left
-win-tr	Quarter top-right
-win-bl	Quarter bottom-left
-win-br	Quarter bottom-right
-win-tile	Tile all
-win-undo	Undo snap
-win-next	Next monitor
-win-prev	Previous monitor
-win-third-l	Third left
-win-third-c	Third center
-win-third-r	Third right
-win-2third-l	Two-thirds left
-win-2third-r	Two-thirds right
-win-almost-max	Almost-max
-always-on-top	Always on top
-win-min	Minimize
-win-close	Close window
-region-pin	Pin screen region
-region-ocr	OCR region
-snippet-pick	Snippet picker
-clip-show	Clipboard history
-paste-menu	Paste transforms
-warp	Warp mouse to window
-keepalive	Toggle keep-alive
-term	Terminal
-files	Files
-browser	Browser
-editor	Editor
-lock	Lock session
-date	Insert date
-google-clip	Google clipboard
-open-url	Open URL in clipboard
-plain-paste	Plain paste
-hostname	Copy hostname
-config-export	Export config
-cheat-sheet	Cheat sheet
+win-left	Snap left	Hyper+←
+win-right	Snap right	Hyper+→
+win-top	Snap top	Hyper+↑
+win-bottom	Snap bottom	Hyper+↓
+win-max	Maximize	Hyper+Enter
+win-center	Center	Hyper+C
+win-tl	Quarter top-left	Hyper+7
+win-tr	Quarter top-right	Hyper+8
+win-bl	Quarter bottom-left	Hyper+9
+win-br	Quarter bottom-right	Hyper+0
+win-tile	Tile all	Hyper+6
+win-undo	Undo snap	Hyper+Z
+win-next	Next monitor	Hyper+] / M
+win-prev	Previous monitor	Hyper+[
+win-third-l	Third left	Hyper+-
+win-third-c	Third center	Hyper+\
+win-third-r	Third right	Hyper+=
+win-2third-l	Two-thirds left	Hyper+I
+win-2third-r	Two-thirds right	Hyper+O
+win-almost-max	Almost-max	Hyper+Y
+always-on-top	Always on top	Hyper+A
+win-min	Minimize	Hyper+B / S
+win-close	Close window	Hyper+X
+region-pin	Pin screen region	Hyper+N
+region-ocr	OCR region	Hyper+Q
+snippet-pick	Snippet picker	Hyper+,
+clip-show	Clipboard history	Hyper+P
+paste-menu	Paste transforms	Hyper+V
+warp	Warp mouse to window	Hyper+W
+keepalive	Toggle keep-alive	Hyper+K
+term	Terminal	Hyper+T
+files	Files	Hyper+F
+browser	Browser	Hyper+1
+editor	Editor	Hyper+2
+lock	Lock session	Hyper+Esc
+date	Insert date	Hyper+.
+google-clip	Google clipboard	Hyper+G
+open-url	Open URL in clipboard	Hyper+U
+plain-paste	Plain paste	Hyper+E
+hostname	Copy hostname	
+config-export	Export config	
+command-bar	Command bar	Hyper+'
+cheat-sheet	Cheat sheet	Hyper+/
 EOF
 }
 
-cheat_text() {
+# Informational (not runnable). Hold Space, then the key. Matches kanata nav layer.
+space_catalog() {
   cat <<'EOF'
-HyperForge Linux  (Caps = Hyper)
-
-Window pad
-  ←/→/↑/↓     halves          Enter     maximize
-  7 8 9 0     quarters        6         tile all
-  - = \       thirds          I / O     two-thirds
-  Y           almost-max      C         center
-  Z           undo            [ / ] M   prev / next monitor
-  A           always on top   B / S     minimize
-
-Tools
-  N           pin screen region     Q     OCR region
-  ,           snippets              P     clipboard history
-  V           paste transforms      W     warp mouse
-  K           keep-alive            /     cheat sheet
-  '           command bar
-  T / F / 1 / 2   terminal / files / browser / editor
-
-Space layer (hold Space): HJKL arrows · B/W words · Y/P/C clipboard
+space-h	Space · Left	Space+H
+space-j	Space · Down	Space+J
+space-k	Space · Up	Space+K
+space-l	Space · Right	Space+L
+space-b	Space · Word back	Space+B
+space-w	Space · Word forward	Space+W
+space-y	Space · Copy	Space+Y
+space-p	Space · Paste	Space+P
+space-c	Space · Cut	Space+C
+space-u	Space · Undo	Space+U
+space-r	Space · Redo	Space+R
+space-x	Space · Kill to end of line	Space+X
+space-a	Space · Select line	Space+A
+space-s	Space · Save	Space+S
+space-f	Space · Find	Space+F
+space-comma	Space · Page up	Space+,
+space-dot	Space · Page down	Space+.
+space-q	Space · Escape	Space+Q
+space-ret	Space · Return	Space+Enter
+space-home	Space · Line start	Space+5
+space-end	Space · Line end	Space+6
 EOF
+}
+
+# omarchy-menu-select: "<glyph>\t<label>\t<subtext>". Empty glyph, chord as subtext.
+menu_rows() {
+  awk -F'\t' '{
+    if (NF >= 3 && $3 != "") print "\t" $2 "\t" $3
+    else print "\t" $2
+  }'
+}
+
+# Selection is "label" or "label\tchord".
+resolve_id() {
+  local chosen="$1"
+  { catalog; space_catalog; } | awk -F'\t' -v c="$chosen" '
+    $2 == c { print $1; exit }
+    $2 "\t" $3 == c { print $1; exit }
+  '
+}
+
+skip_action() {
+  case "$1" in
+    command-bar|space-*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+cheat_text() {
+  printf '%s\n' "HyperForge  (hold Space or Caps = Hyper)" ""
+  printf '%s\n' "Space layer (hold Space)"
+  space_catalog | awk -F'\t' '{ printf "%-28s  %s\n", $2, $3 }'
+  printf '\n%s\n' "Hyper layer (hold Caps)"
+  catalog | awk -F'\t' '$3 != "" { printf "%-28s  %s\n", $2, $3 }'
 }
 
 case "${1:-}" in
   ""|-h|--help)
     echo "usage: $0 command-bar | cheat-sheet | --list"
     ;;
-  --list) catalog ;;
+  --list) catalog; space_catalog ;;
   cheat-sheet)
     if have notify-send && [[ "${HF_CHEAT_TOAST:-}" == "1" ]]; then
       notify-send -a HyperForge -t 8000 "HyperForge" "$(cheat_text)"
     elif have omarchy-menu-select; then
-      # Searchable; picking a row runs it (same as command bar).
-      exec "$0" command-bar
+      chosen="$({ space_catalog; catalog; } | menu_rows | omarchy-menu-select "Cheat sheet")" || exit 0
+      id="$(resolve_id "$chosen")"
+      [[ -n "${id:-}" ]] || exit 0
+      [[ "$id" == "cheat-sheet" ]] && exit 0
+      skip_action "$id" && exit 0
+      exec "$ACTION" "$id"
     else
       cheat_text
     fi
@@ -95,16 +136,16 @@ case "${1:-}" in
   command-bar)
     if ! have omarchy-menu-select; then
       echo "need omarchy-menu-select" >&2
-      catalog
+      { catalog; space_catalog; } | menu_rows
       exit 1
     fi
-    chosen="$(catalog | awk -F'\t' '{print $2}' | omarchy-menu-select "HyperForge")" || exit 0
-    id="$(catalog | awk -F'\t' -v c="$chosen" '$2==c{print $1; exit}')"
+    chosen="$({ catalog; space_catalog; } | menu_rows | omarchy-menu-select "HyperForge")" || exit 0
+    id="$(resolve_id "$chosen")"
     [[ -n "${id:-}" ]] || exit 0
     if [[ "$id" == "cheat-sheet" ]]; then
-      cheat_text | omarchy-menu-select "Cheat sheet" >/dev/null || true
-      exit 0
+      exec "$0" cheat-sheet
     fi
+    skip_action "$id" && exit 0
     exec "$ACTION" "$id"
     ;;
   *) echo "unknown: $1" >&2; exit 2 ;;
