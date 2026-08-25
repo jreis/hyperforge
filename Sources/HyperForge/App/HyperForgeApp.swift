@@ -10,55 +10,22 @@ struct HyperForgeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        WindowGroup(id: "main") {
-            RootView()
+        // No WindowGroup — SwiftUI would create (and restore) a dashboard
+        // window on every launch. The dashboard is an AppKit window shown
+        // only from AppState.openMainWindow().
+
+        MenuBarExtra {
+            MenuBarPopover()
                 .environmentObject(appState)
                 .environmentObject(appState.engine)
                 .environmentObject(appState.profiles)
-                .environmentObject(appState.karabiner)
                 .environmentObject(AppearanceStore.shared)
-                .frame(minWidth: 980, minHeight: 640)
-                .preferredColorScheme(.dark)
-                .background(WindowOpenBridge())
+        } label: {
+            Image(systemName: menuBarSymbol)
         }
-        .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 1100, height: 720)
+        .menuBarExtraStyle(.window)
         .commands {
-            CommandGroup(replacing: .newItem) {}
-            CommandMenu("HyperForge") {
-                Button("Show Dashboard") {
-                    appState.selectedSidebar = .dashboard
-                    appState.openMainWindow()
-                }
-                .keyboardShortcut("d", modifiers: [.command, .shift])
-
-                Button("Hide Dashboard") {
-                    appState.closeMainWindow()
-                }
-                // Esc is owned by EscapeCoordinator (pins → hints → bar → sheet → dashboard).
-
-                Button(appState.engine.isRunning ? "Stop Engine" : "Start Engine") {
-                    if appState.engine.isRunning {
-                        appState.engine.stop()
-                    } else {
-                        appState.engine.start()
-                    }
-                }
-                .keyboardShortcut("e", modifiers: [.command, .shift])
-
-                Divider()
-
-                Button("Command Bar…") {
-                    appState.commandBarVisible = true
-                    appState.openMainWindow()
-                }
-                .keyboardShortcut("k", modifiers: [.command])
-
-                Button("Keybinding Cheat Sheet…") {
-                    CheatSheetCommands.toggle()
-                }
-                .keyboardShortcut("/", modifiers: [.command, .shift])
-            }
+            hyperForgeCommands
         }
 
         Settings {
@@ -71,15 +38,45 @@ struct HyperForgeApp: App {
                 .preferredColorScheme(.dark)
                 .frame(width: 520, height: 480)
         }
+        .commandsRemoved()
+    }
 
-        MenuBarExtra("HyperForge", systemImage: menuBarSymbol) {
-            MenuBarPopover()
-                .environmentObject(appState)
-                .environmentObject(appState.engine)
-                .environmentObject(appState.profiles)
-                .environmentObject(AppearanceStore.shared)
+    @CommandsBuilder
+    private var hyperForgeCommands: some Commands {
+        CommandGroup(replacing: .newItem) {}
+        CommandMenu("HyperForge") {
+            Button("Show Dashboard") {
+                appState.selectedSidebar = .dashboard
+                appState.openMainWindow()
+            }
+            .keyboardShortcut("d", modifiers: [.command, .shift])
+
+            Button("Hide Dashboard") {
+                appState.closeMainWindow()
+            }
+
+            Button(appState.engine.isRunning ? "Stop Engine" : "Start Engine") {
+                if appState.engine.isRunning {
+                    appState.engine.stop()
+                } else {
+                    appState.engine.start()
+                }
+            }
+            .keyboardShortcut("e", modifiers: [.command, .shift])
+
+            Divider()
+
+            Button("Command Bar…") {
+                appState.commandBarVisible = true
+                appState.openMainWindow()
+            }
+            .keyboardShortcut("k", modifiers: [.command])
+
+            Button("Keybinding Cheat Sheet…") {
+                CheatSheetCommands.toggle()
+            }
+            .keyboardShortcut("/", modifiers: [.command, .shift])
         }
-        .menuBarExtraStyle(.window)
     }
 
     private var menuBarSymbol: String {
@@ -112,6 +109,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !SingleInstance.claimPrimaryOrHandOff() {
             isSecondaryInstance = true
         }
+        UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
+        if UserDefaults.standard.object(forKey: "hf.menuBarOnly") as? Bool ?? true {
+            NSApp.setActivationPolicy(.accessory)
+        }
+    }
+
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
+        false
+    }
+
+    func application(_ app: NSApplication, shouldRestoreApplicationState coder: NSCoder) -> Bool {
+        false
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -120,7 +129,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             exit(0)
         }
 
-        // Menu bar first-class; dock optional later via settings.
         if UserDefaults.standard.object(forKey: "hf.menuBarOnly") as? Bool ?? true {
             NSApp.setActivationPolicy(.accessory)
         }
@@ -143,9 +151,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool)
         -> Bool
     {
-        // Dock icon / second "open" of the same process → show dashboard.
+        if DashboardLaunchGate.suppressVisibleDashboard {
+            return false
+        }
         Task { @MainActor in
-            AppState.shared.openMainWindow()
+            AppState.shared.handleReopenRequest()
         }
         return true
     }

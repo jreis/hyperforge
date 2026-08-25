@@ -8,6 +8,7 @@ import HyperForgeKit
 import SwiftUI
 
 struct WindowOpenBridge: View {
+    var registerDashboard: Bool = true
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -21,7 +22,7 @@ struct WindowOpenBridge: View {
                 // Keep a reference so AppState can open without a live dashboard.
                 WindowOpener.shared.bind(openWindow)
             }
-            .background(DashboardWindowRegistrar())
+            .background(DashboardWindowRegistrar(registerDashboard: registerDashboard))
     }
 }
 
@@ -41,6 +42,8 @@ final class WindowOpenerBox {
         }
     }
 
+    var hasBinding: Bool { openMain != nil }
+
     func openMainWindow() {
         openMain?("main")
     }
@@ -48,23 +51,40 @@ final class WindowOpenerBox {
 
 /// Finds the hosting NSWindow and registers it as the HyperForge dashboard.
 private struct DashboardWindowRegistrar: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
-        DispatchQueue.main.async {
-            Self.register(from: view)
-        }
+    var registerDashboard: Bool
+
+    func makeNSView(context: Context) -> DashboardHostView {
+        let view = DashboardHostView()
+        view.registerDashboard = registerDashboard
         return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            Self.register(from: nsView)
-        }
+    func updateNSView(_ nsView: DashboardHostView, context: Context) {
+        nsView.registerDashboard = registerDashboard
+        nsView.applyWindowPolicy()
+    }
+}
+
+/// Hides a just-attached dashboard window on the same turn — before first paint.
+final class DashboardHostView: NSView {
+    var registerDashboard = true
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyWindowPolicy()
     }
 
-    private static func register(from view: NSView) {
-        guard let window = view.window else { return }
-        // Only tag real dashboard hosts (not the menu bar popover panel).
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        applyWindowPolicy()
+    }
+
+    func applyWindowPolicy() {
+        guard let window else { return }
+        if DashboardLaunchGate.hideIfNeeded(window) {
+            return
+        }
+        guard registerDashboard else { return }
         let frame = window.frame
         guard frame.width >= 700, frame.height >= 400 else { return }
         Task { @MainActor in

@@ -9,7 +9,6 @@ struct MenuBarPopover: View {
     @EnvironmentObject private var engine: HyperKeyEngine
     @EnvironmentObject private var profiles: ProfileStore
     @ObservedObject private var appearance = AppearanceStore.shared
-    @Environment(\.openWindow) private var openWindow
 
     private var menuStatusTitle: String {
         let infernal = appearance.style == .infernal
@@ -97,11 +96,7 @@ struct MenuBarPopover: View {
             }
 
             Button {
-                // MenuBarExtra is always mounted — openWindow works even when the
-                // dashboard WindowGroup was closed (WindowOpenBridge inside it is dead).
                 DispatchQueue.main.async {
-                    WindowOpener.shared.bind(openWindow)
-                    openWindow(id: "main")
                     AppState.shared.openMainWindow()
                 }
             } label: {
@@ -131,8 +126,6 @@ struct MenuBarPopover: View {
 
             Button {
                 DispatchQueue.main.async {
-                    WindowOpener.shared.bind(openWindow)
-                    openWindow(id: "main")
                     AppState.shared.selectedSidebar = .dashboard
                     AppState.shared.commandBarVisible = true
                     AppState.shared.openMainWindow()
@@ -165,10 +158,5 @@ struct MenuBarPopover: View {
         .padding(14)
         .frame(width: 280)
         .background(HFTheme.bgElevated)
-        // Keep openWindow wired for Hyper+, / F20 even if main window is gone.
-        .background(WindowOpenBridge())
-        .onAppear {
-            WindowOpener.shared.bind(openWindow)
-        }
     }
 }

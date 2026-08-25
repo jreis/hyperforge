@@ -20,7 +20,7 @@ final class AppState: ObservableObject {
 
     @AppStorage("hf.hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @AppStorage("hf.launchEngineOnStart") var launchEngineOnStart = true
-    @AppStorage("hf.showDashboardOnStartup") var showDashboardOnStartup = true
+    @AppStorage("hf.showDashboardOnStartup") var showDashboardOnStartup = false
     @AppStorage("hf.autoKeepAlive") var autoKeepAlive = false
     @AppStorage("hf.menuBarOnly") var menuBarOnly = true
 
@@ -52,10 +52,10 @@ final class AppState: ObservableObject {
     let linkHints = LinkHintService.shared
 
     private var trustTimer: Timer?
-    /// Retries after posting openWindow when the dashboard was fully destroyed.
-    private var openRetryWorkItems: [DispatchWorkItem] = []
-    /// True only during cold-start suppress window; cleared when user opens the dashboard.
+    /// True only during cold-start; cleared when the user opens the dashboard.
     private var suppressingDashboardOnStartup = false
+    /// Swallow the synthetic `applicationShouldHandleReopen` that accompanies launch.
+    private var consumeLaunchReopen = false
 
     private init() {
         showOnboarding = !UserDefaults.standard.bool(forKey: "hf.hasCompletedOnboarding")
@@ -89,34 +89,26 @@ final class AppState: ObservableObject {
 
     /// Honor “Show dashboard on startup”. Onboarding always shows the window.
     private func applyStartupWindowVisibility() {
-        guard !showOnboarding else { return }
-        guard !showDashboardOnStartup else { return }
-        suppressingDashboardOnStartup = true
-        // WindowGroup may materialize a beat after launch — hide quietly (no toast).
-        for delay in [0.0, 0.05, 0.15, 0.4, 0.9] as [TimeInterval] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self, self.suppressingDashboardOnStartup else { return }
-                self.hideMainWindowQuietly()
-            }
+        if showOnboarding || showDashboardOnStartup {
+            suppressingDashboardOnStartup = false
+            consumeLaunchReopen = false
+            DashboardLaunchGate.allowShowing()
+            openMainWindow()
+            return
         }
+        suppressingDashboardOnStartup = true
+        consumeLaunchReopen = true
+        // Dashboard is AppKit-hosted and is not created until openMainWindow().
     }
 
-    /// Hide the dashboard without a “hidden” toast — used on launch when startup show is off.
-    private func hideMainWindowQuietly() {
-        guard !showOnboarding else { return }
-        cancelOpenRetries()
-        commandBarVisible = false
-        for window in Self.dashboardWindows() {
-            window.orderOut(nil)
+    /// Finder / Dock reopen of a running instance. Not the same as cold start.
+    func handleReopenRequest() {
+        if consumeLaunchReopen {
+            consumeLaunchReopen = false
+            return
         }
-        // Early launch: window may not be tagged yet.
-        for window in NSApp.windows where window.isVisible {
-            guard window.frame.width >= 500, window.frame.height >= 300 else { continue }
-            if window.styleMask.contains(.borderless) { continue }
-            registerDashboardWindow(window)
-            window.orderOut(nil)
-        }
-        restoreAccessoryIfSafe()
+        if suppressingDashboardOnStartup { return }
+        openMainWindow()
     }
 
     /// Soft guard: log if default catalog regresses (PII / missing core IDs).
@@ -140,35 +132,20 @@ final class AppState: ObservableObject {
     /// Bring the main dashboard forward (menu bar / Hyper+, / ⌘⇧D).
     func openMainWindow() {
         suppressingDashboardOnStartup = false
-        cancelOpenRetries()
+        DashboardLaunchGate.allowShowing()
         commandBarVisible = false
         selectedSidebar = .dashboard
 
         // Leave accessory-only mode so the window can become key.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
-
-        if presentExistingDashboard() {
-            return
-        }
-
-        // Recreate WindowGroup — prefer the always-live MenuBarExtra openWindow
-        // binding (WindowOpenBridge inside a closed main window never runs).
-        WindowOpener.shared.openMainWindow()
-        NotificationCenter.default.post(name: .hfOpenMainWindow, object: nil)
-
-        // SwiftUI openWindow can take a beat; retry a few times.
-        scheduleOpenRetries(delays: [0.05, 0.12, 0.28, 0.55, 1.0, 1.6])
+        DashboardWindowController.shared.show()
     }
 
     /// Hide the main dashboard (Esc). Keeps the engine / menu bar running.
     func closeMainWindow() {
-        cancelOpenRetries()
         commandBarVisible = false
-        for window in Self.dashboardWindows() {
-            // Prefer hide over close so SwiftUI WindowGroup state is easier to re-show.
-            window.orderOut(nil)
-        }
+        DashboardWindowController.shared.hide()
         restoreAccessoryIfSafe()
         // Esc after startup dashboard left Caps Lock / menu flags sticky for some users
         // (Hyper+V then typed a capital V). Reset that state without killing a held Caps.
@@ -199,50 +176,6 @@ final class AppState: ObservableObject {
             window.title = "HyperForge"
         }
         window.isReleasedWhenClosed = false
-    }
-
-    // MARK: - Window presentation
-
-    @discardableResult
-    private func presentExistingDashboard() -> Bool {
-        let windows = Self.dashboardWindows()
-        guard let window = windows.first else { return false }
-        // If we somehow have multiples after openWindow spam, keep one frontmost.
-        for extra in windows.dropFirst() {
-            extra.orderOut(nil)
-        }
-        registerDashboardWindow(window)
-        window.isReleasedWhenClosed = false
-        window.collectionBehavior.insert(.moveToActiveSpace)
-        // orderOut → orderFront; also un-minimize.
-        if window.isMiniaturized {
-            window.deminiaturize(nil)
-        }
-        window.makeKeyAndOrderFront(nil)
-        window.orderFrontRegardless()
-        NSApp.activate(ignoringOtherApps: true)
-        return true
-    }
-
-    private func scheduleOpenRetries(delays: [TimeInterval]) {
-        for delay in delays {
-            let work = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                if self.presentExistingDashboard() {
-                    self.cancelOpenRetries()
-                } else {
-                    // Nudge SwiftUI again if still missing.
-                    NotificationCenter.default.post(name: .hfOpenMainWindow, object: nil)
-                }
-            }
-            openRetryWorkItems.append(work)
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
-        }
-    }
-
-    private func cancelOpenRetries() {
-        openRetryWorkItems.forEach { $0.cancel() }
-        openRetryWorkItems.removeAll()
     }
 
     private func restoreAccessoryIfSafe() {
