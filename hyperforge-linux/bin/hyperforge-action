@@ -55,6 +55,7 @@ case "$id" in
     echo "  clip:  clip-show clip-pin"
     echo "  pin:   region-pin region-ocr"
     echo "  extra: paste-menu warp keepalive command-bar cheat-sheet config-export config-import"
+    echo "  script-pick workspace-pick"
     exit 0
     ;;
   win-left)   exec "$SNAP" left ;;
@@ -89,6 +90,8 @@ case "$id" in
   paste-menu)  exec "${ROOT}/bin/hyperforge-paste" --pick ;;
   command-bar) exec "${ROOT}/bin/hyperforge-bar" command-bar ;;
   cheat-sheet) exec "${ROOT}/bin/hyperforge-bar" cheat-sheet ;;
+  script-pick) exec "${ROOT}/bin/hyperforge-script" --pick ;;
+  workspace-pick) exec "${ROOT}/bin/hyperforge-workspace" --pick ;;
   config-export) exec "${ROOT}/bin/hyperforge-config" export ;;
   config-import)
     echo "usage: hyperforge-config import <file>" >&2

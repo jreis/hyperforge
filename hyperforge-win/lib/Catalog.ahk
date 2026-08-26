@@ -28,6 +28,13 @@ HF_Catalog() {
         ["Pin screen region", (*) => BeginRegionPin()],
         ["OCR region", (*) => BeginRegionOCR()],
         ["Keep-alive toggle", (*) => ToggleKeepAlive()],
+        ["Scripts", (*) => ShowScriptsMenu()],
+        ["Workspaces", (*) => ShowWorkspacesMenu()],
+        ["Volume up", (*) => VolumeUp()],
+        ["Volume down", (*) => VolumeDown()],
+        ["Mute / unmute", (*) => ToggleMute()],
+        ["Next Space", (*) => NextSpace()],
+        ["Previous Space", (*) => PreviousSpace()],
         ["Warp mouse to window", (*) => WarpMouseToActive()],
         ["Export config", (*) => ExportHyperForgeConfig()],
         ["Import config", (*) => ImportHyperForgeConfig()],
@@ -53,6 +60,7 @@ CheatSheetText() {
         "  /           this cheat sheet      ;     command bar`n"
         "  K           keep-alive            F     warp mouse`n"
         "  G           Google clipboard`n"
+        "  J           scripts               L     workspaces`n"
         "`n"
         "Also: Ctrl+Alt+Shift+V paste transforms · Win+Esc pause Hyper`n"
         "Numpad: 7 TL  8 Top  9 TR  /  4 Left  5 Max  6 Right  /  1 BL  2 Bot  3 BR  /  0 Center"

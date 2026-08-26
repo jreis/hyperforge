@@ -46,6 +46,8 @@ Caps is held as **Ctrl+Alt+Shift+Win** (same chord family as 4-mod Hyper on macO
 | Hyper + B | Minimize (also XButton1) |
 | Hyper + P | Clipboard history (pinned/searchable) |
 | Hyper + Y | **Pin screen region** (Win+Shift+S, then stay-on-top) |
+| Hyper + J | **Scripts** — run `scripts\*.ahk` |
+| Hyper + L | **Workspaces** — save/restore named window layouts |
 | Hyper + Q | **OCR region** → clipboard |
 | Hyper + / | Cheat sheet |
 | Hyper + ; | Command bar (search + run) |

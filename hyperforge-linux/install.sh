@@ -15,11 +15,26 @@ HF_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hyperforge-linux"
 mkdir -p "$SHARE/bin" "$BIN_DIR" "$KANATA_DIR" "$HF_CONFIG_DIR"
 
 # Scripts
-for f in hyperforge-snap hyperforge-action hyperforge-doctor hyperforge-snippet hyperforge-clip hyperforge-pin hyperforge-paste hyperforge-bar hyperforge-config; do
+for f in hyperforge-snap hyperforge-action hyperforge-doctor hyperforge-snippet hyperforge-clip hyperforge-pin hyperforge-paste hyperforge-bar hyperforge-config hyperforge-script hyperforge-workspace; do
   cp "$ROOT/bin/$f" "$SHARE/bin/$f"
   chmod +x "$SHARE/bin/$f"
   ln -sfn "$SHARE/bin/$f" "$BIN_DIR/$f"
 done
+
+# HF_* helpers for user scripts
+if [[ -d "$ROOT/lib" ]]; then
+  mkdir -p "$SHARE/lib"
+  cp "$ROOT/lib/"*.sh "$SHARE/lib/" 2>/dev/null || true
+fi
+
+# Seed example scripts (never overwrite personal scripts/)
+SCRIPTS_DIR="$HF_CONFIG_DIR/scripts"
+mkdir -p "$SCRIPTS_DIR"
+if [[ -d "$ROOT/scripts.example" ]] && [[ -z "$(ls -A "$SCRIPTS_DIR" 2>/dev/null || true)" ]]; then
+  cp "$ROOT/scripts.example/"*.sh "$SCRIPTS_DIR/"
+  chmod +x "$SCRIPTS_DIR/"*.sh
+  echo "→ example scripts: $SCRIPTS_DIR"
+fi
 
 # Snippets config (only seed it — never overwrite personal edits)
 if [[ -f "$ROOT/snippets.example.conf" ]] && [[ ! -f "$HF_CONFIG_DIR/snippets.conf" ]]; then

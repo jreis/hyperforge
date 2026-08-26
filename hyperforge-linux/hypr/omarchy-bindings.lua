@@ -60,5 +60,7 @@ do
   h("G", "Hyper google clipboard", "google-clip")
   h("E", "Hyper plain paste", "plain-paste")
   h("U", "Hyper open URL", "open-url")
+  h("J", "Hyper scripts", "script-pick", { repeating = false })
+  h("L", "Hyper workspaces", "workspace-pick", { repeating = false })
   h("ESCAPE", "Hyper lock", "lock")
 end

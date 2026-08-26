@@ -1,0 +1,239 @@
+#!/usr/bin/env bash
+# hyperforge-workspace — save/restore named window layouts (Hyper+L), macOS
+# Workspaces parity. Captures every visible window's app class/app_id + title +
+# geometry; restore matches live windows by class/app_id (title as a tiebreaker for
+# multi-window apps) rather than any transient window handle, so a layout still
+# resolves correctly after apps have restarted — unlike hyperforge-snap's `undo`,
+# which is address-based and only meant to survive a few seconds.
+#
+#   hyperforge-workspace save <name>     — capture current windows to <name>
+#   hyperforge-workspace restore <name>  — restore a saved layout
+#   hyperforge-workspace --pick          — rofi/wofi picker: restore, or Save current…
+#   hyperforge-workspace --list          — print saved layout names
+set -euo pipefail
+
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/hyperforge-linux/workspaces"
+have() { command -v "$1" >/dev/null 2>&1; }
+
+notify() {
+  if have notify-send; then notify-send -a HyperForge -t 1500 "HyperForge" "$1" 2>/dev/null || true
+  else echo "$1" >&2
+  fi
+}
+
+ensure_dir() { mkdir -p "$DATA_DIR"; }
+
+list_names() {
+  ensure_dir
+  local f
+  shopt -s nullglob
+  for f in "$DATA_DIR"/*.tsv; do basename "$f" .tsv; done
+  shopt -u nullglob
+}
+
+# ── Capture: class/app_id, title, x, y, w, h — one line per window ─────
+capture_hypr() {
+  hyprctl clients -j | jq -r '
+    .[] | select(.mapped == true and .hidden == false) |
+    [.class, (.title | gsub("\t";" ") | gsub("\n";" ")), .at[0], .at[1], .size[0], .size[1]] | @tsv
+  '
+}
+
+capture_sway() {
+  local msg="${SWAY_MSG:-swaymsg}"
+  "$msg" -t get_tree | jq -r '
+    .. | objects | select(.type? == "con" and .pid != null and .rect != null) |
+    [(.app_id // .window_properties.class // "unknown"),
+     ((.name // "") | gsub("\t";" ") | gsub("\n";" ")),
+     .rect.x, .rect.y, .rect.width, .rect.height] | @tsv
+  '
+}
+
+capture_x11() {
+  wmctrl -lG | while IFS=' ' read -r id _desktop x y w h _host title; do
+    cls="$(xdotool getwindowclassname "$id" 2>/dev/null || echo unknown)"
+    safe_title="${title//$'\t'/ }"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$cls" "$safe_title" "$x" "$y" "$w" "$h"
+  done
+}
+
+capture() {
+  if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] && have hyprctl && have jq; then capture_hypr
+  elif [[ -n "${SWAYSOCK:-}" ]] && have swaymsg && have jq; then capture_sway
+  elif [[ -n "${I3SOCK:-}" ]] && have i3-msg && have jq; then SWAY_MSG=i3-msg capture_sway
+  elif [[ -n "${DISPLAY:-}" ]] && have wmctrl && have xdotool; then capture_x11
+  else
+    echo "hyperforge-workspace: no supported session (Hyprland / Sway / i3 / X11 + wmctrl+xdotool)" >&2
+    return 1
+  fi
+}
+
+# ── Restore: match live windows by class/app_id, title as tiebreaker ───
+restore_hypr() {
+  local file="$1"
+  local live_tsv
+  live_tsv="$(hyprctl clients -j | jq -r '.[] | select(.mapped == true) | [.address, .class, .title] | @tsv')"
+  local -A used=()
+  local restored=0
+  while IFS=$'\t' read -r cls title x y w h; do
+    [[ -z "$cls" ]] && continue
+    local addr="" fallback=""
+    while IFS=$'\t' read -r a c t; do
+      [[ -z "$a" || -n "${used[$a]:-}" ]] && continue
+      [[ "$c" != "$cls" ]] && continue
+      [[ -z "$fallback" ]] && fallback="$a"
+      if [[ "$t" == "$title" ]]; then addr="$a"; break; fi
+    done <<<"$live_tsv"
+    [[ -z "$addr" ]] && addr="$fallback"
+    [[ -z "$addr" ]] && continue
+    used["$addr"]=1
+    hyprctl dispatch focuswindow "address:$addr" >/dev/null 2>&1 || continue
+    hyprctl dispatch togglefloating 1 >/dev/null 2>&1 || true
+    hyprctl dispatch resizeactive exact "$w" "$h" >/dev/null 2>&1 || true
+    hyprctl dispatch moveactive exact "$x" "$y" >/dev/null 2>&1 || true
+    restored=$((restored + 1))
+  done <"$file"
+  notify "Restored $restored window(s)"
+}
+
+restore_sway() {
+  local file="$1" msg="${SWAY_MSG:-swaymsg}"
+  local live_tsv
+  live_tsv="$("$msg" -t get_tree | jq -r '
+    .. | objects | select(.type? == "con" and .pid != null) |
+    [.id, (.app_id // .window_properties.class // "unknown"), (.name // "")] | @tsv
+  ')"
+  local -A used=()
+  local restored=0
+  while IFS=$'\t' read -r cls title x y w h; do
+    [[ -z "$cls" ]] && continue
+    local id="" fallback=""
+    while IFS=$'\t' read -r cid c t; do
+      [[ -z "$cid" || -n "${used[$cid]:-}" ]] && continue
+      [[ "$c" != "$cls" ]] && continue
+      [[ -z "$fallback" ]] && fallback="$cid"
+      if [[ "$t" == "$title" ]]; then id="$cid"; break; fi
+    done <<<"$live_tsv"
+    [[ -z "$id" ]] && id="$fallback"
+    [[ -z "$id" ]] && continue
+    used["$id"]=1
+    "$msg" "[con_id=$id] floating enable, move position $x $y, resize set ${w}px ${h}px" >/dev/null 2>&1 || continue
+    restored=$((restored + 1))
+  done <"$file"
+  notify "Restored $restored window(s)"
+}
+
+restore_x11() {
+  local file="$1"
+  local live_tsv
+  live_tsv="$(wmctrl -lG | while IFS=' ' read -r id _desktop x y w h _host title; do
+    cls="$(xdotool getwindowclassname "$id" 2>/dev/null || echo unknown)"
+    printf '%s\t%s\t%s\n' "$id" "$cls" "$title"
+  done)"
+  local -A used=()
+  local restored=0
+  while IFS=$'\t' read -r cls title x y w h; do
+    [[ -z "$cls" ]] && continue
+    local wid="" fallback=""
+    while IFS=$'\t' read -r cid c t; do
+      [[ -z "$cid" || -n "${used[$cid]:-}" ]] && continue
+      [[ "$c" != "$cls" ]] && continue
+      [[ -z "$fallback" ]] && fallback="$cid"
+      if [[ "$t" == "$title" ]]; then wid="$cid"; break; fi
+    done <<<"$live_tsv"
+    [[ -z "$wid" ]] && wid="$fallback"
+    [[ -z "$wid" ]] && continue
+    used["$wid"]=1
+    wmctrl -ir "$wid" -b remove,maximized_vert,maximized_horz
+    wmctrl -ir "$wid" -e "0,$x,$y,$w,$h"
+    restored=$((restored + 1))
+  done <"$file"
+  notify "Restored $restored window(s)"
+}
+
+restore() {
+  local file="$1"
+  if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] && have hyprctl && have jq; then restore_hypr "$file"
+  elif [[ -n "${SWAYSOCK:-}" ]] && have swaymsg && have jq; then restore_sway "$file"
+  elif [[ -n "${I3SOCK:-}" ]] && have i3-msg && have jq; then SWAY_MSG=i3-msg restore_sway "$file"
+  elif [[ -n "${DISPLAY:-}" ]] && have wmctrl && have xdotool; then restore_x11 "$file"
+  else
+    echo "hyperforge-workspace: no supported session (Hyprland / Sway / i3 / X11 + wmctrl+xdotool)" >&2
+    return 1
+  fi
+}
+
+cmd_save() {
+  local name="$1"
+  if [[ -z "$name" ]]; then
+    echo "usage: $0 save <name>" >&2
+    exit 2
+  fi
+  ensure_dir
+  capture >"$DATA_DIR/$name.tsv"
+  notify "Saved \"$name\""
+}
+
+cmd_restore() {
+  local name="$1" file="$DATA_DIR/$name.tsv"
+  if [[ ! -f "$file" ]]; then
+    notify "No layout named \"$name\""
+    exit 1
+  fi
+  restore "$file"
+}
+
+prompt_name() {
+  if have rofi; then rofi -dmenu -p "Save layout as"
+  elif have wofi; then wofi --dmenu -p "Save layout as"
+  else return 1
+  fi
+}
+
+cmd_pick() {
+  local names
+  names="$(list_names)"
+  local options="Save current layout…"
+  [[ -n "$names" ]] && options="$options"$'\n'"$names"
+
+  local chosen
+  if have rofi; then
+    chosen="$(printf '%s\n' "$options" | rofi -dmenu -p "Workspace")" || exit 0
+  elif have wofi; then
+    chosen="$(printf '%s\n' "$options" | wofi --dmenu -p "Workspace")" || exit 0
+  else
+    notify "Install rofi or wofi for the Workspaces picker"
+    exit 1
+  fi
+  [[ -z "$chosen" ]] && exit 0
+
+  if [[ "$chosen" == "Save current layout…" ]]; then
+    local name
+    name="$(prompt_name || true)"
+    [[ -z "$name" ]] && exit 0
+    cmd_save "$name"
+  else
+    cmd_restore "$chosen"
+  fi
+}
+
+main() {
+  local sub="${1:-}"
+  case "$sub" in
+    ""|-h|--help)
+      echo "usage: $0 save <name> | restore <name> | --pick | --list"
+      echo "storage: $DATA_DIR"
+      exit 0
+      ;;
+    save) cmd_save "${2:-}" ;;
+    restore) cmd_restore "${2:-}" ;;
+    --pick) cmd_pick ;;
+    --list) list_names ;;
+    *)
+      echo "unknown command: $sub" >&2
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"

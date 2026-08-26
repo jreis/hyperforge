@@ -12,6 +12,8 @@
 | **`hyperforge-action`** | Apps, lock, date, google clipboard, plain paste, open URL, snippet + clipboard dispatch |
 | **`hyperforge-snippet`** | `{{token}}` text-expansion snippets — typed hotstrings (`@@`) or picker |
 | **`hyperforge-clip`** | Persisted, pinned, searchable clipboard history |
+| **`hyperforge-script`** | User shell scripts (Hyper+J) plus `lib/hf-bridge.sh` |
+| **`hyperforge-workspace`** | Named window layouts (Hyper+L) |
 | **`hyperforge-doctor`** | Setup health check |
 
 Sibling of:

@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# hyperforge-script — run user-authored shell automations (Hyper+J), macOS Scripts parity.
+#
+#   hyperforge-script <name>   — run scripts/<name>.sh
+#   hyperforge-script --pick   — rofi/wofi/fzf picker over scripts/*.sh
+#   hyperforge-script --list   — print available script names
+#
+# Config: ~/.config/hyperforge-linux/scripts/*.sh — each script is a plain shell
+# script; `source "$HYPERFORGE_LINUX_ROOT/lib/hf-bridge.sh"` for the HF_* verbs
+# (snap/notify/clipboard/pasteText/pressKey/launchApp/runShortcut/sleep/log), or just
+# use the shell directly — there's no sandboxing here, same trust model as any other
+# script you'd drop in ~/bin.
+set -euo pipefail
+
+CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hyperforge-linux"
+SCRIPTS_DIR="$CONF_DIR/scripts"
+ROOT="${HYPERFORGE_LINUX_ROOT:-$HOME/.local/share/hyperforge-linux}"
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+notify() {
+  if have notify-send; then notify-send -a HyperForge -t 1500 "HyperForge" "$1" 2>/dev/null || true
+  else echo "$1" >&2
+  fi
+}
+
+list_names() {
+  [[ -d "$SCRIPTS_DIR" ]] || return 0
+  local f
+  shopt -s nullglob
+  for f in "$SCRIPTS_DIR"/*.sh; do basename "$f" .sh; done
+  shopt -u nullglob
+}
+
+pick_name() {
+  local names
+  names="$(list_names)"
+  if [[ -z "$names" ]]; then
+    notify "No scripts configured — add .sh files to $SCRIPTS_DIR"
+    return 1
+  fi
+  if have rofi; then
+    printf '%s\n' "$names" | rofi -dmenu -p "Script"
+  elif have wofi; then
+    printf '%s\n' "$names" | wofi --dmenu -p "Script"
+  elif have fzf; then
+    local term
+    for term in x-terminal-emulator ghostty kitty alacritty wezterm gnome-terminal; do
+      have "$term" || continue
+      "$term" -e bash -c "printf '%s\n' \"\$1\" | fzf > /tmp/hyperforge-script-pick" _ "$names"
+      cat /tmp/hyperforge-script-pick 2>/dev/null
+      rm -f /tmp/hyperforge-script-pick
+      return 0
+    done
+    notify "fzf found but no terminal emulator to run it in"
+    return 1
+  else
+    notify "Install rofi or wofi for the script picker"
+    return 1
+  fi
+}
+
+run_script() {
+  local name="$1" path="$SCRIPTS_DIR/$name.sh"
+  if [[ ! -f "$path" ]]; then
+    notify "No script named \"$name\" — edit $SCRIPTS_DIR"
+    exit 1
+  fi
+  notify "Running $name"
+  HYPERFORGE_LINUX_ROOT="$ROOT" bash "$path"
+}
+
+main() {
+  local arg="${1:-}"
+  if [[ -z "$arg" || "$arg" == "-h" || "$arg" == "--help" ]]; then
+    echo "usage: $0 <name>   (run scripts/<name>.sh)"
+    echo "       $0 --pick   (choose via rofi/wofi/fzf)"
+    echo "       $0 --list   (print script names)"
+    echo "scripts dir: $SCRIPTS_DIR"
+    exit 0
+  fi
+  if [[ "$arg" == "--list" ]]; then
+    list_names
+    exit 0
+  fi
+  if [[ "$arg" == "--pick" ]]; then
+    arg="$(pick_name || true)"
+    [[ -z "$arg" ]] && exit 0
+  fi
+  run_script "$arg"
+}
+
+main "$@"

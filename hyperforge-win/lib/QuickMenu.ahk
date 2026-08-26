@@ -40,6 +40,18 @@ ShowQuickMenu(*) {
     }
 
     m.Add("Paste transforms…", (*) => ShowPasteMenu())
+    m.Add("Scripts…", (*) => ShowScriptsMenu())
+    m.Add("Workspaces…", (*) => ShowWorkspacesMenu())
+    m.Add()
+    m.Add("Volume up", (*) => VolumeUp())
+    m.Add("Volume down", (*) => VolumeDown())
+    m.Add("Mute / unmute", (*) => ToggleMute())
+    m.Add("Brightness up", (*) => BrightnessUp())
+    m.Add("Brightness down", (*) => BrightnessDown())
+    m.Add("Toggle Focus", (*) => ToggleFocus())
+    m.Add("Next Space", (*) => NextSpace())
+    m.Add("Previous Space", (*) => PreviousSpace())
+    m.Add()
     m.Add("Copy hostname", (*) => (A_Clipboard := A_ComputerName, ShowMsg(A_ComputerName)))
     m.Add("Copy IP", (*) => {
         a := SysGetIPAddresses()

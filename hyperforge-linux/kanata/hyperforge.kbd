@@ -93,6 +93,8 @@
   xfrm (cmd HF_BIN/hyperforge-action paste-menu)
   cmdb (cmd HF_BIN/hyperforge-action command-bar)
   help (cmd HF_BIN/hyperforge-action cheat-sheet)
+  scr  (cmd HF_BIN/hyperforge-action script-pick)
+  wksp (cmd HF_BIN/hyperforge-action workspace-pick)
 
   ;; Space-layer helpers (macOS-ish)
   wback (multi lctl left)
@@ -131,7 +133,7 @@
 (deflayer hyper
   _   @brws @edit _ _ _ @stil @stl @str @sbl @sbr @thil @thir
   _   @ocr  @warp @plain @sund @term @almx @ourl @twol @twor @clip @spv @snx @thic
-  _   @aot  @smin _ @files @goog _ _ @kal _ _ @cmdb @sm
+  _   @aot  @smin _ @files @goog _ @scr @kal @wksp _ @cmdb @sm
   _   @sund @scls @sc @xfrm @smin @pin @snx @snip @date @help
   _   _     _     _ _ _
   @sl @sb   @st   @sr

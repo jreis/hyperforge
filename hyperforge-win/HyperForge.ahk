@@ -32,6 +32,9 @@ SetTitleMatchMode 2
 #Include "%A_ScriptDir%\lib\Pin.ahk"
 #Include "%A_ScriptDir%\lib\Catalog.ahk"
 #Include "%A_ScriptDir%\lib\Backup.ahk"
+#Include "%A_ScriptDir%\lib\Scripts.ahk"
+#Include "%A_ScriptDir%\lib\Workspaces.ahk"
+#Include "%A_ScriptDir%\lib\SystemControls.ahk"
 #Include "%A_ScriptDir%\lib\Tray.ahk"
 
 HFConfig.Init(A_ScriptDir)
@@ -50,6 +53,8 @@ RegisterQuickMenu()
 RegisterKeepAlive()
 RegisterPinHotkeys()
 RegisterCatalogHotkeys()
+RegisterScriptsHotkeys()
+RegisterWorkspacesHotkeys()
 
 ; Optional private work module (gitignored) — Splunk/AD/etc. (*i = ignore if missing)
 #Include "*i %A_ScriptDir%\work\work.ahk"
