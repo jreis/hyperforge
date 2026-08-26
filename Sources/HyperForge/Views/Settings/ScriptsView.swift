@@ -14,78 +14,97 @@ struct ScriptsView: View {
     /// Bumped whenever the *loaded document* changes (new/edit/cancel) so the editor
     /// resets its content without fighting live typing on every keystroke.
     @State private var editorReloadToken = 0
+    /// Bumped on pencil / double-click so the WKWebView takes first responder.
+    @State private var editorFocusToken = 0
+    private let editorFormID = "script-editor-form"
 
     private var isEditing: Bool { editingID != nil }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Scripts")
-                            .font(.system(size: 26, weight: .bold, design: .rounded))
-                            .foregroundStyle(HFTheme.textPrimary)
-                        Text("JavaScript automations — run from Hyper + ⇧Y, Command Bar, or Quick Menu.")
-                            .font(.system(size: 13))
-                            .foregroundStyle(HFTheme.textSecondary)
-                    }
-                    Spacer()
-                    Button("Run menu…") { store.showMenu() }
-                        .buttonStyle(.borderedProminent)
-                        .tint(HFTheme.accent)
-                }
-
-                GlassCard {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text(isEditing ? "Edit script" : "New script")
-                                .font(.system(size: 13, weight: .semibold))
-                            Spacer()
-                            Toggle("Vim mode", isOn: $vimEnabled)
-                                .toggleStyle(.checkbox)
-                                .font(.system(size: 11))
-                            if isEditing {
-                                Button("Cancel") { clearForm() }
-                                    .controlSize(.small)
-                            }
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Scripts")
+                                .font(.system(size: 26, weight: .bold, design: .rounded))
+                                .foregroundStyle(HFTheme.textPrimary)
+                            Text("JavaScript automations — run from Hyper + ⇧Y, Command Bar, or Quick Menu.")
+                                .font(.system(size: 13))
+                                .foregroundStyle(HFTheme.textSecondary)
                         }
-                        Text("HF.snap · HF.notify · HF.log · HF.clipboardGet/Set · HF.pasteText · HF.pressKey · HF.runShortcut · HF.launchApp · HF.sleep")
-                            .font(.system(size: 11))
-                            .foregroundStyle(HFTheme.textTertiary)
-                        TextField("Name", text: $name)
-                            .textFieldStyle(.roundedBorder)
-                        ScriptEditorWebView(source: $source, vimEnabled: vimEnabled, reloadToken: editorReloadToken)
+                        Spacer()
+                        Button("Run menu…") { store.showMenu() }
+                            .buttonStyle(.borderedProminent)
+                            .tint(HFTheme.accent)
+                    }
+
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text(isEditing ? "Edit script" : "New script")
+                                    .font(.system(size: 13, weight: .semibold))
+                                Spacer()
+                                Toggle("Vim mode", isOn: $vimEnabled)
+                                    .toggleStyle(.checkbox)
+                                    .font(.system(size: 11))
+                                if isEditing {
+                                    Button("Cancel") { clearForm() }
+                                        .controlSize(.small)
+                                }
+                            }
+                            Text("Type HF. for completions · Ctrl-Space lists methods · HF.snap notify log clipboardGet/Set pasteText pressKey runShortcut launchApp sleep")
+                                .font(.system(size: 11))
+                                .foregroundStyle(HFTheme.textTertiary)
+                            TextField("Name", text: $name)
+                                .textFieldStyle(.roundedBorder)
+                            ScriptEditorWebView(
+                                source: $source,
+                                vimEnabled: vimEnabled,
+                                reloadToken: editorReloadToken,
+                                focusToken: editorFocusToken
+                            )
                             .frame(minHeight: 220)
                             .clipShape(RoundedRectangle(cornerRadius: 6))
                             .overlay {
                                 RoundedRectangle(cornerRadius: 6)
                                     .strokeBorder(HFTheme.stroke, lineWidth: 1)
                             }
-                        TextField("Bundle ID filter (optional — empty = any app)", text: $bundleID)
-                            .textFieldStyle(.roundedBorder)
+                            TextField("Bundle ID filter (optional — empty = any app)", text: $bundleID)
+                                .textFieldStyle(.roundedBorder)
 
-                        HStack {
-                            Button(isEditing ? "Save Changes" : "Add Script") {
-                                saveForm()
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .tint(HFTheme.accent)
-                            .disabled(name.isEmpty || source.isEmpty)
+                            HStack {
+                                Button(isEditing ? "Save Changes" : "Add Script") {
+                                    saveForm()
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(HFTheme.accent)
+                                .disabled(name.isEmpty || source.isEmpty)
 
-                            if isEditing {
-                                Text("Editing existing script")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(HFTheme.textTertiary)
+                                if isEditing {
+                                    Text("Editing existing script")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(HFTheme.textTertiary)
+                                }
                             }
                         }
                     }
-                }
+                    .id(editorFormID)
 
-                ForEach(store.scripts) { script in
-                    scriptRow(script)
+                    ForEach(store.scripts) { script in
+                        scriptRow(script)
+                    }
+                }
+                .padding(24)
+            }
+            .onChange(of: editorFocusToken) { _, _ in
+                // Wait one turn so the form has the new title/content before we scroll.
+                DispatchQueue.main.async {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        proxy.scrollTo(editorFormID, anchor: .top)
+                    }
                 }
             }
-            .padding(24)
         }
     }
 
@@ -175,6 +194,7 @@ struct ScriptsView: View {
         source = script.source
         bundleID = script.bundleID
         editorReloadToken += 1
+        editorFocusToken += 1
     }
 
     private func clearForm() {

@@ -12,6 +12,8 @@ struct ScriptEditorWebView: NSViewRepresentable {
     @Binding var source: String
     var vimEnabled: Bool
     var reloadToken: Int
+    /// Bumped to take first responder and focus CodeMirror (pencil / double-click).
+    var focusToken: Int = 0
 
     func makeCoordinator() -> Coordinator {
         Coordinator(source: $source)
@@ -43,6 +45,14 @@ struct ScriptEditorWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
+        if focusToken != context.coordinator.lastFocusToken {
+            context.coordinator.lastFocusToken = focusToken
+            if context.coordinator.isReady {
+                context.coordinator.focusEditor(in: webView)
+            } else {
+                context.coordinator.pendingFocus = true
+            }
+        }
         guard context.coordinator.isReady else { return }
         if reloadToken != context.coordinator.lastReloadToken {
             context.coordinator.lastReloadToken = reloadToken
@@ -68,6 +78,8 @@ struct ScriptEditorWebView: NSViewRepresentable {
         var pendingVimEnabled = true
         var lastReloadToken = -1
         var lastVimEnabled = true
+        var lastFocusToken = 0
+        var pendingFocus = false
         var isReady = false
 
         init(source: Binding<String>) {
@@ -91,11 +103,26 @@ struct ScriptEditorWebView: NSViewRepresentable {
             lastVimEnabled = pendingVimEnabled
             let literal = Self.jsStringLiteral(pendingInitialText)
             webView.evaluateJavaScript("window.hfEditor.init(\(literal), \(pendingVimEnabled));")
+            if pendingFocus {
+                pendingFocus = false
+                focusEditor(in: webView)
+            }
         }
 
         func setContent(_ text: String, in webView: WKWebView) {
             let literal = Self.jsStringLiteral(text)
             webView.evaluateJavaScript("window.hfEditor.setContent(\(literal));")
+        }
+
+        func focusEditor(in webView: WKWebView) {
+            // After scroll + setContent, the WebView must be first responder
+            // before CodeMirror can show a caret.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                webView.window?.makeFirstResponder(webView)
+                webView.evaluateJavaScript(
+                    "window.hfEditor && window.hfEditor.focus && window.hfEditor.focus();"
+                )
+            }
         }
 
         /// JSON-encodes so the text is a safe, valid JS string literal regardless of quotes/newlines.

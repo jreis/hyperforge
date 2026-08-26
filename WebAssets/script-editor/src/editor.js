@@ -14,9 +14,11 @@ import {
   highlightActiveLineGutter,
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { javascript } from "@codemirror/lang-javascript";
+import { javascript, javascriptLanguage } from "@codemirror/lang-javascript";
 import { bracketMatching, indentOnInput, syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
+import { autocompletion, completionKeymap } from "@codemirror/autocomplete";
 import { vim } from "@replit/codemirror-vim";
+import { hfCompletions } from "./hf-completions.js";
 
 const darkTheme = EditorView.theme(
   {
@@ -45,6 +47,23 @@ const darkTheme = EditorView.theme(
     },
     ".cm-panels": { backgroundColor: "#161b26", color: "#e7e9ee" },
     ".cm-panels input": { color: "#e7e9ee" },
+    ".cm-tooltip-autocomplete": {
+      backgroundColor: "#161b26",
+      color: "#e7e9ee",
+      border: "1px solid rgba(255,255,255,0.12)",
+    },
+    ".cm-tooltip-autocomplete ul li": { fontFamily: "ui-monospace, Menlo, monospace", fontSize: "12px" },
+    ".cm-tooltip-autocomplete ul li[aria-selected]": {
+      backgroundColor: "rgba(125,211,252,0.22)",
+      color: "#fff",
+    },
+    ".cm-completionLabel": { color: "#e7e9ee" },
+    ".cm-completionDetail": { color: "#8b93a7", fontStyle: "normal" },
+    ".cm-completionInfo": {
+      backgroundColor: "#10141c",
+      color: "#c5cad6",
+      border: "1px solid rgba(255,255,255,0.12)",
+    },
   },
   { dark: true }
 );
@@ -86,11 +105,16 @@ function buildExtensions(vimEnabled) {
     indentOnInput(),
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
     javascript(),
+    javascriptLanguage.data.of({ autocomplete: hfCompletions }),
+    autocompletion({
+      activateOnTyping: true,
+      icons: false,
+    }),
     EditorView.lineWrapping,
     darkTheme,
     changeNotifier,
     focusNotifier,
-    keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+    keymap.of([...completionKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
   ];
   // vim() must come first so it gets first crack at keydown events.
   if (vimEnabled) ext.unshift(vim());
