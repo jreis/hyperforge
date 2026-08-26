@@ -495,6 +495,12 @@ struct HyperForgeSmoke {
         }())
         check("empty input produces no steps", RecordingCoalescer.toSteps(clicks: [], keys: []) == [])
 
+        print("\nAX click wait policy")
+        check("2s / 0.5s is 5 tries", AXClickWaitPolicy.attemptCount(timeout: 2.0, interval: 0.5) == 5)
+        check("zero interval is one try", AXClickWaitPolicy.attemptCount(timeout: 2.0, interval: 0) == 1)
+        check("first try has no delay", AXClickWaitPolicy.delayBeforeAttempt(0) == 0)
+        check("later tries wait the interval", AXClickWaitPolicy.delayBeforeAttempt(1, interval: 0.12) == 0.12)
+
         print()
         if failed == 0 {
             print("All smoke tests passed.")

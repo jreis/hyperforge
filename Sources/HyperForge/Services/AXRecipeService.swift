@@ -5,11 +5,13 @@ import AppKit
 import ApplicationServices
 import Combine
 import Foundation
+import HyperForgeKit
 
 struct AXRecipeStep: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
     enum Kind: String, Codable, CaseIterable {
         case clickNamed
+        case clickDefault
         case pressKey
         case pause
         case typeText
@@ -48,10 +50,19 @@ final class AXRecipeStore: ObservableObject {
         if recipes.isEmpty {
             recipes = Self.builtIns
             persist()
+        } else {
+            ensureBuiltIn("Click default button")
         }
     }
 
     static let builtIns: [AXRecipe] = [
+        AXRecipe(
+            name: "Click default button",
+            symbol: "checkmark.seal",
+            steps: [
+                AXRecipeStep(kind: .clickDefault, value: ""),
+            ]
+        ),
         AXRecipe(
             name: "Click OK / Allow",
             symbol: "checkmark.circle",
@@ -98,6 +109,15 @@ final class AXRecipeStore: ObservableObject {
         {
             recipes = decoded
         }
+    }
+
+    /// Add a shipped recipe by name if the user does not already have it.
+    private func ensureBuiltIn(_ name: String) {
+        guard !recipes.contains(where: { $0.name == name }),
+              let builtin = Self.builtIns.first(where: { $0.name == name })
+        else { return }
+        recipes.insert(builtin, at: 0)
+        persist()
     }
 
     func persist() {
@@ -206,8 +226,11 @@ final class AXRecipeStore: ObservableObject {
         case .pasteClipboard:
             await MainActor.run { EventSynthesizer.postCommandKey(KeyCode.v) }
         case .clickNamed:
-            await MainActor.run {
-                if !clickElement(named: step.value) {
+            let ok = await clickUntilFound {
+                clickElement(named: step.value)
+            }
+            if !ok {
+                await MainActor.run {
                     Banner.show(
                         "Element not found",
                         subtitle: step.value,
@@ -216,7 +239,35 @@ final class AXRecipeStore: ObservableObject {
                     )
                 }
             }
+        case .clickDefault:
+            let ok = await clickUntilFound {
+                clickDefaultButton() || clickElement(named: "OK") || clickElement(named: "Allow")
+            }
+            if !ok {
+                await MainActor.run {
+                    Banner.show(
+                        "No default button",
+                        subtitle: "No AX default / OK / Allow",
+                        style: .warning,
+                        symbol: "wand.and.stars"
+                    )
+                }
+            }
         }
+    }
+
+    /// Retry a click while a sheet or control is still appearing.
+    private static func clickUntilFound(_ attempt: @escaping @MainActor () -> Bool) async -> Bool {
+        let tries = AXClickWaitPolicy.attemptCount()
+        for i in 0..<tries {
+            let wait = AXClickWaitPolicy.delayBeforeAttempt(i)
+            if wait > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+            }
+            let hit = await MainActor.run { attempt() }
+            if hit { return true }
+        }
+        return false
     }
 
     /// Shared with ScriptStore.swift's `HF.pressKey(...)` bridge — keep internal (not private).
@@ -265,6 +316,29 @@ final class AXRecipeStore: ObservableObject {
         } else {
             EventSynthesizer.postKey(code, flags: flags)
         }
+    }
+
+    /// Press the focused window’s AX default button (blue OK / Allow on a sheet).
+    @discardableResult
+    static func clickDefaultButton() -> Bool {
+        guard let app = NSWorkspace.shared.frontmostApplication else { return false }
+        let axApp = AXUIElementCreateApplication(app.processIdentifier)
+        var focused: AnyObject?
+        AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &focused)
+        guard let focused else { return false }
+        let window = unsafeBitCast(focused, to: AXUIElement.self)
+        var buttonRef: AnyObject?
+        let err = AXUIElementCopyAttributeValue(
+            window,
+            kAXDefaultButtonAttribute as CFString,
+            &buttonRef
+        )
+        guard err == .success, let buttonRef else { return false }
+        let button = unsafeBitCast(buttonRef, to: AXUIElement.self)
+        if AXUIElementPerformAction(button, kAXPressAction as CFString) == .success {
+            return true
+        }
+        return false
     }
 
     /// Walk AX tree for a pressable element whose title/description matches.

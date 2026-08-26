@@ -19,7 +19,7 @@ struct RecipesView: View {
                         Text("AX Recipes")
                             .font(.system(size: 26, weight: .bold, design: .rounded))
                             .foregroundStyle(HFTheme.textPrimary)
-                        Text("Multi-step Accessibility automation — click named UI, keys, paste.")
+                        Text("Multi-step Accessibility automation — click named UI, keys, paste. Clicks wait up to 2s for a sheet.")
                             .font(.system(size: 13))
                             .foregroundStyle(HFTheme.textSecondary)
                     }
