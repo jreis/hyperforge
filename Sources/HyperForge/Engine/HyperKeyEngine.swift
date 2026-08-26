@@ -388,15 +388,24 @@ final class HyperKeyEngine: ObservableObject, @unchecked Sendable {
             return Unmanaged.passUnretained(event)
         }
 
-        // Clipboard panel Esc works even when Caps is released (panel not key).
-        if keyCode == KeyCode.escape,
-           clipboardPanelVisible || ClipboardHistoryPanel.isShowing
-        {
-            noteCapsAloneEscapeWindow(from: now)
-            DispatchQueue.main.async {
-                ClipboardHistoryPanel.hide()
+        // Clipboard panel: swallow keys here so (1) digits do not type into the
+        // front app, (2) sticky Hyper does not steal 1–9 as app slots, (3) we
+        // never need to activate HyperForge (which made ⌘V beep and paste nowhere).
+        if clipboardPanelVisible || ClipboardHistoryPanel.isShowing {
+            if keyCode == KeyCode.escape {
+                noteCapsAloneEscapeWindow(from: now)
             }
-            return nil
+            if ClipboardHistoryPanel.shouldConsumeKey(keyCode, flags: flags) {
+                let chars = event.keyboardGetUnicodeString()
+                DispatchQueue.main.async {
+                    ClipboardHistoryPanel.consumeEngineKey(
+                        keyCode: keyCode,
+                        flags: flags,
+                        characters: chars
+                    )
+                }
+                return nil
+            }
         }
 
         // Physical Hyper still held? (not merely sticky/grace)

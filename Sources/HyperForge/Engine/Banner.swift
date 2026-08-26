@@ -166,18 +166,39 @@ enum Banner {
         titleField.lineBreakMode = .byTruncatingTail
         titleField.backgroundColor = .clear
         titleField.isBezeled = false
+        titleField.drawsBackground = false
+        titleField.usesSingleLineMode = true
 
+        let titleH: CGFloat = 18
+        let subH: CGFloat = 15
         if hasSubtitle, let subtitle {
-            titleField.frame = NSRect(x: textX, y: height / 2 - 2, width: textW, height: 18)
+            let textBlockH = titleH + 2 + subH
+            let textBlockY = ((height - textBlockH) / 2).rounded()
             let subField = NSTextField(labelWithString: subtitle)
             subField.font = subFont
             subField.textColor = NSColor.white.withAlphaComponent(0.55)
             subField.alignment = .left
             subField.lineBreakMode = .byTruncatingTail
-            subField.frame = NSRect(x: textX, y: 10, width: textW, height: 15)
+            subField.backgroundColor = .clear
+            subField.isBezeled = false
+            subField.drawsBackground = false
+            subField.usesSingleLineMode = true
+            // AppKit y origin is bottom. Subtitle sits under the title.
+            subField.frame = NSRect(x: textX, y: textBlockY, width: textW, height: subH)
+            titleField.frame = NSRect(
+                x: textX,
+                y: textBlockY + subH + 2,
+                width: textW,
+                height: titleH
+            )
             visual.addSubview(subField)
         } else {
-            titleField.frame = NSRect(x: textX, y: 0, width: textW, height: height)
+            titleField.frame = NSRect(
+                x: textX,
+                y: ((height - titleH) / 2).rounded(),
+                width: textW,
+                height: titleH
+            )
         }
 
         visual.addSubview(iconView)

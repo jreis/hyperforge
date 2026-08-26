@@ -18,6 +18,9 @@ enum ClipboardHistoryPanel {
     /// Live type-to-filter buffer (substring match, case-insensitive).
     private static var filterBuffer = ""
 
+    /// Front app when the panel opened — restore it before ⌘V so paste hits that app.
+    private static var pasteTarget: NSRunningApplication?
+
     nonisolated static var isShowing: Bool {
         lock.lock(); defer { lock.unlock() }
         return tracking
@@ -31,10 +34,11 @@ enum ClipboardHistoryPanel {
         HyperDebug.log("clipboard.show enter")
 
         if isShowing {
-            activatePanel()
+            orderPanelFront()
             return
         }
 
+        capturePasteTarget()
         _ = ClipboardService.shared.poll()
         if let cur = NSPasteboard.general.string(forType: .string), !cur.isEmpty {
             ClipboardService.shared.record(cur)
@@ -58,7 +62,9 @@ enum ClipboardHistoryPanel {
             )
         }
 
-        activatePanel()
+        // Do not activate HyperForge. Digit keys go through the event tap
+        // (`consumeEngineKey`) so the front app stays the paste target.
+        orderPanelFront()
         installKeyMonitors()
 
         if empty {
@@ -89,8 +95,56 @@ enum ClipboardHistoryPanel {
         window?.close()
         window = nil
         filterBuffer = ""
+        pasteTarget = nil
         HyperKeyEngine.shared.noteClipboardPanelVisible(false)
         HyperKeyEngine.shared.resyncHyperAfterMenu()
+    }
+
+    /// True when the event tap must swallow this key so it does not type into the front app
+    /// and so sticky Hyper does not treat 1–9 as app-slot chords.
+    nonisolated static func shouldConsumeKey(_ keyCode: CGKeyCode, flags: CGEventFlags) -> Bool {
+        guard isShowing else { return false }
+        if keyCode == KeyCode.escape { return true }
+        if flags.contains(.maskCommand) { return false }
+        // Swallow typing, digits, Return, and Delete. Leave media / function keys alone.
+        return keyCode <= KeyCode.upArrow
+    }
+
+    /// Apply a swallowed key on the main actor (panel is @MainActor).
+    static func consumeEngineKey(keyCode: CGKeyCode, flags: CGEventFlags, characters: String) {
+        guard isShowing else { return }
+        _ = handleEngineKey(keyCode: keyCode, flags: flags, characters: characters)
+    }
+
+    /// Restore the app that was front when the panel opened, then paste.
+    static func restorePasteTargetThenPaste(_ entry: ClipboardEntry) {
+        let target = pasteTarget
+        hide()
+        ClipboardService.shared.preparePasteboard(entry)
+        let delay: TimeInterval = (target != nil && target?.isActive != true) ? 0.12 : 0.05
+        if let target, !target.isTerminated, target != NSRunningApplication.current {
+            target.activate(options: [.activateAllWindows])
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            EventSynthesizer.postCommandKey(KeyCode.v)
+            Banner.show(
+                "Pasted history",
+                style: .success,
+                symbol: "list.clipboard"
+            )
+        }
+    }
+
+    private static func capturePasteTarget() {
+        let front = NSWorkspace.shared.frontmostApplication
+        if let front, front.bundleIdentifier != Bundle.main.bundleIdentifier {
+            pasteTarget = front
+        } else {
+            pasteTarget = NSWorkspace.shared.runningApplications.first {
+                $0.isActive && $0 != NSRunningApplication.current
+                    && $0.activationPolicy == .regular
+            }
+        }
     }
 
     /// Pinned-first entries, filtered by `filterBuffer`, capped to `maxRows`
@@ -118,14 +172,10 @@ enum ClipboardHistoryPanel {
         panel.setFrame(frame, display: true)
     }
 
-    /// Make the panel key so local Esc/digits work; event tap also closes on Esc.
-    private static func activatePanel() {
+    /// Show the panel without making HyperForge the front app.
+    private static func orderPanelFront() {
         guard let panel = window else { return }
         panel.orderFrontRegardless()
-        panel.makeKeyAndOrderFront(nil)
-        // Safe activation for menu-bar apps so the panel becomes first responder.
-        NSApp.activate(ignoringOtherApps: true)
-        panel.makeFirstResponder(panel.contentView)
     }
 
     private static func installKeyMonitors() {
@@ -158,54 +208,68 @@ enum ClipboardHistoryPanel {
 
     @discardableResult
     private static func handleKey(_ event: NSEvent, swallow: Bool) -> NSEvent? {
-        guard isShowing else { return event }
-        if event.keyCode == KeyCode.escape {
+        let chars = event.charactersIgnoringModifiers ?? ""
+        let consumed = handleEngineKey(
+            keyCode: event.keyCode,
+            flags: CGEventFlags(rawValue: UInt64(event.modifierFlags.rawValue)),
+            characters: chars
+        )
+        if consumed { return swallow ? nil : event }
+        return event
+    }
+
+    @discardableResult
+    private static func handleEngineKey(
+        keyCode: CGKeyCode,
+        flags: CGEventFlags,
+        characters: String
+    ) -> Bool {
+        guard isShowing else { return false }
+        if keyCode == KeyCode.escape {
             hide()
-            return swallow ? nil : event
+            return true
         }
-        if event.keyCode == KeyCode.delete {
+        if keyCode == KeyCode.delete {
             if !filterBuffer.isEmpty {
                 filterBuffer.removeLast()
                 refresh()
             }
-            return swallow ? nil : event
+            return true
         }
-        if event.keyCode == KeyCode.return {
+        if keyCode == KeyCode.return {
             if let first = displayedEntries().first {
-                hide()
-                ClipboardService.shared.paste(first)
+                restorePasteTargetThenPaste(first)
             }
-            return swallow ? nil : event
+            return true
         }
-        if let idx = digitRowMap[event.keyCode] {
+        if let idx = digitRowMap[keyCode] {
             let list = displayedEntries()
             // Once a filter is active, digits are search text, not paste shortcuts
             // (⌥+digit still pins, since Option unambiguously signals intent).
-            if event.modifierFlags.contains(.option) {
+            if flags.contains(.maskAlternate) {
                 if list.indices.contains(idx) {
                     ClipboardService.shared.togglePin(list[idx].id)
                     refresh()
                 }
-                return swallow ? nil : event
+                return true
             }
             if filterBuffer.isEmpty {
                 if list.indices.contains(idx) {
-                    hide()
-                    ClipboardService.shared.paste(list[idx])
+                    restorePasteTargetThenPaste(list[idx])
                 }
-                return swallow ? nil : event
+                return true
             }
             // Fall through: treat the digit as filter text below.
         }
-        if let chars = event.charactersIgnoringModifiers, let ch = chars.first,
-           !event.modifierFlags.contains(.command),
+        if !flags.contains(.maskCommand),
+           let ch = characters.first,
            let ascii = ch.asciiValue, ascii >= 32, ascii < 127
         {
             filterBuffer.append(ch)
             refresh()
-            return swallow ? nil : event
+            return true
         }
-        return event
+        return false
     }
 
     private static func contentHeight(rowCount: Int) -> CGFloat {
@@ -222,7 +286,7 @@ enum ClipboardHistoryPanel {
 
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
-            styleMask: [.titled, .closable],
+            styleMask: [.nonactivatingPanel, .titled, .closable],
             backing: .buffered,
             defer: false
         )
@@ -339,8 +403,7 @@ private final class PanelTarget: NSObject {
     @objc func paste(_ sender: NSButton) {
         let list = ClipboardHistoryPanel.displayedEntries()
         guard list.indices.contains(sender.tag) else { return }
-        ClipboardHistoryPanel.hide()
-        ClipboardService.shared.paste(list[sender.tag])
+        ClipboardHistoryPanel.restorePasteTargetThenPaste(list[sender.tag])
     }
 
     @objc func togglePin(_ sender: NSButton) {

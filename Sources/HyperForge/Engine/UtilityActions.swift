@@ -245,14 +245,18 @@ final class ClipboardService: ObservableObject {
         EventSynthesizer.postKey(KeyCode.v, flags: .maskCommand)
     }
 
-    /// Paste a history entry (set pasteboard + ⌘V).
-    func paste(_ entry: ClipboardEntry) {
+    /// Write a history entry to the pasteboard (no keystroke).
+    func preparePasteboard(_ entry: ClipboardEntry) {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(entry.text, forType: .string)
         lastChangeCount = pb.changeCount
-        // Move to front (keeps pin state).
         record(entry.text)
+    }
+
+    /// Paste a history entry (set pasteboard + ⌘V). Assumes the target app is already front.
+    func paste(_ entry: ClipboardEntry) {
+        preparePasteboard(entry)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) {
             EventSynthesizer.postCommandKey(KeyCode.v)
             Banner.show(
