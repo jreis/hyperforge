@@ -42,8 +42,9 @@ HasMute(proc) {
     return false
 }
 
-; Used as HotIf predicate — true means Hyper hotkeys are active.
-HyperAllowed() {
+; Used as a HotIf predicate — true means Hyper hotkeys are active.
+; The parameter is required: HotIf passes the hotkey name on current AHK v2.
+HyperAllowed(*) {
     global HF_HyperPaused, HF_PauseDeadline
     if HF_HyperPaused {
         if (HF_PauseDeadline && A_TickCount > HF_PauseDeadline) {

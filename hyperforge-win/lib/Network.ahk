@@ -1,52 +1,60 @@
 ; Network.ahk — IP, hostname, reverse DNS, ARIN-style whois paste
 
 RegisterNetworkHotkeys() {
-    HotIf HyperAllowed
-    Hotkey "#^!+m", (*) => {
-        A_Clipboard := A_ComputerName
-        ShowMsg("Copied " A_ComputerName)
-    }
-    Hotkey "#^!+w", (*) => {
-        url := HFConfig.Get("network.arin_whois", "https://whois.arin.net/ui/query.do")
-        post := "queryinput=" A_Clipboard
-        try {
-            http := ComObject("MSXML2.ServerXMLHTTP.6.0")
-            http.open("POST", url, false)
-            http.setRequestHeader("Content-Type", "application/x-www-form-urlencoded")
-            http.send(post)
-            whoisXml := http.responseXML
-            A_Clipboard := http.responseText
-            try {
-                namespace := "xmlns:ns='https://www.arin.net/whoisrws/core/v1'"
-                whoisXml.setProperty("SelectionNamespaces", namespace)
-                result := whoisXml.selectSingleNode("//ns:name").text
-                ShowMsg(result)
-            } catch {
-                ShowMsg("Whois response on clipboard")
-            }
-        } catch {
-            ShowMsg("Whois failed")
-        }
-    }
-    HotIf
+    BindHyper("m", (*) => CopyHostname())
+    ; L is Workspaces. Copy LAN IP from the command bar (or a {{lan-ip}} snippet).
+    BindHyper("w", (*) => ArinWhois(), "send")
 
-    ; Non-Hyper (Win+I variants) — always on
-    Hotkey "#i", (*) => {
-        addrs := SysGetIPAddresses()
-        if addrs.Length {
-            A_Clipboard := addrs[1]
-            ShowMsg("Copied " addrs[1])
-        }
+    ; Win+Ctrl+I. Win+I is Windows Settings and is not bound.
+    Hotkey "#^i", (*) => ReverseDnsClipboard()
+}
+
+CopyHostname(*) {
+    A_Clipboard := A_ComputerName
+    ShowMsg("Copied " A_ComputerName)
+}
+
+CopyLanIP(*) {
+    ip := LanIPAddress()
+    if (ip = "") {
+        ShowMsg("No LAN address")
+        return
     }
-    Hotkey "#^i", (*) => {
-        ip := Trim(A_Clipboard)
+    A_Clipboard := ip
+    ShowMsg("Copied " ip)
+}
+
+ArinWhois(*) {
+    url := HFConfig.Get("network.arin_whois", "https://whois.arin.net/ui/query.do")
+    post := "queryinput=" A_Clipboard
+    try {
+        http := ComObject("MSXML2.ServerXMLHTTP.6.0")
+        http.open("POST", url, false)
+        http.setRequestHeader("Content-Type", "application/x-www-form-urlencoded")
+        http.send(post)
+        whoisXml := http.responseXML
+        A_Clipboard := http.responseText
         try {
-            results := ReverseLookup(ip)
-            A_Clipboard := results
-            MsgBox results, "Reverse DNS"
-        } catch as e {
-            MsgBox "Lookup failed: " e.Message
+            namespace := "xmlns:ns='https://www.arin.net/whoisrws/core/v1'"
+            whoisXml.setProperty("SelectionNamespaces", namespace)
+            result := whoisXml.selectSingleNode("//ns:name").text
+            ShowMsg(result)
+        } catch {
+            ShowMsg("Whois response on clipboard")
         }
+    } catch {
+        ShowMsg("Whois failed")
+    }
+}
+
+ReverseDnsClipboard(*) {
+    ip := Trim(A_Clipboard)
+    try {
+        results := ReverseLookup(ip)
+        A_Clipboard := results
+        MsgBox results, "Reverse DNS"
+    } catch as e {
+        MsgBox "Lookup failed: " e.Message
     }
 }
 

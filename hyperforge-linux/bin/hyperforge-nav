@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+# hyperforge-nav — Space-layer keys that must not be raw Ctrl chords.
+# In a terminal, Ctrl+C interrupts, Ctrl+Z suspends, and Ctrl+S stops output.
+# GUI apps keep the usual Ctrl chords. HJKL arrows stay in the kanata/keyd
+# layer because arrow keys mean the same thing in both.
+#
+#   hyperforge-nav copy|paste|cut|undo|redo|save|find|word-back|word-forward|kill-eol|select-line
+#   hyperforge-nav --print-keys <class> <action>
+set -euo pipefail
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+is_terminal_class() {
+  local c
+  c="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  case "$c" in
+    *ghostty*|*kitty*|*alacritty*|*wezterm*|*foot*|*xterm*|*terminal*|\
+    *konsole*|*terminator*|*tilix*|*urxvt*|*rxvt*|st|st-256color|\
+    *warp*|*contour*|rio|com.raphaelamorim.rio)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+# One line: space-separated chords. Empty class is a GUI.
+keys_for() {
+  local class="$1" action="$2" term=0
+  if is_terminal_class "$class"; then term=1; fi
+  if (( term )); then
+    case "$action" in
+      copy)         printf '%s\n' 'ctrl+shift+c' ;;
+      paste)        printf '%s\n' 'ctrl+shift+v' ;;
+      cut)          printf '%s\n' 'ctrl+shift+x' ;;
+      undo)         printf '%s\n' 'ctrl+/' ;;
+      redo)         printf '%s\n' 'ctrl+shift+z' ;;
+      save)         printf '%s\n' 'ctrl+shift+s' ;;
+      find)         printf '%s\n' 'ctrl+shift+f' ;;
+      word-back)    printf '%s\n' 'alt+b' ;;
+      word-forward) printf '%s\n' 'alt+f' ;;
+      kill-eol)     printf '%s\n' 'ctrl+k' ;;
+      select-line)  printf '%s\n' 'ctrl+a shift+end' ;;
+      *) return 2 ;;
+    esac
+  else
+    case "$action" in
+      copy)         printf '%s\n' 'ctrl+c' ;;
+      paste)        printf '%s\n' 'ctrl+v' ;;
+      cut)          printf '%s\n' 'ctrl+x' ;;
+      undo)         printf '%s\n' 'ctrl+z' ;;
+      redo)         printf '%s\n' 'ctrl+shift+z' ;;
+      save)         printf '%s\n' 'ctrl+s' ;;
+      find)         printf '%s\n' 'ctrl+f' ;;
+      word-back)    printf '%s\n' 'ctrl+left' ;;
+      word-forward) printf '%s\n' 'ctrl+right' ;;
+      kill-eol)     printf '%s\n' 'shift+end backspace' ;;
+      select-line)  printf '%s\n' 'home shift+end' ;;
+      *) return 2 ;;
+    esac
+  fi
+}
+
+focused_class() {
+  local msg=""
+  if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] && have hyprctl && have jq; then
+    hyprctl activewindow -j 2>/dev/null | jq -r '.class // empty' || true
+    return 0
+  fi
+  if [[ -n "${SWAYSOCK:-}" ]] && have swaymsg; then msg=swaymsg
+  elif [[ -n "${I3SOCK:-}" ]] && have i3-msg; then msg=i3-msg
+  fi
+  if [[ -n "$msg" ]] && have jq; then
+    "$msg" -t get_tree 2>/dev/null | jq -r '
+      [ .. | objects | select(.focused == true) ] | .[0]
+      | (.app_id // .window_properties.class // "")
+    ' || true
+    return 0
+  fi
+  if have xdotool; then
+    xdotool getactivewindow getwindowclassname 2>/dev/null || true
+  fi
+}
+
+xdo_name() {
+  case "$1" in
+    /) printf 'slash' ;;
+    left) printf 'Left' ;;
+    right) printf 'Right' ;;
+    end) printf 'End' ;;
+    home) printf 'Home' ;;
+    backspace) printf 'BackSpace' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+send_wtype() {
+  local spec="$1" p key="" 
+  local -a parts=() mods=() args=()
+  IFS='+' read -r -a parts <<<"$spec"
+  for p in "${parts[@]}"; do
+    case "$p" in
+      ctrl|shift|alt) mods+=("$p") ;;
+      left|right|end|home|backspace)
+        key="$(xdo_name "$p")"
+        ;;
+      *) key="$p" ;;
+    esac
+  done
+  for p in "${mods[@]}"; do args+=(-M "$p"); done
+  case "$key" in
+    Left|Right|End|Home|BackSpace) args+=(-k "$key") ;;
+    *) args+=("$key") ;;
+  esac
+  local i
+  for ((i = ${#mods[@]} - 1; i >= 0; i--)); do
+    args+=(-m "${mods[$i]}")
+  done
+  wtype "${args[@]}"
+}
+
+send_combo_tool() {
+  local tool="$1" spec="$2" p combo=""
+  local -a parts=()
+  IFS='+' read -r -a parts <<<"$spec"
+  for p in "${parts[@]}"; do
+    [[ -n "$combo" ]] && combo+="+"
+    combo+="$(xdo_name "$p")"
+  done
+  if [[ "$tool" == "xdotool" ]]; then
+    xdotool key --clearmodifiers "$combo"
+  else
+    ydotool key "$combo"
+  fi
+}
+
+send_one() {
+  local spec="$1"
+  if have wtype; then send_wtype "$spec"
+  elif have xdotool; then send_combo_tool xdotool "$spec"
+  elif have ydotool; then send_combo_tool ydotool "$spec"
+  else
+    echo "hyperforge-nav: need wtype, xdotool, or ydotool" >&2
+    return 1
+  fi
+}
+
+send_seq() {
+  local spec="$1" chord
+  # shellcheck disable=SC2086
+  for chord in $spec; do
+    send_one "$chord"
+  done
+}
+
+usage() {
+  echo "usage: $0 <copy|paste|cut|undo|redo|save|find|word-back|word-forward|kill-eol|select-line>"
+  echo "       $0 --print-keys <window-class> <action>"
+}
+
+case "${1:-}" in
+  ""|-h|--help) usage; exit 0 ;;
+  --print-keys)
+    [[ $# -eq 3 ]] || { usage >&2; exit 2; }
+    keys_for "$2" "$3"
+    ;;
+  copy|paste|cut|undo|redo|save|find|word-back|word-forward|kill-eol|select-line)
+    spec="$(keys_for "$(focused_class)" "$1")" || exit 2
+    send_seq "$spec"
+    ;;
+  *)
+    echo "unknown nav action: $1" >&2
+    exit 2
+    ;;
+esac

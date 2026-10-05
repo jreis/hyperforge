@@ -53,13 +53,7 @@ ShowQuickMenu(*) {
     m.Add("Previous Space", (*) => PreviousSpace())
     m.Add()
     m.Add("Copy hostname", (*) => (A_Clipboard := A_ComputerName, ShowMsg(A_ComputerName)))
-    m.Add("Copy IP", (*) => {
-        a := SysGetIPAddresses()
-        if a.Length {
-            A_Clipboard := a[1]
-            ShowMsg(a[1])
-        }
-    })
+    m.Add("Copy IP", CopyMenuLanIP)
     m.Show()
     DetectHiddenWindows true
 }
@@ -112,6 +106,16 @@ MoveMouseWinActive() {
     try {
         WinGetPos(&x, &y, &w, &h, "A")
         MouseMove x + w // 2, y + h // 2, 0
+    }
+}
+
+CopyMenuLanIP(*) {
+    a := LanIPAddresses()
+    if a.Length {
+        A_Clipboard := a[1]
+        ShowMsg(a[1])
+    } else {
+        ShowMsg("No LAN address")
     }
 }
 

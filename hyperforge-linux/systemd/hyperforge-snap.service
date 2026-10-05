@@ -1,0 +1,14 @@
+[Unit]
+Description=HyperForge Hyprland snap reflow (fill leftover on close/open)
+Documentation=https://github.com/jreis/hyperforge/tree/main/hyperforge-linux
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/hyperforge-snap watch
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

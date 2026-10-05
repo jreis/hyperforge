@@ -15,6 +15,8 @@ InitScrollAccel() {
 
 ScrollAccel(*) {
     global HF_ScrollDistance, HF_ScrollVMax, HF_ScrollTimeout, HF_ScrollBoost, HF_ScrollLimit
+    ; Send does not re-trigger this hotkey. MouseClick of the same wheel event can.
+    dir := InStr(A_ThisHotkey, "Down") ? "WheelDown" : "WheelUp"
     t := A_TimeSincePriorHotkey
     if (A_PriorHotkey = A_ThisHotkey && t < HF_ScrollTimeout) {
         HF_ScrollDistance++
@@ -27,10 +29,10 @@ ScrollAccel(*) {
             v *= HF_ScrollDistance / HF_ScrollBoost
         }
         v := (v > 1) ? ((v > HF_ScrollLimit) ? HF_ScrollLimit : Floor(v)) : 1
-        MouseClick A_ThisHotkey, , , v
+        Send "{" dir " " v "}"
     } else {
         HF_ScrollDistance := 0
         HF_ScrollVMax := 1
-        MouseClick A_ThisHotkey
+        Send "{" dir "}"
     }
 }

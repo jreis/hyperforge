@@ -96,18 +96,19 @@
   scr  (cmd HF_BIN/hyperforge-action script-pick)
   wksp (cmd HF_BIN/hyperforge-action workspace-pick)
 
-  ;; Space-layer helpers (macOS-ish)
-  wback (multi lctl left)
-  wfwd  (multi lctl right)
-  copy  (multi lctl c)
-  paste (multi lctl v)
-  cutk  (multi lctl x)
-  undo  (multi lctl z)
-  redo  (multi lctl lsft z)
-  save  (multi lctl s)
-  find  (multi lctl f)
-  killx (multi lsft end bspc)
-  sline (multi home lsft end)
+  ;; Space-layer helpers. Copy/paste/undo/save go through hyperforge-nav so a
+  ;; terminal gets Ctrl+Shift+C / Alt+B / Ctrl+K instead of Ctrl+C / Ctrl+Z / Ctrl+S.
+  wback (cmd HF_BIN/hyperforge-nav word-back)
+  wfwd  (cmd HF_BIN/hyperforge-nav word-forward)
+  copy  (cmd HF_BIN/hyperforge-nav copy)
+  paste (cmd HF_BIN/hyperforge-nav paste)
+  cutk  (cmd HF_BIN/hyperforge-nav cut)
+  undo  (cmd HF_BIN/hyperforge-nav undo)
+  redo  (cmd HF_BIN/hyperforge-nav redo)
+  save  (cmd HF_BIN/hyperforge-nav save)
+  find  (cmd HF_BIN/hyperforge-nav find)
+  killx (cmd HF_BIN/hyperforge-nav kill-eol)
+  sline (cmd HF_BIN/hyperforge-nav select-line)
 )
 
 (deflayer base
@@ -144,7 +145,7 @@
 
 ;; Hold Space — TouchCursor-style nav (macOS Space layer subset)
 ;; HJKL arrows · B/W words · Y/P/C clipboard · U undo · R redo · X kill-EOL
-;; A select line · S save · F find · ,/. page · 0/4 line edges · M enter · Q esc
+;; A select line · S save · F find · ,/. page · 5/6 line edges · Enter return · Q esc
 (deflayer nav
   _ _ _ _ _ home end _ _ _ _ _ _
   _ esc @wfwd _ @redo _ @copy @undo _ _ @paste _ _ _

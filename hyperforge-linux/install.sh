@@ -15,7 +15,7 @@ HF_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hyperforge-linux"
 mkdir -p "$SHARE/bin" "$BIN_DIR" "$KANATA_DIR" "$HF_CONFIG_DIR"
 
 # Scripts
-for f in hyperforge-snap hyperforge-action hyperforge-doctor hyperforge-snippet hyperforge-clip hyperforge-pin hyperforge-paste hyperforge-bar hyperforge-config hyperforge-script hyperforge-workspace; do
+for f in hyperforge-snap hyperforge-action hyperforge-doctor hyperforge-snippet hyperforge-clip hyperforge-pin hyperforge-paste hyperforge-bar hyperforge-config hyperforge-script hyperforge-workspace hyperforge-nav hyperforge-menu; do
   cp "$ROOT/bin/$f" "$SHARE/bin/$f"
   chmod +x "$SHARE/bin/$f"
   ln -sfn "$SHARE/bin/$f" "$BIN_DIR/$f"
@@ -40,6 +40,10 @@ fi
 if [[ -f "$ROOT/snippets.example.conf" ]] && [[ ! -f "$HF_CONFIG_DIR/snippets.conf" ]]; then
   cp "$ROOT/snippets.example.conf" "$HF_CONFIG_DIR/snippets.conf"
   echo "→ snippets config: $HF_CONFIG_DIR/snippets.conf"
+fi
+if [[ -f "$ROOT/apps.example.conf" ]] && [[ ! -f "$HF_CONFIG_DIR/apps.conf" ]]; then
+  cp "$ROOT/apps.example.conf" "$HF_CONFIG_DIR/apps.conf"
+  echo "→ app slots: $HF_CONFIG_DIR/apps.conf"
 fi
 
 # Kanata config with absolute bin path
@@ -80,6 +84,10 @@ if [[ -f "$ROOT/systemd/hyperforge-clipboard.service" ]]; then
   cp "$ROOT/systemd/hyperforge-clipboard.service" "$SYSTEMD_USER/hyperforge-clipboard.service"
   echo "→ systemd user unit: hyperforge-clipboard.service (clipboard history watcher)"
 fi
+if [[ -f "$ROOT/systemd/hyperforge-snap.service" ]]; then
+  cp "$ROOT/systemd/hyperforge-snap.service" "$SYSTEMD_USER/hyperforge-snap.service"
+  echo "→ systemd user unit: hyperforge-snap.service (fill leftover when a snapped window closes or a new one opens)"
+fi
 if [[ -f "$ROOT/systemd/hyperforge-snippets.service" ]]; then
   cp "$ROOT/systemd/hyperforge-snippets.service" "$SYSTEMD_USER/hyperforge-snippets.service"
   echo "→ systemd user unit: hyperforge-snippets.service (compile typed snippet sequences)"
@@ -118,9 +126,11 @@ echo "     Caps/Space chords do nothing. Also ensure /dev/uinput is writable."
 echo "  3. Run once:       kanata -c $KANATA_DIR/hyperforge.kbd"
 echo "  4. Autostart:      systemctl --user enable --now hyperforge-kanata.service"
 echo "  5. Clipboard history (optional): systemctl --user enable --now hyperforge-clipboard.service"
-echo "  6. Typed snippets (optional):    systemctl --user enable --now hyperforge-snippets.path"
-echo "  7. Edit snippets:  $HF_CONFIG_DIR/snippets.conf   then: hyperforge-snippet --sync"
-echo "  8. Health check:   hyperforge-doctor"
+echo "  6. Snap reflow (Hyprland):       systemctl --user enable --now hyperforge-snap.service"
+echo "  7. Typed snippets (optional):    systemctl --user enable --now hyperforge-snippets.path"
+echo "  8. Edit snippets:  $HF_CONFIG_DIR/snippets.conf   then: hyperforge-snippet --sync"
+echo "     App slots:    $HF_CONFIG_DIR/apps.conf       (term, browser, editor, files)"
+echo "  9. Health check:   hyperforge-doctor"
 echo
 echo "Try:"
 echo "  • Hold Caps + ←/→/↑/↓  — window snap"

@@ -7,9 +7,7 @@ RegisterKeepAlive() {
     ; Win+J — not full Hyper (avoids fighting game binds); still listed in README
     Hotkey "#j", ToggleKeepAlive
     ; Hyper+K — macOS muscle memory (muted in games via HyperAllowed)
-    HotIf HyperAllowed
-    Hotkey "#^!+k", ToggleKeepAlive
-    HotIf
+    BindHyper("k", (*) => ToggleKeepAlive())
 }
 
 ToggleKeepAlive(*) {

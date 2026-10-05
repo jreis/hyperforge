@@ -1,17 +1,27 @@
 ; Explorer.ahk — folder / selection helpers
 
 GetFolder() {
-    activeClass := WinGetClass("A")
+    try {
+        window := explorerGetWindow()
+        if (window = "desktop")
+            return A_Desktop
+        if IsObject(window) {
+            path := window.Document.Folder.Self.Path
+            if (path != "")
+                return path
+        }
+    }
+    try activeClass := WinGetClass("A")
+    catch
+        return ""
     if !(activeClass ~= "i)\A(CabinetWClass|ExplorerWClass|Progman)\z")
         return ""
     if (activeClass = "Progman")
         return A_Desktop
     fullPath := StrReplace(WinGetText("A"), "Address: ", "")
     Loop Parse fullPath, "`r`n" {
-        if InStr(A_LoopField, ":\") {
-            ; Address line often includes "Address: C:\..." already stripped
+        if InStr(A_LoopField, ":\")
             return Trim(A_LoopField)
-        }
     }
     return ""
 }
@@ -53,27 +63,29 @@ explorerDesktopGetSel(hwnd := 0, selection := true) {
 RegisterExplorerHotkeys() {
     ; Ctrl+Alt+Shift+C in Explorer → file contents to clipboard
     HotIfWinActive "ahk_class CabinetWClass"
-    Hotkey "^!+c", (*) => {
-        filePath := explorerDesktopGetSel()
-        if (filePath = "" || filePath = "ERROR" || InStr(filePath, "`n")) {
-            ShowMsg("Select one file")
-            return
-        }
-        try {
-            A_Clipboard := FileRead(filePath)
-            ShowMsg("File → clipboard")
-        } catch as e {
-            ShowMsg("Read failed")
-        }
-    }
+    Hotkey "^!+c", ExplorerFileToClipboard
     ; Shift+F4 / Middle-click → open selection in VS Code
     Hotkey "+F4", ExplorerOpenInEditor
     Hotkey "MButton", ExplorerOpenInEditor
     HotIfWinActive
 
-    ; Win+W / Ctrl+Alt+Shift+W → clipboard to temp file in editor
-    Hotkey "#w", ClipboardToEditor
+    ; Ctrl+Alt+Shift+W → clipboard to a temp file in the editor.
+    ; Win+W is left for Windows Widgets.
     Hotkey "^!+w", ClipboardToEditor
+}
+
+ExplorerFileToClipboard(*) {
+    filePath := explorerDesktopGetSel()
+    if (filePath = "" || filePath = "ERROR" || InStr(filePath, "`n")) {
+        ShowMsg("Select one file")
+        return
+    }
+    try {
+        A_Clipboard := FileRead(filePath)
+        ShowMsg("File → clipboard")
+    } catch {
+        ShowMsg("Read failed")
+    }
 }
 
 ExplorerOpenInEditor(*) {

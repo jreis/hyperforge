@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# hyperforge-menu — one picker for snippets, clipboard, the command bar, and paste.
+# Reads menu lines on stdin, prints the chosen original line.
+# Honors HF_MENU_CMD (an executable that reads the display lines and prints one)
+# so tests do not need a running compositor.
+# Exit 0 chosen, 1 cancelled, 3 no picker installed.
+set -euo pipefail
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+wait_mods_up() {
+  if [[ "${HF_MENU_NO_WAIT:-}" == "1" ]]; then
+    return 0
+  fi
+  if have python3; then
+    python3 - <<'PY' || true
+import sys, time
+try:
+    from evdev import InputDevice, ecodes, list_devices
+except ImportError:
+    time.sleep(0.4)
+    sys.exit(0)
+mods = {
+    ecodes.KEY_LEFTCTRL, ecodes.KEY_RIGHTCTRL,
+    ecodes.KEY_LEFTALT, ecodes.KEY_RIGHTALT,
+    ecodes.KEY_LEFTMETA, ecodes.KEY_RIGHTMETA,
+    ecodes.KEY_LEFTSHIFT, ecodes.KEY_RIGHTSHIFT,
+    ecodes.KEY_CAPSLOCK,
+}
+devs = []
+for path in list_devices():
+    try:
+        d = InputDevice(path)
+        if set(d.capabilities().get(ecodes.EV_KEY, [])) & mods:
+            devs.append(d)
+    except OSError:
+        pass
+deadline = time.time() + 4
+while time.time() < deadline:
+    held = set()
+    for d in devs:
+        try:
+            held |= set(d.active_keys()) & mods
+        except OSError:
+            pass
+    if not held:
+        break
+    time.sleep(0.03)
+PY
+  else
+    sleep 0.4
+  fi
+  if have wtype; then
+    wtype -m ctrl -m alt -m win -m shift 2>/dev/null || true
+  fi
+}
+
+prompt="${1:-HyperForge}"
+mapfile -t lines
+if (( ${#lines[@]} == 0 )); then
+  echo "hyperforge-menu: nothing to choose" >&2
+  exit 1
+fi
+
+# Display text for each original line. A tab splits label and chord/subtext.
+declare -a shown=()
+for line in "${lines[@]}"; do
+  if [[ "$line" == *$'\t'* ]]; then
+    shown+=("${line%%$'\t'*} — ${line#*$'\t'}")
+  else
+    shown+=("$line")
+  fi
+done
+
+choose_shown() {
+  local i
+  if [[ -n "${HF_MENU_CMD:-}" ]]; then
+    printf '%s\n' "${shown[@]}" | "$HF_MENU_CMD" "$prompt"
+    return
+  fi
+  if have omarchy-menu-select; then
+    {
+      for i in "${!lines[@]}"; do
+        if [[ "${lines[$i]}" == *$'\t'* ]]; then
+          printf '\t%s\t%s\n' "${lines[$i]%%$'\t'*}" "${lines[$i]#*$'\t'}"
+        else
+          printf '\t%s\n' "${lines[$i]}"
+        fi
+      done
+    } | omarchy-menu-select "$prompt"
+    return
+  fi
+  if have rofi; then
+    printf '%s\n' "${shown[@]}" | rofi -dmenu -p "$prompt"
+    return
+  fi
+  if have wofi; then
+    printf '%s\n' "${shown[@]}" | wofi --dmenu -p "$prompt"
+    return
+  fi
+  if have fuzzel; then
+    printf '%s\n' "${shown[@]}" | fuzzel --dmenu -p "$prompt "
+    return
+  fi
+  echo "hyperforge-menu: need omarchy-menu-select, rofi, wofi, or fuzzel" >&2
+  return 3
+}
+
+wait_mods_up
+set +e
+chosen="$(choose_shown)"
+rc=$?
+set -e
+if (( rc != 0 )); then
+  exit "$rc"
+fi
+[[ -n "${chosen:-}" ]] || exit 1
+chosen="${chosen#$'\t'}"
+
+# omarchy may return the label, "label\tchord", or the formatted row.
+for i in "${!lines[@]}"; do
+  label="${lines[$i]%%$'\t'*}"
+  if [[ "$chosen" == "${lines[$i]}" || "$chosen" == "${shown[$i]}" || "$chosen" == "$label" ]]; then
+    printf '%s\n' "${lines[$i]}"
+    exit 0
+  fi
+  if [[ "${lines[$i]}" == *$'\t'* && "$chosen" == "${lines[$i]%%$'\t'*}"$'\t'"${lines[$i]#*$'\t'}" ]]; then
+    printf '%s\n' "${lines[$i]}"
+    exit 0
+  fi
+done
+exit 1

@@ -4,10 +4,8 @@
 global HF_Pins := []
 
 RegisterPinHotkeys() {
-    HotIf HyperAllowed
-    Hotkey "#^!+y", (*) => BeginRegionPin()      ; Y free (almost-max is U)
-    Hotkey "#^!+q", (*) => BeginRegionOCR()      ; Q free
-    HotIf
+    BindHyper("y", (*) => BeginRegionPin(), "send")
+    BindHyper("q", (*) => BeginRegionOCR(), "send")
 }
 
 BeginRegionPin(*) {
@@ -35,23 +33,38 @@ BeginRegionOCR(*) {
 }
 
 _snipToPng() {
+    ; Hyper is still holding Win/Ctrl/Alt/Shift. Snipping Tool listens for Win+Shift+S.
+    ReleaseHyperModifiers()
+    Sleep 40
     ShowMsg("Snip a region…  Esc cancels")
-    saved := ClipboardAll()
+    previous := ""
+    try previous := ClipboardAll()
     A_Clipboard := ""
     Send "#+s"
     if !ClipWait(45, 1) {
+        _restoreClipboard(previous)
+        RestoreHyperModifiers()
         ShowMsg("Pin cancelled")
-        try A_Clipboard := saved
         return ""
     }
-    Sleep 250
+    Sleep 200
     path := A_Temp "\hf-pin-" A_TickCount ".png"
     if !SaveClipboardImage(path) {
+        _restoreClipboard(previous)
+        RestoreHyperModifiers()
         ShowMsg("No image captured")
-        try A_Clipboard := saved
         return ""
     }
+    ; The image lives in the pin window. Put the user's previous clipboard back.
+    _restoreClipboard(previous)
+    RestoreHyperModifiers()
     return path
+}
+
+_restoreClipboard(previous) {
+    if (previous = "")
+        return
+    try A_Clipboard := previous
 }
 
 SaveClipboardImage(path) {
@@ -127,18 +140,20 @@ ShowPinWindow(imgPath) {
     bar := g.AddButton("w70", "Copy")
     bar.OnEvent("Click", (*) => (CopyImageFile(imgPath), ShowMsg("Copied pin")))
     g.AddButton("x+6 w70", "Save").OnEvent("Click", (*) => _pinSave(imgPath))
-    g.AddButton("x+6 w70", "OCR").OnEvent("Click", (*) => {
-        t := OcrImageFile(imgPath)
-        if (t = "")
-            ShowMsg("No text found")
-        else {
-            A_Clipboard := t
-            ShowMsg("OCR → clipboard")
-        }
-    })
-    g.AddButton("x+6 w70", "Close").OnEvent("Click", (*) => g.Destroy())
+    g.AddButton("x+6 w70", "OCR").OnEvent("Click", _pinOcr.Bind(imgPath))
+    g.AddButton("x+6 w70", "Close").OnEvent("Click", (*) => _pinClose(g))
     g.Show("AutoSize")
     HF_Pins.Push({ gui: g, path: imgPath })
+}
+
+_pinOcr(imgPath, *) {
+    t := OcrImageFile(imgPath)
+    if (t = "") {
+        ShowMsg("No text found")
+        return
+    }
+    A_Clipboard := t
+    ShowMsg("OCR → clipboard")
 }
 
 _pinSave(imgPath) {
@@ -155,5 +170,27 @@ _pinSave(imgPath) {
 }
 
 _pinClose(g, *) {
-    g.Destroy()
+    static busy := Map()
+    if !IsObject(g)
+        return
+    id := 0
+    try id := g.Hwnd
+    if busy.Has(id)
+        return
+    busy[id] := true
+    path := ""
+    global HF_Pins
+    kept := []
+    for pin in HF_Pins {
+        if (pin.gui = g)
+            path := pin.path
+        else
+            kept.Push(pin)
+    }
+    HF_Pins := kept
+    try g.Destroy()
+    ; The picture control holds the file until the window is gone.
+    if (path != "" && InStr(path, A_Temp) = 1)
+        try FileDelete(path)
+    busy.Delete(id)
 }

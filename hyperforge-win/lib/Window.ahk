@@ -1,69 +1,64 @@
-; Window.ahk — snaps, undo, next monitor, always-on-top, minimize, tile-all
-; Muscle memory aligned with macOS HyperForge where keys don't fight app chords.
+; Window.ahk — snaps, undo, next monitor, always-on-top, minimize, tile-all.
+; Positions are the visible frame. DWM's invisible resize border is added back
+; so a half-snap sits flush with the work area instead of leaving a shadow gap.
 
-global HF_SnapUndo := Map()  ; hwnd string → array of {x,y,w,h}
-global HF_SnapUndoMax := 8
-global HF_TileLayout := []   ; array of {hwnd,x,y,w,h} for undo after tile-all
+global HF_UndoStack := []
+global HF_UndoMax := 8
 
 RegisterWindowHotkeys() {
-    ; Non-Hyper (always available)
     Hotkey "^+Space", (*) => ToggleAlwaysOnTop()
-    Hotkey "*XButton1", (*) => {
-        try WinMinimize("A")
-    }
+    ; Off by default: XButton1 is the mouse Back button. Hyper+B still minimizes.
+    if HFConfig.GetBool("general.xbutton1_minimize", false)
+        Hotkey "*XButton1", (*) => MinimizeActive()
 
-    ; Hyper chords — respect per-app mute
-    HotIf HyperAllowed
-    Hotkey "#^!+Left", (*) => SnapActive(0, 0, 0.5, 1)
-    Hotkey "#^!+Right", (*) => SnapActive(0.5, 0, 0.5, 1)
-    Hotkey "#^!+Up", (*) => SnapActive(0, 0, 1, 0.5)
-    Hotkey "#^!+Down", (*) => SnapActive(0, 0.5, 1, 0.5)
-    Hotkey "#^!+Enter", (*) => SnapActive(0, 0, 1, 1)
-    ; Top-row quarters (same as macOS main keyboard 7/8/9/0)
-    Hotkey "#^!+7", (*) => SnapActive(0, 0, 0.5, 0.5)      ; top-left
-    Hotkey "#^!+8", (*) => SnapActive(0.5, 0, 0.5, 0.5)    ; top-right
-    Hotkey "#^!+9", (*) => SnapActive(0, 0.5, 0.5, 0.5)    ; bottom-left
-    Hotkey "#^!+0", (*) => SnapActive(0.5, 0.5, 0.5, 0.5)  ; bottom-right
-    ; Hyper + 6 = tile all (macOS parity)
-    Hotkey "#^!+6", (*) => TileAllVisible()
-    ; Full numpad spatial pad (macOS 0.4.x):
+    BindHyper("Left", (*) => SnapActive(0, 0, 0.5, 1))
+    BindHyper("Right", (*) => SnapActive(0.5, 0, 0.5, 1))
+    BindHyper("Up", (*) => SnapActive(0, 0, 1, 0.5))
+    BindHyper("Down", (*) => SnapActive(0, 0.5, 1, 0.5))
+    BindHyper("Enter", (*) => SnapActive(0, 0, 1, 1))
+    ; Top-row quarters (macOS main keyboard 7/8/9/0): TL TR BL BR
+    BindHyper("7", (*) => SnapActive(0, 0, 0.5, 0.5))
+    BindHyper("8", (*) => SnapActive(0.5, 0, 0.5, 0.5))
+    BindHyper("9", (*) => SnapActive(0, 0.5, 0.5, 0.5))
+    BindHyper("0", (*) => SnapActive(0.5, 0.5, 0.5, 0.5))
+    BindHyper("6", (*) => TileAllVisible())
+    ; Numpad spatial pad:
     ;   7 TL    8 Top    9 TR
     ;   4 Left  5 Max    6 Right
     ;   1 BL    2 Bot    3 BR
     ;   0 Center
-    Hotkey "#^!+Numpad7", (*) => SnapActive(0, 0, 0.5, 0.5)
-    Hotkey "#^!+Numpad8", (*) => SnapActive(0, 0, 1, 0.5)
-    Hotkey "#^!+Numpad9", (*) => SnapActive(0.5, 0, 0.5, 0.5)
-    Hotkey "#^!+Numpad4", (*) => SnapActive(0, 0, 0.5, 1)
-    Hotkey "#^!+Numpad5", (*) => SnapActive(0, 0, 1, 1)
-    Hotkey "#^!+Numpad6", (*) => SnapActive(0.5, 0, 0.5, 1)
-    Hotkey "#^!+Numpad1", (*) => SnapActive(0, 0.5, 0.5, 0.5)
-    Hotkey "#^!+Numpad2", (*) => SnapActive(0, 0.5, 1, 0.5)
-    Hotkey "#^!+Numpad3", (*) => SnapActive(0.5, 0.5, 0.5, 0.5)
-    Hotkey "#^!+Numpad0", (*) => CenterActive()
-    ; Center (keep size) — period (legacy Win) also works
-    Hotkey "#^!+.", (*) => CenterActive()
-    ; Thirds / two-thirds / almost-max (macOS parity — Raycast/Rectangle staples).
-    ; macOS disambiguates -/=/\ with Shift for the 2/3 variant; Hyper here is a fixed
-    ; Win+Ctrl+Alt+Shift chord (Shift always down, see CapsHyper.ahk), so 2/3 and
-    ; almost-max get their own keys (i / o / u) instead of a Shift variant.
-    Hotkey "#^!+-", (*) => SnapThird(0)
-    Hotkey "#^!+=", (*) => SnapThird(2)
-    Hotkey "#^!+\", (*) => SnapThird(1)
-    Hotkey "#^!+i", (*) => SnapTwoThirds(true)
-    Hotkey "#^!+o", (*) => SnapTwoThirds(false)
-    Hotkey "#^!+u", (*) => AlmostMaximize()
-    ; Always on top / minimize — Mac Hyper+A / Hyper+B
-    Hotkey "#^!+a", (*) => ToggleAlwaysOnTop()
-    Hotkey "#^!+b", (*) => {
-        try WinMinimize("A")
-    }
-    ; Undo last snap for this window (or last tile-all layout)
-    Hotkey "#^!+z", (*) => UndoSnap()
-    ; Next / previous monitor
-    Hotkey "#^!+]", (*) => MoveActiveToMonitor(1)
-    Hotkey "#^!+[", (*) => MoveActiveToMonitor(-1)
-    HotIf
+    BindHyper("Numpad7", (*) => SnapActive(0, 0, 0.5, 0.5))
+    BindHyper("Numpad8", (*) => SnapActive(0, 0, 1, 0.5))
+    BindHyper("Numpad9", (*) => SnapActive(0.5, 0, 0.5, 0.5))
+    BindHyper("Numpad4", (*) => SnapActive(0, 0, 0.5, 1))
+    BindHyper("Numpad5", (*) => SnapActive(0, 0, 1, 1))
+    BindHyper("Numpad6", (*) => SnapActive(0.5, 0, 0.5, 1))
+    BindHyper("Numpad1", (*) => SnapActive(0, 0.5, 0.5, 0.5))
+    BindHyper("Numpad2", (*) => SnapActive(0, 0.5, 1, 0.5))
+    BindHyper("Numpad3", (*) => SnapActive(0.5, 0.5, 0.5, 0.5))
+    BindHyper("Numpad0", (*) => CenterActive())
+    BindHyper(".", (*) => CenterActive())
+    ; Thirds / two-thirds / almost-max. Shift is already part of Hyper, so the
+    ; 2/3 and almost-max chords are i / o / u rather than a Shift variant.
+    BindHyper("-", (*) => SnapThird(0))
+    BindHyper("=", (*) => SnapThird(2))
+    BindHyper("\", (*) => SnapThird(1))
+    BindHyper("i", (*) => SnapTwoThirds(true))
+    BindHyper("o", (*) => SnapTwoThirds(false))
+    BindHyper("u", (*) => AlmostMaximize())
+    BindHyper("a", (*) => ToggleAlwaysOnTop())
+    BindHyper("b", (*) => MinimizeActive())
+    BindHyper("z", (*) => UndoSnap())
+    BindHyper("]", (*) => MoveActiveToMonitor(1))
+    BindHyper("[", (*) => MoveActiveToMonitor(-1))
+}
+
+MinimizeActive(*) {
+    try WinMinimize("A")
+}
+
+CloseActive(*) {
+    try WinClose("A")
 }
 
 ToggleAlwaysOnTop(*) {
@@ -77,61 +72,76 @@ ToggleAlwaysOnTop(*) {
     }
 }
 
-PushUndo(hwnd) {
-    global HF_SnapUndo, HF_SnapUndoMax
-    key := String(hwnd)
-    try WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-    catch
-        return
-    if !HF_SnapUndo.Has(key)
-        HF_SnapUndo[key] := []
-    stack := HF_SnapUndo[key]
-    stack.Push({ x: x, y: y, w: w, h: h })
-    while stack.Length > HF_SnapUndoMax
+; Newest batch at the end. Each batch is an array of placement maps.
+; One snap is a batch of one; tile-all is a batch of every window it moved.
+UndoPush(stack, batch, max := 8) {
+    stack.Push(batch)
+    while stack.Length > max
         stack.RemoveAt(1)
-    HF_SnapUndo[key] := stack
+    return stack
+}
+
+CaptureWindowPlacement(hwnd) {
+    state := 0
+    try state := WinGetMinMax("ahk_id " hwnd)
+    WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+    return { hwnd: hwnd, x: x, y: y, w: w, h: h, state: state }
+}
+
+RememberWindow(hwnd) {
+    global HF_UndoStack, HF_UndoMax
+    try UndoPush(HF_UndoStack, [CaptureWindowPlacement(hwnd)], HF_UndoMax)
+}
+
+RememberWindows(placements) {
+    global HF_UndoStack, HF_UndoMax
+    if placements.Length
+        UndoPush(HF_UndoStack, placements, HF_UndoMax)
+}
+
+RestorePlacement(entry) {
+    if !WinExist("ahk_id " entry.hwnd)
+        return false
+    try {
+        if (entry.state = 1)
+            WinMaximize("ahk_id " entry.hwnd)
+        else if (entry.state = -1)
+            WinMinimize("ahk_id " entry.hwnd)
+        else
+            WinMove entry.x, entry.y, entry.w, entry.h, "ahk_id " entry.hwnd
+        return true
+    } catch {
+        return false
+    }
 }
 
 UndoSnap(*) {
-    global HF_SnapUndo, HF_TileLayout
-    ; Prefer restoring tile-all layout when present
-    if IsSet(HF_TileLayout) && HF_TileLayout.Length {
-        for entry in HF_TileLayout {
-            try {
-                if WinExist("ahk_id " entry.hwnd)
-                    WinMove entry.x, entry.y, entry.w, entry.h, "ahk_id " entry.hwnd
-            }
-        }
-        HF_TileLayout := []
-        ShowMsg("Undo tile layout")
-        return
-    }
-    hwnd := WinExist("A")
-    if !hwnd {
-        ShowMsg("No window")
-        return
-    }
-    key := String(hwnd)
-    if !HF_SnapUndo.Has(key) || !HF_SnapUndo[key].Length {
+    global HF_UndoStack
+    if !HF_UndoStack.Length {
         ShowMsg("Nothing to undo")
         return
     }
-    stack := HF_SnapUndo[key]
-    pos := stack.Pop()
-    HF_SnapUndo[key] := stack
-    WinMove pos.x, pos.y, pos.w, pos.h, "ahk_id " hwnd
-    ShowMsg("Undo snap")
+    batch := HF_UndoStack.Pop()
+    restored := 0
+    for entry in batch {
+        if RestorePlacement(entry)
+            restored++
+    }
+    if !restored
+        ShowMsg("Nothing to undo")
+    else if (batch.Length > 1)
+        ShowMsg("Undo tile layout")
+    else
+        ShowMsg("Undo snap")
 }
 
-; Grid every visible (non-minimized) window on the active window's monitor.
 TileAllVisible(*) {
-    global HF_TileLayout
     active := WinExist("A")
     if !active {
         ShowMsg("No window")
         return
     }
-    mon := GetWindowWorkArea(active, &L, &T, &R, &B)
+    GetWindowWorkArea(active, &L, &T, &R, &B)
     aw := R - L, ah := B - T
     if (aw < 50 || ah < 50)
         return
@@ -150,16 +160,13 @@ TileAllVisible(*) {
             if (class = "Progman" || class = "WorkerW" || class = "Shell_TrayWnd"
                 || class = "Shell_SecondaryTrayWnd" || class = "Windows.UI.Core.CoreWindow")
                 continue
-            ; Prefer normal app windows (caption + size box)
             style := WinGetStyle("ahk_id " hwnd)
             if !(style & 0xC00000)  ; WS_CAPTION
                 continue
-            ; Same monitor only
             GetWindowWorkArea(hwnd, &wl, &wt, &wr, &wb)
             if (wl != L || wt != T)
                 continue
-            WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
-            wins.Push({ hwnd: hwnd, x: x, y: y, w: w, h: h })
+            wins.Push(hwnd)
         }
     }
     n := wins.Length
@@ -168,22 +175,23 @@ TileAllVisible(*) {
         return
     }
 
-    HF_TileLayout := []
-    for w in wins
-        HF_TileLayout.Push({ hwnd: w.hwnd, x: w.x, y: w.y, w: w.w, h: w.h })
+    placements := []
+    for hwnd in wins {
+        try placements.Push(CaptureWindowPlacement(hwnd))
+    }
+    RememberWindows(placements)
 
     cols := Ceil(Sqrt(n))
     rows := Ceil(n / cols)
     cellW := aw // cols
     cellH := ah // rows
-    for i, w in wins {
+    for i, hwnd in wins {
         idx := i - 1
         col := Mod(idx, cols)
         row := idx // cols
         nx := L + col * cellW
         ny := T + row * cellH
-        try WinRestore("ahk_id " w.hwnd)
-        WinMove nx, ny, cellW, cellH, "ahk_id " w.hwnd
+        MoveWindowVisible(hwnd, nx, ny, cellW, cellH)
     }
     ShowMsg("Tiled " n " windows")
 }
@@ -192,18 +200,12 @@ SnapActive(rx, ry, rw, rh) {
     hwnd := WinExist("A")
     if !hwnd
         return
-    PushUndo(hwnd)
+    RememberWindow(hwnd)
     GetWindowWorkArea(hwnd, &L, &T, &R, &B)
     w := R - L, h := B - T
-    x := L + Round(w * rx)
-    y := T + Round(h * ry)
-    nw := Round(w * rw)
-    nh := Round(h * rh)
-    try WinRestore("ahk_id " hwnd)
-    WinMove x, y, nw, nh, "ahk_id " hwnd
+    MoveWindowVisible(hwnd, L + Round(w * rx), T + Round(h * ry), Round(w * rw), Round(h * rh))
 }
 
-; column 0 left, 1 center, 2 right — same 1/3 split as macOS WindowManager.snapThird
 SnapThird(column) {
     col := Max(0, Min(2, column))
     SnapActive(col / 3, 0, 1 / 3, 1)
@@ -221,7 +223,6 @@ SnapTwoThirds(leading) {
     }
 }
 
-; ~90% centered — same 0.05 inset default as macOS WindowManager.almostMaximize
 AlmostMaximize(inset := 0.05) {
     m := Max(0.02, Min(0.2, inset))
     SnapActive(m, m, 1 - 2 * m, 1 - 2 * m)
@@ -232,19 +233,78 @@ CenterActive() {
     hwnd := WinExist("A")
     if !hwnd
         return
-    PushUndo(hwnd)
+    RememberWindow(hwnd)
+    try if (WinGetMinMax("ahk_id " hwnd) != 0) {
+        WinRestore("ahk_id " hwnd)
+        Sleep 30
+    }
     WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+    m := WindowFrameMargins(hwnd)
+    visW := Max(40, w - m.l - m.r)
+    visH := Max(40, h - m.t - m.b)
     GetWindowWorkArea(hwnd, &L, &T, &R, &B)
     aw := R - L, ah := B - T
-    nx := L + (aw - w) // 2
-    ny := T + (ah - h) // 2
-    try WinRestore("ahk_id " hwnd)
-    WinMove nx, ny, w, h, "ahk_id " hwnd
+    MoveWindowVisible(hwnd, L + (aw - visW) // 2, T + (ah - visH) // 2, visW, visH)
     ShowMsg("Centered")
 }
 
+; margins.l/t/r/b: how far the Win32 window rect extends past the visible frame.
+; Positive left means the window rect starts that many pixels left of the visible edge.
+FrameMarginsFromRects(wx, wy, ww, wh, vl, vt, vr, vb) {
+    return { l: vl - wx, t: vt - wy, r: (wx + ww) - vr, b: (wy + wh) - vb }
+}
+
+VisibleMoveRect(x, y, w, h, m) {
+    return { x: x - m.l, y: y - m.t, w: w + m.l + m.r, h: h + m.t + m.b }
+}
+
+ClampFrameMargin(v) {
+    if (v < -40 || v > 80)
+        return 0
+    return v
+}
+
+WindowFrameMargins(hwnd) {
+    zero := { l: 0, t: 0, r: 0, b: 0 }
+    try {
+        WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " hwnd)
+        buf := Buffer(16, 0)
+        ; DWMWA_EXTENDED_FRAME_BOUNDS = 9. Same coordinate space as WinGetPos
+        ; because AHK v2 is per-monitor DPI aware.
+        hr := DllCall("dwmapi\DwmGetWindowAttribute", "ptr", hwnd, "int", 9, "ptr", buf, "uint", 16, "int")
+        if (hr != 0)
+            return zero
+        m := FrameMarginsFromRects(wx, wy, ww, wh, NumGet(buf, 0, "Int"), NumGet(buf, 4, "Int"), NumGet(buf, 8, "Int"), NumGet(buf, 12, "Int"))
+        return {
+            l: ClampFrameMargin(m.l),
+            t: ClampFrameMargin(m.t),
+            r: ClampFrameMargin(m.r),
+            b: ClampFrameMargin(m.b)
+        }
+    } catch {
+        return zero
+    }
+}
+
+; x,y,w,h are the visible rectangle we want on screen.
+MoveWindowVisible(hwnd, x, y, w, h) {
+    if (w < 40 || h < 40)
+        return
+    try {
+        if (WinGetMinMax("ahk_id " hwnd) != 0) {
+            WinRestore("ahk_id " hwnd)
+            Sleep 30
+        }
+    }
+    rect := VisibleMoveRect(x, y, w, h, WindowFrameMargins(hwnd))
+    try WinMove rect.x, rect.y, rect.w, rect.h, "ahk_id " hwnd
+    catch
+        ShowMsg("Can't move this window")
+}
+
 GetWindowWorkArea(hwnd, &L, &T, &R, &B) {
-    MonitorGetWorkArea(, &L, &T, &R, &B)
+    primary := MonitorGetPrimary()
+    MonitorGetWorkArea(primary, &L, &T, &R, &B)
     try {
         WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " hwnd)
         cx := wx + ww // 2, cy := wy + wh // 2
@@ -256,10 +316,9 @@ GetWindowWorkArea(hwnd, &L, &T, &R, &B) {
             }
         }
     }
-    return 1
+    return primary
 }
 
-; delta +1 = next monitor, -1 = previous
 MoveActiveToMonitor(delta) {
     hwnd := WinExist("A")
     if !hwnd
@@ -269,8 +328,9 @@ MoveActiveToMonitor(delta) {
         ShowMsg("One monitor only")
         return
     }
-    PushUndo(hwnd)
-    WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " hwnd)
+    RememberWindow(hwnd)
+    wasMax := false
+    try wasMax := (WinGetMinMax("ahk_id " hwnd) = 1)
     cur := GetWindowWorkArea(hwnd, &L, &T, &R, &B)
     next := cur + delta
     if (next > count)
@@ -278,18 +338,27 @@ MoveActiveToMonitor(delta) {
     if (next < 1)
         next := count
     MonitorGetWorkArea(next, &nl, &nt, &nr, &nb)
-    MonitorGetWorkArea(cur, &cl, &ct, &cr, &cb)
-    ; Preserve relative position within work area
-    relX := (wx - cl) / Max(cr - cl, 1)
-    relY := (wy - ct) / Max(cb - ct, 1)
-    nw := Min(ww, nr - nl)
-    nh := Min(wh, nb - nt)
-    nx := nl + Round(relX * (nr - nl - nw))
-    ny := nt + Round(relY * (nb - nt - nh))
-    ; Clamp
-    nx := Max(nl, Min(nx, nr - nw))
-    ny := Max(nt, Min(ny, nb - nh))
-    try WinRestore("ahk_id " hwnd)
-    WinMove nx, ny, nw, nh, "ahk_id " hwnd
+    if wasMax {
+        try WinRestore("ahk_id " hwnd)
+        WinMove nl + 20, nt + 20, Max(200, (nr - nl) // 2), Max(150, (nb - nt) // 2), "ahk_id " hwnd
+        try WinMaximize("ahk_id " hwnd)
+        ShowMsg("Monitor " next "/" count)
+        return
+    }
+    WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " hwnd)
+    m := WindowFrameMargins(hwnd)
+    visW := Max(40, ww - m.l - m.r)
+    visH := Max(40, wh - m.t - m.b)
+    visX := wx + m.l
+    visY := wy + m.t
+    relX := (visX - L) / Max(R - L, 1)
+    relY := (visY - T) / Max(B - T, 1)
+    visW := Min(visW, nr - nl)
+    visH := Min(visH, nb - nt)
+    nx := nl + Round(relX * Max(nr - nl - visW, 0))
+    ny := nt + Round(relY * Max(nb - nt - visH, 0))
+    nx := Max(nl, Min(nx, nr - visW))
+    ny := Max(nt, Min(ny, nb - visH))
+    MoveWindowVisible(hwnd, nx, ny, visW, visH)
     ShowMsg("Monitor " next "/" count)
 }

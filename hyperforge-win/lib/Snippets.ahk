@@ -81,28 +81,44 @@ GenerateUUID() {
     buf := Buffer(16, 0)
     if DllCall("ole32\CoCreateGuid", "Ptr", buf) != 0
         return "00000000-0000-0000-0000-000000000000"
-    s := ""
-    Loop 16 {
-        s .= Format("{:02X}", NumGet(buf, A_Index - 1, "UChar"))
-        if (A_Index = 4 || A_Index = 6 || A_Index = 8 || A_Index = 10)
-            s .= "-"
-    }
-    return s
+    id := FormatGuidBuffer(buf)
+    return (id != "") ? id : "00000000-0000-0000-0000-000000000000"
+}
+
+; CoCreateGuid's memory layout is mixed-endian. StringFromGUID2 is the canonical form.
+FormatGuidBuffer(buf) {
+    str := Buffer(39 * 2, 0)
+    if DllCall("ole32\StringFromGUID2", "Ptr", buf, "Ptr", str, "Int", 39) = 0
+        return ""
+    return Trim(StrGet(str, "UTF-16"), "{}")
 }
 
 ; First non-loopback IPv4 via WMI (no shell-out; safe to call inline from a hotstring).
 LanIPAddress() {
+    ips := LanIPAddresses()
+    return ips.Length ? ips[1] : ""
+}
+
+LanIPAddresses() {
+    out := []
     try {
         for adapter in ComObjGet("winmgmts:")
             .ExecQuery("SELECT IPAddress FROM Win32_NetworkAdapterConfiguration WHERE IPEnabled = TRUE")
         {
-            if !IsSet(adapter.IPAddress)
+            ; IsSet() only accepts a variable. A missing COM property throws.
+            try addresses := adapter.IPAddress
+            catch
                 continue
-            for ip in adapter.IPAddress {
+            for ip in addresses {
                 if (ip != "" && !InStr(ip, ":") && ip != "127.0.0.1")
-                    return ip
+                    out.Push(ip)
             }
         }
     }
-    return ""
+    return out
+}
+
+; Name kept so older work modules that called the v1 helper still resolve.
+SysGetIPAddresses() {
+    return LanIPAddresses()
 }

@@ -26,7 +26,7 @@ Evolved from a long-running personal AutoHotkey toolkit; core is open and config
 
 ## Hyper (Caps Lock)
 
-Caps is held as **Ctrl+Alt+Shift+Win** (same chord family as 4-mod Hyper on macOS).
+Caps is held as **Ctrl+Alt+Shift+Win** (same chord family as 4-mod Hyper on macOS). A bare tap sends **Escape**. The Win key-up is masked, so the tap does not open the Start menu. Set `general.caps_tap_escape=0` to make a tap do nothing.
 
 ### Window pad (macOS-aligned)
 
@@ -43,7 +43,7 @@ Caps is held as **Ctrl+Alt+Shift+Win** (same chord family as 4-mod Hyper on macO
 | Hyper + Z | Undo last snap or tile layout |
 | Hyper + ] / [ | Next / previous monitor |
 | Hyper + A | Always on top (also Ctrl+Shift+Space) |
-| Hyper + B | Minimize (also XButton1) |
+| Hyper + B | Minimize |
 | Hyper + P | Clipboard history (pinned/searchable) |
 | Hyper + Y | **Pin screen region** (Win+Shift+S, then stay-on-top) |
 | Hyper + J | **Scripts** — run `scripts\*.ahk` |
@@ -79,23 +79,29 @@ almost-max get their own keys (I / O / U) instead.
 | Hyper + H | Edit `edit_target` or this script in VS Code |
 | Hyper + M | Copy hostname |
 | Hyper + W | ARIN whois on clipboard |
+| Command bar | Copy LAN IPv4 address |
 | Hyper + K | Keep-alive toggle (also Win + J) |
 | Win + Esc | Pause / resume Hyper (default 30s) |
 | Ctrl+Alt+Shift+V | Paste transform menu |
 | XButton2 | Quick menu (windows + favorites) |
 
+Snaps land on the **visible** window frame. Windows draws an invisible resize border around most windows; HyperForge measures it and compensates, so a half-snap sits flush with the work area. Hyper+Z undoes the last snap, or the whole tile if that was the last layout change. A window that was maximized is maximized again on undo.
+
+**Left alone on purpose:** Win+I (Settings) and Win+W (Widgets). Hyper+L is Workspaces; copy the LAN address from the command bar. Clipboard → temp file in the editor is Ctrl+Alt+Shift+W. Mouse Back does not minimize unless `general.xbutton1_minimize=1` (Hyper+B always does). Chrome is not started with a remote-debugging port unless `paths.chrome_debug_port` is set.
+
 **Per-app mute:** Hyper is off in RDP and processes listed under `[mute]` in `config.ini` (game-friendly). Caps→Hyper is muted there too when `mute.caps_too=1`.
 
-**Doctor:** tray → **Doctor — health check** (AHK version, config, TouchCursor process, mute list, clipboard history count, macOS-parity tips).
+**Doctor:** tray → **Doctor — health check** (admin rights, Caps tap, Startup shortcut, Chrome debug port, TouchCursor, mute list, clipboard history). Tray → **Install Startup shortcut** adds a Startup link without an admin prompt. Hyper chords do not reach elevated windows unless HyperForge itself is running elevated; Doctor says so when it isn't.
 
 ### Clipboard history (Hyper + P)
 
 Persisted, pinned-first, searchable — mirrors macOS's Hyper+V panel. Every text
 copy is recorded (`OnClipboardChange`) to `%APPDATA%\HyperForge\clipboard-history.dat`;
 unpinned entries are capped at `[clipboard] max_items` (default 20), pinned entries
-never evict. Hyper+P opens a small window: type to filter, **Enter** pastes the
-top/selected match, double-click pastes a specific row, **Pin / unpin** toggles pin
-on the selected row, Esc closes.
+never evict. Hyper+P opens a window over the full history: type to filter, ↑↓ move
+the selection while the filter keeps focus, **Enter** pastes, double-click pastes a
+row, **Pin / unpin** toggles pin, **Delete** or Ctrl+Del removes the row, Esc closes.
+History is stored as one base64 line per entry (no mid-line wrapping).
 
 The older Ctrl+Alt+Shift+V **paste transform menu** (linefeeds↔commas, base64,
 URL encode, …) is unchanged and separate from history.
@@ -127,8 +133,20 @@ hyperforge-win/
 ├── work/                   # optional private includes (work.ahk gitignored)
 │   ├── work.example.ahk
 │   └── README.md
+├── tests/
+│   └── smoke.ahk           # pure-logic checks (AutoHotkey v2, no hotkeys fired)
 └── legacy/                 # local-only original dump (gitignored)
 ```
+
+## Checks
+
+With AutoHotkey v2 installed:
+
+```bat
+AutoHotkey64.exe tests\smoke.ahk
+```
+
+The script exits 0 and prints `ok`. It covers snap-border math, undo order, clipboard history round-trip, backup JSON (including Windows paths), UUID layout, command ranking, the cheat sheet, and registration of every chord. It does not press keys or move windows. Checked with AutoHotkey 2.0.28.
 
 ## Privacy
 
@@ -140,7 +158,7 @@ hyperforge-win/
 
 | | macOS | Windows |
 |--|-------|---------|
-| Hyper | F18 / 4-mod + Karabiner | Caps → `#^!+` in AHK (always includes Shift) |
+| Hyper | F18 / 4-mod + Karabiner, tap = Escape | Caps → `#^!+`, tap = Escape |
 | Window pad | Arrows · numpad · thirds/2-thirds/almost-max · 6 tile · Z undo | **Same chords**, 2/3 + almost-max on I/O/U (no Shift disambiguation) |
 | Snippets | `{{date/clipboard/hostname/uuid/lan-ip}}` hotstrings | **Same tokens**, AHK `:*:` hotstrings |
 | Clipboard history | Hyper+V panel, persisted/pinned/searchable | Hyper+P Gui panel, persisted/pinned/searchable |

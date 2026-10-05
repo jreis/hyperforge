@@ -42,13 +42,19 @@ class HFConfig {
     }
 
     static GetBool(key, default := true) {
-        v := HFConfig.Get(key, default ? "1" : "0")
-        return (v = "1" || v = "true" || v = "yes")
+        v := StrLower(String(HFConfig.Get(key, default ? "1" : "0")))
+        if (v = "1" || v = "true" || v = "yes" || v = "on")
+            return true
+        if (v = "0" || v = "false" || v = "no" || v = "off")
+            return false
+        return default
     }
 
     static GetInt(key, default := 0) {
         v := HFConfig.Get(key, default)
-        return Integer(v)
+        if IsInteger(v)
+            return Integer(v)
+        return default
     }
 
     static Path(name, fallback := "") {

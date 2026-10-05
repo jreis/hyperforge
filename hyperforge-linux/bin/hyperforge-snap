@@ -4,10 +4,23 @@
 #                         third-l|third-c|third-r|twothird-l|twothird-r|almost-max>
 #        hyperforge-snap --print-geom <width> <height> <action>
 #        hyperforge-snap --print-split <width> <height> <action> <n_others> [gaps_in] [border]
+#        hyperforge-snap --print-unoccupied <width> <height> <x> <y> <w> <h> [<x> <y> <w> <h> ...]
+#        hyperforge-snap --print-reflow-close <w> <h> <gaps> <border> <x y w h>...
+#        hyperforge-snap --print-reflow-open  <w> <h> <gaps> <border> <x y w h>...
+#        hyperforge-snap watch | --on-close | --on-open <address>
 # Muscle memory aligned with current macOS HyperForge where the compositor allows.
 set -euo pipefail
 
 have() { command -v "$1" >/dev/null 2>&1; }
+
+# Hyprland IPC events omit the 0x prefix; hyprctl clients JSON includes it.
+hypr_addr_norm() {
+  local a="${1:-}"
+  a="${a#0x}"
+  a="${a#0X}"
+  [[ -n "$a" ]] || return 1
+  printf '0x%s\n' "$a"
+}
 
 # Monitor-relative geometry. Prints: nx ny nw nh. Exit 2 for non-geometry actions.
 compute_geom() {
@@ -68,6 +81,105 @@ leftover_rects() {
   fi
   if (( sy2 < my2 )); then
     printf '%s %s %s %s\n' "$mx" "$sy2" "$mw" "$((my2 - sy2))"
+  fi
+}
+
+# Intersection. Prints nothing and returns 1 when the rects miss.
+intersect_rect() {
+  local x1="$1" y1="$2" w1="$3" h1="$4" x2="$5" y2="$6" w2="$7" h2="$8"
+  local ix1=$x1 iy1=$y1 ix2=$((x1 + w1)) iy2=$((y1 + h1))
+  if (( x2 > ix1 )); then ix1=$x2; fi
+  if (( y2 > iy1 )); then iy1=$y2; fi
+  if (( x2 + w2 < ix2 )); then ix2=$((x2 + w2)); fi
+  if (( y2 + h2 < iy2 )); then iy2=$((y2 + h2)); fi
+  if (( ix2 <= ix1 || iy2 <= iy1 )); then
+    return 1
+  fi
+  printf '%s %s %s %s\n' "$ix1" "$iy1" "$((ix2 - ix1))" "$((iy2 - iy1))"
+}
+
+# Container minus one rect. The container is unchanged when they miss.
+free_minus() {
+  local cx="$1" cy="$2" cw="$3" ch="$4"
+  local ox="$5" oy="$6" ow="$7" oh="$8"
+  local hit hx hy hw hh
+  if (( cw < 1 || ch < 1 )); then
+    return 0
+  fi
+  hit="$(intersect_rect "$cx" "$cy" "$cw" "$ch" "$ox" "$oy" "$ow" "$oh" || true)"
+  if [[ -z "$hit" ]]; then
+    printf '%s %s %s %s\n' "$cx" "$cy" "$cw" "$ch"
+    return 0
+  fi
+  read -r hx hy hw hh <<<"$hit"
+  leftover_rects "$cx" "$cy" "$cw" "$ch" "$hx" "$hy" "$hw" "$hh"
+}
+
+# Exact free space: each occupied rect is subtracted from the monitor.
+# A gap between two windows is a hole, not part of their bounding box.
+unoccupied_rects() {
+  local mw="$1" mh="$2"
+  shift 2
+  local -a free=() next=()
+  local line piece
+  free=("0 0 $mw $mh")
+  while (( $# >= 4 )); do
+    next=()
+    for line in "${free[@]}"; do
+      while IFS= read -r piece; do
+        [[ -n "$piece" ]] && next+=("$piece")
+      done < <(free_minus $line "$1" "$2" "$3" "$4")
+    done
+    free=("${next[@]}")
+    if (( ${#free[@]} == 0 )); then
+      return 0
+    fi
+    shift 4
+  done
+  printf '%s\n' "${free[@]}"
+}
+
+rect_overlap_area() {
+  local x1="$1" y1="$2" w1="$3" h1="$4" x2="$5" y2="$6" w2="$7" h2="$8"
+  local ix1=$x1 iy1=$y1 ix2=$((x1 + w1)) iy2=$((y1 + h1))
+  if (( x2 > ix1 )); then ix1=$x2; fi
+  if (( y2 > iy1 )); then iy1=$y2; fi
+  if (( x2 + w2 < ix2 )); then ix2=$((x2 + w2)); fi
+  if (( y2 + h2 < iy2 )); then iy2=$((y2 + h2)); fi
+  if (( ix2 > ix1 && iy2 > iy1 )); then
+    printf '%s\n' $(( (ix2 - ix1) * (iy2 - iy1) ))
+  else
+    printf '%s\n' 0
+  fi
+}
+
+# Which snap action best matches a rect in usable (0,0,mw,mh) space.
+best_snap_action() {
+  local mw="$1" mh="$2" x="$3" y="$4" w="$5" h="$6"
+  local action geom gx gy gw gh a best="left" best_a=-1
+  for action in left right top bottom tl tr bl br third-l third-c third-r twothird-l twothird-r; do
+    geom="$(compute_geom 0 0 "$mw" "$mh" "$action")" || continue
+    read -r gx gy gw gh <<<"$geom"
+    a="$(rect_overlap_area "$x" "$y" "$w" "$h" "$gx" "$gy" "$gw" "$gh")"
+    if (( a > best_a )); then
+      best_a=$a
+      best=$action
+    fi
+  done
+  printf '%s\n' "$best"
+}
+
+# 1 if the rect covers ≥90% of both usable dimensions (a "max" snap).
+covers_usable() {
+  local mw="$1" mh="$2" _x="$3" _y="$4" w="$5" h="$6"
+  if (( mw < 1 || mh < 1 )); then
+    printf '%s\n' 0
+    return 0
+  fi
+  if (( w * 10 >= mw * 9 && h * 10 >= mh * 9 )); then
+    printf '%s\n' 1
+  else
+    printf '%s\n' 0
   fi
 }
 
@@ -194,6 +306,279 @@ layout_split() {
   grid_place "$lx" "$ly" "$lw" "$lh" "$n_others" "$gin_x" "$gin_y" "$border"
 }
 
+# Map a window rect from one monitor's usable area onto another, keeping
+# the same relative snap (a left half stays a left half).
+map_rect_between() {
+  local sx="$1" sy="$2" sw="$3" sh="$4"
+  local dx="$5" dy="$6" dw="$7" dh="$8"
+  local wx="$9" wy="${10}" ww="${11}" wh="${12}"
+  local nw nh nx ny
+  [[ "$sw" -lt 1 ]] && sw=1
+  [[ "$sh" -lt 1 ]] && sh=1
+  nw=$(( ww * dw / sw ))
+  nh=$(( wh * dh / sh ))
+  nx=$(( dx + (wx - sx) * dw / sw ))
+  ny=$(( dy + (wy - sy) * dh / sh ))
+  [[ "$nw" -gt "$dw" ]] && nw=$dw
+  [[ "$nh" -gt "$dh" ]] && nh=$dh
+  [[ "$nw" -lt 1 ]] && nw=1
+  [[ "$nh" -lt 1 ]] && nh=1
+  [[ "$nx" -lt "$dx" ]] && nx=$dx
+  [[ "$ny" -lt "$dy" ]] && ny=$dy
+  [[ $((nx + nw)) -gt $((dx + dw)) ]] && nx=$((dx + dw - nw))
+  [[ $((ny + nh)) -gt $((dy + dh)) ]] && ny=$((dy + dh - nh))
+  printf '%s %s %s %s\n' "$nx" "$ny" "$nw" "$nh"
+}
+
+# Names are already left-to-right. delta is +1 or -1.
+cycle_mon_name() {
+  local delta="$1" current="$2"
+  shift 2
+  local names=("$@") n cur=-1 i
+  n="${#names[@]}"
+  if (( n < 1 )); then
+    return 1
+  fi
+  for i in "${!names[@]}"; do
+    if [[ "${names[$i]}" == "$current" ]]; then cur="$i"; break; fi
+  done
+  [[ "$cur" -ge 0 ]] || cur=0
+  if (( delta < 0 )); then
+    printf '%s\n' "${names[$(( (cur + delta + n) % n ))]}"
+  else
+    printf '%s\n' "${names[$(( (cur + delta) % n ))]}"
+  fi
+}
+
+# Area of the largest empty strip. No rects → the whole monitor.
+largest_hole_area() {
+  local mw="$1" mh="$2"
+  shift 2
+  local lines=() line lx ly lw lh a best=0
+  if (( $# < 4 )); then
+    printf '%s\n' $((mw * mh))
+    return 0
+  fi
+  mapfile -t lines < <(unoccupied_rects "$mw" "$mh" "$@")
+  for line in "${lines[@]}"; do
+    [[ -z "$line" ]] && continue
+    read -r lx ly lw lh <<<"$line"
+    a=$((lw * lh))
+    if (( a > best )); then best=$a; fi
+  done
+  printf '%s\n' "$best"
+}
+
+# 1 when the biggest hole is under 18% of the monitor (nothing worth filling).
+hole_is_small() {
+  local mw="$1" mh="$2" area="$3"
+  if (( mw < 1 || mh < 1 )); then
+    printf '%s\n' 1
+    return 0
+  fi
+  if (( area * 100 < mw * mh * 18 )); then
+    printf '%s\n' 1
+  else
+    printf '%s\n' 0
+  fi
+}
+
+# "stack" when the two centers differ more in y than in x.
+pair_axis() {
+  local x1="$1" y1="$2" w1="$3" h1="$4" x2="$5" y2="$6" w2="$7" h2="$8"
+  local dx=$(( (x1 + w1 / 2) - (x2 + w2 / 2) ))
+  local dy=$(( (y1 + h1 / 2) - (y2 + h2 / 2) ))
+  if (( dx < 0 )); then dx=$((-dx)); fi
+  if (( dy < 0 )); then dy=$((-dy)); fi
+  if (( dy > dx )); then
+    printf 'stack\n'
+  else
+    printf 'side\n'
+  fi
+}
+
+# Two rects → two inner rects in the same input order, filling the monitor
+# as a side-by-side or stacked pair.
+reflow_pair() {
+  local mw="$1" mh="$2" gin="$3" border="$4"
+  local x1="$5" y1="$6" w1="$7" h1="$8"
+  local x2="$9" y2="${10}" w2="${11}" h2="${12}"
+  local axis action first_is_a=0
+  local lines=()
+  axis="$(pair_axis "$x1" "$y1" "$w1" "$h1" "$x2" "$y2" "$w2" "$h2")"
+  if [[ "$axis" == "stack" ]]; then
+    action=top
+    if (( y1 + h1 / 2 <= y2 + h2 / 2 )); then first_is_a=1; fi
+  else
+    action=left
+    if (( x1 + w1 / 2 <= x2 + w2 / 2 )); then first_is_a=1; fi
+  fi
+  mapfile -t lines < <(layout_split "$mw" "$mh" "$action" 1 "$gin" "$border")
+  if (( ${#lines[@]} < 2 )); then
+    return 0
+  fi
+  if (( first_is_a )); then
+    printf '0 %s\n' "${lines[0]}"
+    printf '1 %s\n' "${lines[1]}"
+  else
+    printf '0 %s\n' "${lines[1]}"
+    printf '1 %s\n' "${lines[0]}"
+  fi
+}
+
+# n outer rects → n inner rects in input order. Cells are assigned in
+# reading order (top-to-bottom, left-to-right). An optional extra cell at
+# the end is the new window (index n) when with_new=1.
+reflow_grid() {
+  local mw="$1" mh="$2" gin="$3" border="$4" n="$5" with_new="$6"
+  shift 6
+  local -a xs=() ys=() order=() cells=() placed=()
+  local i k gin_x gin_y slots
+  gin_x=$((gin + gin))
+  gin_y=$((gin + gin))
+  for ((i = 0; i < n; i++)); do
+    xs[i]="$1"; ys[i]="$2"
+    shift 4
+  done
+  slots=$n
+  if (( with_new )); then slots=$((n + 1)); fi
+  mapfile -t cells < <(grid_place 0 0 "$mw" "$mh" "$slots" "$gin_x" "$gin_y" "$border")
+  mapfile -t order < <(
+    for ((i = 0; i < n; i++)); do
+      printf '%s %s %s\n' "${ys[i]}" "${xs[i]}" "$i"
+    done | sort -n -k1,1 -k2,2 | awk '{print $3}'
+  )
+  for ((k = 0; k < n; k++)); do
+    placed[${order[$k]}]="${cells[$k]}"
+  done
+  for ((i = 0; i < n; i++)); do
+    printf '%s %s\n' "$i" "${placed[$i]}"
+  done
+  if (( with_new )); then
+    printf '%s %s\n' "$n" "${cells[$n]}"
+  fi
+}
+
+# Inset the largest unoccupied strip the way a snap insets leftover space.
+largest_hole_inner() {
+  local mw="$1" mh="$2" gin="$3" border="$4"
+  shift 4
+  local lines=() line lx ly lw lh a best=-1 best_line=""
+  mapfile -t lines < <(unoccupied_rects "$mw" "$mh" "$@")
+  for line in "${lines[@]}"; do
+    [[ -z "$line" ]] && continue
+    read -r lx ly lw lh <<<"$line"
+    a=$((lw * lh))
+    if (( a > best )); then
+      best=$a
+      best_line="$line"
+    fi
+  done
+  [[ -n "$best_line" ]] || return 0
+  read -r lx ly lw lh <<<"$best_line"
+  read -r lx ly lw lh < <(inset_inner_edges 0 0 "$mw" "$mh" "$lx" "$ly" "$lw" "$lh" \
+    "$gin" "$gin" "$gin" "$gin")
+  inset_rect "$lx" "$ly" "$lw" "$lh" "$border" "$border" "$border" "$border"
+}
+
+# After a close: remaining outer rects (usable-relative).
+#   "tile"                 — one window left, and it does not already fill
+#   empty                  — nothing to move (covered, or no windows)
+#   "<index> x y w h"…    — new inner rects for those windows
+reflow_close() {
+  local mw="$1" mh="$2" gin="$3" border="$4"
+  shift 4
+  local n=$(( $# / 4 )) hole
+  if (( n < 1 )); then
+    return 0
+  fi
+  if (( n == 1 )); then
+    if [[ "$(covers_usable "$mw" "$mh" "$1" "$2" "$3" "$4")" == "1" ]]; then
+      return 0
+    fi
+    printf 'tile\n'
+    return 0
+  fi
+  hole="$(largest_hole_area "$mw" "$mh" "$@")"
+  if [[ "$(hole_is_small "$mw" "$mh" "$hole")" == "1" ]]; then
+    return 0
+  fi
+  if (( n == 2 )); then
+    reflow_pair "$mw" "$mh" "$gin" "$border" "$@"
+    return 0
+  fi
+  reflow_grid "$mw" "$mh" "$gin" "$border" "$n" 0 "$@"
+}
+
+# A new tiled window opened beside existing snaps (outer usable-relative rects).
+# Lines are "<index> x y w h". Index n (one past the existing windows) is the
+# new window. Existing windows are reprinted only when they must move.
+reflow_open() {
+  local mw="$1" mh="$2" gin="$3" border="$4"
+  shift 4
+  local n=$(( $# / 4 )) hole action lines=() inner
+  if (( n < 1 )); then
+    return 0
+  fi
+  if (( n == 1 )); then
+    action="$(best_snap_action "$mw" "$mh" "$1" "$2" "$3" "$4")"
+    mapfile -t lines < <(layout_split "$mw" "$mh" "$action" 1 "$gin" "$border")
+    if (( ${#lines[@]} < 2 )); then
+      return 0
+    fi
+    printf '0 %s\n' "${lines[0]}"
+    printf '1 %s\n' "${lines[1]}"
+    return 0
+  fi
+  hole="$(largest_hole_area "$mw" "$mh" "$@")"
+  if [[ "$(hole_is_small "$mw" "$mh" "$hole")" == "0" ]]; then
+    inner="$(largest_hole_inner "$mw" "$mh" "$gin" "$border" "$@")"
+    [[ -n "$inner" ]] || return 0
+    printf '%s %s\n' "$n" "$inner"
+    return 0
+  fi
+  reflow_grid "$mw" "$mh" "$gin" "$border" "$n" 1 "$@"
+}
+
+# xrandr --listmonitors text on stdin → "name x y w h" lines.
+parse_x11_monitors() {
+  local line w h x y name
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ([0-9]+)(/[0-9]+)?x([0-9]+)(/[0-9]+)?\+(-?[0-9]+)\+(-?[0-9]+) ]] || continue
+    w="${BASH_REMATCH[1]}"
+    h="${BASH_REMATCH[3]}"
+    x="${BASH_REMATCH[5]}"
+    y="${BASH_REMATCH[6]}"
+    name="${line##* }"
+    [[ -n "$name" ]] || continue
+    printf '%s %s %s %s %s\n' "$name" "$x" "$y" "$w" "$h"
+  done
+}
+
+# Leaves on the focused sway/i3 workspace. JSON tree on stdin.
+# "id x y w h floating"
+SWAY_LEAVES_JQ='
+  (
+    [ .. | objects
+      | select(.type == "workspace")
+      | select(any(..; .focused? == true))
+    ] | .[0]
+  ) as $ws
+  | if $ws == null then empty else
+      $ws
+      | [ .. | objects | select(.pid != null)
+          | {
+              id,
+              x: .rect.x, y: .rect.y, w: .rect.width, h: .rect.height,
+              floating: (if .floating == "user_on" or .type == "floating_con" then 1 else 0 end)
+            }
+        ]
+      | sort_by(.y, .x)
+      | .[]
+      | "\(.id) \(.x) \(.y) \(.w) \(.h) \(.floating)"
+    end
+'
+
 if [[ "${1:-}" == "--print-geom" ]]; then
   if [[ $# -ne 4 ]]; then
     echo "usage: $0 --print-geom <width> <height> <action>" >&2
@@ -213,12 +598,104 @@ if [[ "${1:-}" == "--print-split" ]]; then
   exit $?
 fi
 
+if [[ "${1:-}" == "--print-unoccupied" ]]; then
+  if [[ $# -lt 7 || $(( ($# - 3) % 4 )) -ne 0 ]]; then
+    echo "usage: $0 --print-unoccupied <width> <height> <x> <y> <w> <h> [<x> <y> <w> <h> ...]" >&2
+    exit 2
+  fi
+  unoccupied_rects "$2" "$3" "${@:4}"
+  exit $?
+fi
+
+if [[ "${1:-}" == "--print-cover" ]]; then
+  if [[ $# -ne 7 ]]; then
+    echo "usage: $0 --print-cover <width> <height> <x> <y> <w> <h>" >&2
+    exit 2
+  fi
+  covers_usable "$2" "$3" "$4" "$5" "$6" "$7"
+  exit $?
+fi
+
+if [[ "${1:-}" == "--print-addr" ]]; then
+  if [[ $# -ne 2 ]]; then
+    echo "usage: $0 --print-addr <address>" >&2
+    exit 2
+  fi
+  hypr_addr_norm "$2"
+  exit $?
+fi
+
+if [[ "${1:-}" == "--print-infer" ]]; then
+  if [[ $# -ne 7 ]]; then
+    echo "usage: $0 --print-infer <width> <height> <x> <y> <w> <h>" >&2
+    exit 2
+  fi
+  best_snap_action "$2" "$3" "$4" "$5" "$6" "$7"
+  exit $?
+fi
+
+if [[ "${1:-}" == "--print-map-rect" ]]; then
+  if [[ $# -ne 13 ]]; then
+    echo "usage: $0 --print-map-rect <sx> <sy> <sw> <sh> <dx> <dy> <dw> <dh> <wx> <wy> <ww> <wh>" >&2
+    exit 2
+  fi
+  map_rect_between "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "${11}" "${12}" "${13}"
+  exit $?
+fi
+
+if [[ "${1:-}" == "--print-cycle-mon" ]]; then
+  if [[ $# -lt 4 ]]; then
+    echo "usage: $0 --print-cycle-mon <delta> <current> <name>..." >&2
+    exit 2
+  fi
+  cycle_mon_name "$2" "$3" "${@:4}"
+  exit $?
+fi
+
+reflow_cli() {
+  local kind="$1"
+  shift
+  if [[ $# -lt 4 || $(( ($# - 4) % 4 )) -ne 0 ]]; then
+    echo "usage: $0 --print-reflow-$kind <width> <height> <gaps> <border> [<x> <y> <w> <h> ...]" >&2
+    exit 2
+  fi
+  if [[ "$kind" == "close" ]]; then
+    reflow_close "$@"
+  else
+    reflow_open "$@"
+  fi
+}
+
+if [[ "${1:-}" == "--print-reflow-close" ]]; then
+  shift
+  reflow_cli close "$@"
+  exit $?
+fi
+
+if [[ "${1:-}" == "--print-reflow-open" ]]; then
+  shift
+  reflow_cli open "$@"
+  exit $?
+fi
+
+if [[ "${1:-}" == "--print-x11-monitors" ]]; then
+  parse_x11_monitors
+  exit $?
+fi
+
+if [[ "${1:-}" == "--print-sway-leaves" ]]; then
+  have jq || { echo "hyperforge-snap: jq required" >&2; exit 1; }
+  jq -r "$SWAY_LEAVES_JQ"
+  exit $?
+fi
+
 action="${1:-}"
 if [[ -z "$action" ]]; then
   echo "usage: $0 <left|right|top|bottom|max|center|tl|tr|bl|br|min|close|next-mon|prev-mon|undo|tile|" >&2
   echo "           third-l|third-c|third-r|twothird-l|twothird-r|almost-max>" >&2
   echo "       $0 --print-geom <width> <height> <action>" >&2
   echo "       $0 --print-split <width> <height> <action> <n_others> [gaps_in] [border]" >&2
+  echo "       $0 watch | --on-close | --on-open <address>" >&2
   exit 2
 fi
 
@@ -274,6 +751,28 @@ hypr_place() {
     resizeactive exact "$nw" "$nh" ${addr:+"address:$addr"}
   hypr "hl.dsp.window.move({ x = ${nx}, y = ${ny}${win} })" \
     moveactive exact "$nx" "$ny" ${addr:+"address:$addr"}
+  hypr_tag "$addr" "+hyperforge-snap"
+}
+
+hypr_tag() {
+  local addr="${1:-}" tag="$2" win
+  win="$(hypr_win "$addr")"
+  hypr "hl.dsp.window.tag({ window = \"address:${addr}\", tag = \"${tag}\" })" \
+    tagwindow "$tag" ${addr:+"address:$addr"} || true
+}
+
+hypr_tile_on() {
+  local addr="${1:-}" win floating
+  win="$(hypr_win "$addr")"
+  if [[ -n "$addr" ]]; then
+    floating="$(hyprctl clients -j | jq -r --arg a "$addr" '.[] | select(.address == $a) | .floating' 2>/dev/null || true)"
+  else
+    floating="$(hyprctl activewindow -j | jq -r '.floating' 2>/dev/null || true)"
+  fi
+  if [[ "$floating" == "true" ]]; then
+    hypr "hl.dsp.window.float({ action = \"toggle\"${win} })" togglefloating 0 ${addr:+"address:$addr"}
+  fi
+  hypr_tag "$addr" "-hyperforge-snap"
 }
 
 # Prints CSS gap sides: top right bottom left (integers).
@@ -363,26 +862,14 @@ hypr_move_mon() {
     return
   fi
 
-  local sx sy sw sh dx dy dw dh nx ny nw nh
+  local sx sy sw sh dx dy dw dh placed
   read -r sx sy sw sh < <(hypr_mon_rect "$mon_id")
   read -r dx dy dw dh < <(hypr_mon_rect "$dest_id")
-  [[ "$sw" -lt 1 ]] && sw=1
-  [[ "$sh" -lt 1 ]] && sh=1
-  nw=$(( ww * dw / sw ))
-  nh=$(( hh * dh / sh ))
-  nx=$(( dx + (atx - sx) * dw / sw ))
-  ny=$(( dy + (aty - sy) * dh / sh ))
-  [[ "$nw" -gt "$dw" ]] && nw=$dw
-  [[ "$nh" -gt "$dh" ]] && nh=$dh
-  [[ "$nw" -lt 1 ]] && nw=1
-  [[ "$nh" -lt 1 ]] && nh=1
-  [[ "$nx" -lt "$dx" ]] && nx=$dx
-  [[ "$ny" -lt "$dy" ]] && ny=$dy
-  [[ $((nx + nw)) -gt $((dx + dw)) ]] && nx=$((dx + dw - nw))
-  [[ $((ny + nh)) -gt $((dy + dh)) ]] && ny=$((dy + dh - nh))
+  placed="$(map_rect_between "$sx" "$sy" "$sw" "$sh" "$dx" "$dy" "$dw" "$dh" "$atx" "$aty" "$ww" "$hh")"
 
   hypr "hl.dsp.window.move({ monitor = \"${dest_name}\" })" movewindow "mon:${dest_name}"
-  hypr_place "" "$nx" "$ny" "$nw" "$nh"
+  # shellcheck disable=SC2086
+  hypr_place "" $placed
 }
 
 # ── Hyprland (geometry) ───────────────────────────────────────────────
@@ -399,6 +886,8 @@ snap_hypr() {
       ;;
     close)
       hypr 'hl.dsp.window.close()' killactive
+      sleep 0.08
+      hypr_on_close || true
       return
       ;;
     next-mon)
@@ -557,87 +1046,559 @@ hypr_snap_with_siblings() {
   hypr "hl.dsp.focus({ window = \"address:$addr\" })" focuswindow "address:$addr"
 }
 
-# ── Sway ──────────────────────────────────────────────────────────────
+# Windows this kit snapped (tagged) on a workspace+monitor. Falls back to
+# large floats if nothing is tagged yet (pre-tag sessions).
+hypr_snap_floats() {
+  local mon_id="$1" ws_id="$2" skip="${3:-}" area="${4:-1}"
+  if (( area < 1 )); then area=1; fi
+  hyprctl clients -j | jq -r --argjson mid "$mon_id" --argjson ws "$ws_id" \
+    --arg skip "$skip" --argjson area "$area" '
+    def tagged: any((.tags // [])[]; test("hyperforge-snap"));
+    [.[] | select(
+      .mapped == true and .hidden == false
+      and .floating == true
+      and .monitor == $mid
+      and ((.workspace.id // 0) == $ws)
+      and ((.workspace.id // 0) > 0)
+      and .address != $skip
+      and .pinned != true
+      and ((.fullscreen // 0) == 0)
+    )] as $all
+    | ([$all[] | select(tagged)] ) as $tagged
+    | (if ($tagged | length) > 0 then $tagged
+       else [$all[] | select((.size[0] * .size[1]) >= ($area * 0.18))]
+       end)
+    | .[] | "\(.address) \(.at[0]) \(.at[1]) \(.size[0]) \(.size[1])"
+  '
+}
+
+# Apply a reflow plan to addresses. Plan lines are "tile" or "<index> x y w h".
+# The new window (open) uses new_addr when its index is one past ${#addrs}.
+hypr_apply_reflow() {
+  local mx="$1" my="$2" new_addr="${3:-}"
+  shift 3
+  local addrs=("$@")
+  local line idx nx ny nw nh target
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    if [[ "$line" == "tile" ]]; then
+      [[ -n "${addrs[0]:-}" ]] || continue
+      hypr "hl.dsp.focus({ window = \"address:${addrs[0]}\" })" focuswindow "address:${addrs[0]}" || true
+      hypr_tile_on "${addrs[0]}"
+      continue
+    fi
+    read -r idx nx ny nw nh <<<"$line"
+    if [[ -n "$new_addr" && "$idx" == "${#addrs[@]}" ]]; then
+      target="$new_addr"
+    else
+      target="${addrs[$idx]:-}"
+    fi
+    [[ -n "$target" ]] || continue
+    hypr_place "$target" "$((nx + mx))" "$((ny + my))" "$nw" "$nh"
+  done
+}
+
+# After a snapped window closes, fill the hole. One remaining float returns to
+# the tiling layout. Two or more that leave a real hole are re-split in place.
+hypr_on_close() {
+  have jq || return 0
+  local groups g mon_id ws_id mx my mw mh
+  local lines=() line addr ax ay aw ah gin border
+  local -a addrs=() outers=()
+  mapfile -t groups < <(hyprctl clients -j | jq -r '
+    [.[] | select(.mapped == true and .hidden == false and ((.workspace.id // 0) > 0))
+     | "\(.monitor) \(.workspace.id)"] | unique[]
+  ' 2>/dev/null || true)
+  for g in "${groups[@]}"; do
+    [[ -z "$g" ]] && continue
+    read -r mon_id ws_id <<<"$g"
+    read -r mx my mw mh < <(hypr_mon_rect "$mon_id")
+    [[ -n "${mw:-}" ]] || continue
+    gin="$(hypr_gaps_in_one)"
+    border="$(hypr_border)"
+    [[ "$gin" =~ ^[0-9]+$ ]] || gin=0
+    [[ "$border" =~ ^[0-9]+$ ]] || border=0
+    mapfile -t lines < <(hypr_snap_floats "$mon_id" "$ws_id" "" "$((mw * mh))")
+    addrs=()
+    outers=()
+    for line in "${lines[@]}"; do
+      [[ -z "$line" ]] && continue
+      read -r addr ax ay aw ah <<<"$line"
+      [[ -n "$addr" ]] || continue
+      addrs+=("$addr")
+      local outer
+      outer="$(hypr_outer_rel "$mx" "$my" "$mw" "$mh" "$ax" "$ay" "$aw" "$ah" "$border")"
+      # shellcheck disable=SC2206
+      outers+=($outer)
+    done
+    if (( ${#addrs[@]} < 1 )); then
+      continue
+    fi
+    local plan
+    plan="$(reflow_close "$mw" "$mh" "$gin" "$border" "${outers[@]}" || true)"
+    [[ -n "$plan" ]] || continue
+    hypr_apply_reflow "$mx" "$my" "" "${addrs[@]}" <<<"$plan"
+  done
+}
+
+# Expand an inner hyprctl rect (at/size, border excluded) to outer usable-relative.
+hypr_outer_rel() {
+  local mx="$1" my="$2" mw="$3" mh="$4" ax="$5" ay="$6" aw="$7" ah="$8" border="$9"
+  local x=$((ax - mx - border)) y=$((ay - my - border))
+  local w=$((aw + 2 * border)) h=$((ah + 2 * border))
+  if (( x < 0 )); then x=0; fi
+  if (( y < 0 )); then y=0; fi
+  if (( x + w > mw )); then w=$((mw - x)); fi
+  if (( y + h > mh )); then h=$((mh - y)); fi
+  if (( w < 1 )); then w=1; fi
+  if (( h < 1 )); then h=1; fi
+  printf '%s %s %s %s\n' "$x" "$y" "$w" "$h"
+}
+
+# A new tiled window would otherwise fill the monitor under remaining snaps.
+# One existing snap is re-split so both sides match. A real hole is given to
+# the new window. When the snaps already cover the monitor, everyone — including
+# the new window — is gridded so the new one is not hidden underneath.
+hypr_on_open() {
+  local addr
+  addr="$(hypr_addr_norm "${1:-}")" || return 0
+  have jq || return 0
+  local i win floating pinned fs mon_id ws_id
+  local mx my mw mh gin border
+  local others=() line oaddr ox oy ow oh
+  local -a addrs=() outers=()
+  for i in 1 2 3 4 5 6 8 10; do
+    win="$(hyprctl clients -j | jq -c --arg a "$addr" '.[] | select(.address == $a)' 2>/dev/null || true)"
+    [[ -n "$win" ]] && break
+    sleep 0.05
+  done
+  [[ -n "$win" ]] || return 0
+  floating="$(jq -r '.floating' <<<"$win")"
+  pinned="$(jq -r '.pinned' <<<"$win")"
+  fs="$(jq -r '.fullscreen // 0' <<<"$win")"
+  if [[ "$floating" == "true" || "$pinned" == "true" || "$fs" != "0" ]]; then
+    return 0
+  fi
+  mon_id="$(jq -r '.monitor' <<<"$win")"
+  ws_id="$(jq -r '.workspace.id' <<<"$win")"
+  if [[ "${ws_id:-0}" -le 0 ]]; then
+    return 0
+  fi
+  read -r mx my mw mh < <(hypr_mon_rect "$mon_id")
+  [[ -n "${mw:-}" ]] || return 0
+  gin="$(hypr_gaps_in_one)"
+  border="$(hypr_border)"
+  [[ "$gin" =~ ^[0-9]+$ ]] || gin=0
+  [[ "$border" =~ ^[0-9]+$ ]] || border=0
+  mapfile -t others < <(hypr_snap_floats "$mon_id" "$ws_id" "$addr" "$((mw * mh))")
+  if (( ${#others[@]} < 1 )); then
+    return 0
+  fi
+  for line in "${others[@]}"; do
+    [[ -z "$line" ]] && continue
+    read -r oaddr ox oy ow oh <<<"$line"
+    [[ -n "$oaddr" ]] || continue
+    addrs+=("$oaddr")
+    local outer
+    outer="$(hypr_outer_rel "$mx" "$my" "$mw" "$mh" "$ox" "$oy" "$ow" "$oh" "$border")"
+    # shellcheck disable=SC2206
+    outers+=($outer)
+  done
+  local plan
+  plan="$(reflow_open "$mw" "$mh" "$gin" "$border" "${outers[@]}" || true)"
+  [[ -n "$plan" ]] || return 0
+  hypr_apply_reflow "$mx" "$my" "$addr" "${addrs[@]}" <<<"$plan"
+  hypr "hl.dsp.focus({ window = \"address:$addr\" })" focuswindow "address:$addr" || true
+}
+
+hypr_watch() {
+  local self="$0"
+  if [[ "$self" != /* ]]; then
+    self="$(cd "$(dirname "$self")" && pwd)/$(basename "$self")"
+  fi
+  if [[ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+    echo "hyperforge-snap: watch needs a Hyprland session" >&2
+    exit 1
+  fi
+  exec python3 - "$self" <<'PY'
+import os, socket, subprocess, sys, threading, time
+
+snap = sys.argv[1]
+sig = os.environ["HYPRLAND_INSTANCE_SIGNATURE"]
+runtime = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+path = os.path.join(runtime, "hypr", sig, ".socket2.sock")
+
+lock = threading.Lock()
+pending = []
+timer = {"t": None}
+
+def flush():
+    with lock:
+        events = list(pending)
+        pending.clear()
+        timer["t"] = None
+    for kind, addr in events:
+        if kind == "close":
+            subprocess.run([snap, "--on-close"], check=False)
+        elif kind == "open" and addr:
+            subprocess.run([snap, "--on-open", addr], check=False)
+
+def schedule(kind, addr=""):
+    with lock:
+        pending.append((kind, addr))
+        if timer["t"] is not None:
+            timer["t"].cancel()
+        t = threading.Timer(0.12, flush)
+        timer["t"] = t
+        t.daemon = True
+        t.start()
+
+def connect():
+    while True:
+        try:
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            s.connect(path)
+            return s
+        except OSError:
+            time.sleep(1)
+
+buf = b""
+sock = connect()
+while True:
+    try:
+        chunk = sock.recv(4096)
+    except OSError:
+        chunk = b""
+    if not chunk:
+        try:
+            sock.close()
+        except OSError:
+            pass
+        time.sleep(1)
+        sock = connect()
+        buf = b""
+        continue
+    buf += chunk
+    while b"\n" in buf:
+        raw, buf = buf.split(b"\n", 1)
+        line = raw.decode("utf-8", "replace")
+        if line.startswith("closewindow>>") or line.startswith("closewindowv2>>"):
+            schedule("close")
+        elif line.startswith("openwindow>>") or line.startswith("openwindowv2>>"):
+            payload = line.split(">>", 1)[-1]
+            addr = payload.split(",", 1)[0].strip()
+            if addr.lower().startswith("0x"):
+                addr = addr[2:]
+            if addr:
+                schedule("open", "0x" + addr)
+PY
+}
+
+# ── Sway / i3 ─────────────────────────────────────────────────────────
+# Same geometry as Hyprland (compute_geom / layout_split) on the focused
+# output. Undo restores the workspace leaves captured before the snap.
+sway_cmd() { "${SWAY_MSG:-swaymsg}" "$@"; }
+
+sway_outputs() {
+  sway_cmd -t get_outputs | jq -r '
+    sort_by(.rect.x, .rect.y) | .[]
+    | "\(.name) \(.rect.x) \(.rect.y) \(.rect.width) \(.rect.height)"
+  '
+}
+
+sway_focused() {
+  sway_cmd -t get_tree | jq -r '
+    [ .. | objects | select(.focused == true) | select(.pid != null) ] | .[0]
+    | if . == null then empty else
+        "\(.id) \(.rect.x) \(.rect.y) \(.rect.width) \(.rect.height) \(if .floating == "user_on" or .type == "floating_con" then 1 else 0 end)"
+      end
+  '
+}
+
+# stdin: "name x y w h" lines. Prints the row whose rect contains the point.
+mon_row_at() {
+  local px="$1" py="$2" name x y w h
+  while read -r name x y w h; do
+    [[ -n "${name:-}" ]] || continue
+    if (( px >= x && px < x + w && py >= y && py < y + h )); then
+      printf '%s %s %s %s %s\n' "$name" "$x" "$y" "$w" "$h"
+      return 0
+    fi
+  done
+  return 1
+}
+
+sway_place() {
+  local id="$1" x="$2" y="$3" w="$4" h="$5"
+  sway_cmd "[con_id=${id}] fullscreen disable, floating enable, move position ${x} ${y}, resize set ${w} ${h}"
+}
+
+save_sway_layout() {
+  mkdir -p "$UNDO_DIR"
+  sway_cmd -t get_tree | jq -r "$SWAY_LEAVES_JQ" >"$UNDO_DIR/last-layout-sway.txt" || true
+}
+
+sway_move_mon() {
+  local delta="$1"
+  local id x y w h floating cx cy
+  local cur_row dest ox oy ow oh dx dy dw dh placed
+  local -a rows=() names=()
+  read -r id x y w h floating < <(sway_focused) || {
+    echo "hyperforge-snap: no focused window" >&2
+    return 1
+  }
+  cx=$((x + w / 2))
+  cy=$((y + h / 2))
+  mapfile -t rows < <(sway_outputs)
+  if (( ${#rows[@]} < 2 )); then
+    echo "hyperforge-snap: only one monitor" >&2
+    return 1
+  fi
+  cur_row="$(printf '%s\n' "${rows[@]}" | mon_row_at "$cx" "$cy")" || cur_row="${rows[0]}"
+  local name
+  for name in "${rows[@]}"; do
+    names+=("${name%% *}")
+  done
+  dest="$(cycle_mon_name "$delta" "${cur_row%% *}" "${names[@]}")"
+  read -r _ ox oy ow oh <<<"$cur_row"
+  read -r _ dx dy dw dh <<<"$(printf '%s\n' "${rows[@]}" | awk -v n="$dest" '$1 == n { print; exit }')"
+  sway_cmd "move container to output \"${dest}\""
+  if [[ "$floating" == "1" ]]; then
+    placed="$(map_rect_between "$ox" "$oy" "$ow" "$oh" "$dx" "$dy" "$dw" "$dh" "$x" "$y" "$w" "$h")"
+    # shellcheck disable=SC2086
+    sway_place "$id" $placed
+  fi
+}
+
+sway_tile() {
+  local focused id x y w h floating cx cy row ox oy ow oh
+  local -a leaves=() ids=()
+  local line lx ly lw lh plan nx ny nw nh i=0
+  read -r id x y w h floating < <(sway_focused) || return 1
+  cx=$((x + w / 2)); cy=$((y + h / 2))
+  row="$(sway_outputs | mon_row_at "$cx" "$cy")" || return 1
+  read -r _ ox oy ow oh <<<"$row"
+  mapfile -t leaves < <(sway_cmd -t get_tree | jq -r "$SWAY_LEAVES_JQ")
+  for line in "${leaves[@]}"; do
+    read -r id lx ly lw lh _ <<<"$line"
+    if (( lx + lw / 2 >= ox && lx + lw / 2 < ox + ow && ly + lh / 2 >= oy && ly + lh / 2 < oy + oh )); then
+      ids+=("$id")
+    fi
+  done
+  if (( ${#ids[@]} < 1 )); then
+    echo "hyperforge-snap: nothing to tile" >&2
+    return 1
+  fi
+  plan="$(layout_split "$ow" "$oh" tile "$(( ${#ids[@]} - 1 ))" 0 0)"
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    read -r nx ny nw nh <<<"$line"
+    sway_place "${ids[$i]}" "$((nx + ox))" "$((ny + oy))" "$nw" "$nh"
+    i=$((i + 1))
+  done <<<"$plan"
+}
+
 snap_sway() {
-  local msg="${SWAY_MSG:-swaymsg}"
+  if ! have jq; then
+    echo "hyperforge-snap: install jq for Sway/i3 snaps" >&2
+    exit 1
+  fi
+  local id x y w h floating geom cx cy row ox oy ow oh
   case "$action" in
-    left)   $msg "fullscreen disable; floating enable; resize set 50 ppt 100 ppt; move position 0 ppt 0 ppt" ;;
-    right)  $msg "fullscreen disable; floating enable; resize set 50 ppt 100 ppt; move position 50 ppt 0 ppt" ;;
-    top)    $msg "fullscreen disable; floating enable; resize set 100 ppt 50 ppt; move position 0 ppt 0 ppt" ;;
-    bottom) $msg "fullscreen disable; floating enable; resize set 100 ppt 50 ppt; move position 0 ppt 50 ppt" ;;
-    max)    $msg "fullscreen enable" ;;
-    center) $msg "fullscreen disable; floating enable; resize set 66 ppt 66 ppt; move position center" ;;
-    tl)     $msg "fullscreen disable; floating enable; resize set 50 ppt 50 ppt; move position 0 ppt 0 ppt" ;;
-    tr)     $msg "fullscreen disable; floating enable; resize set 50 ppt 50 ppt; move position 50 ppt 0 ppt" ;;
-    bl)     $msg "fullscreen disable; floating enable; resize set 50 ppt 50 ppt; move position 0 ppt 50 ppt" ;;
-    br)     $msg "fullscreen disable; floating enable; resize set 50 ppt 50 ppt; move position 50 ppt 50 ppt" ;;
-    third-l)    $msg "fullscreen disable; floating enable; resize set 33 ppt 100 ppt; move position 0 ppt 0 ppt" ;;
-    third-c)    $msg "fullscreen disable; floating enable; resize set 33 ppt 100 ppt; move position 33 ppt 0 ppt" ;;
-    third-r)    $msg "fullscreen disable; floating enable; resize set 34 ppt 100 ppt; move position 66 ppt 0 ppt" ;;
-    twothird-l) $msg "fullscreen disable; floating enable; resize set 66 ppt 100 ppt; move position 0 ppt 0 ppt" ;;
-    twothird-r) $msg "fullscreen disable; floating enable; resize set 67 ppt 100 ppt; move position 33 ppt 0 ppt" ;;
-    almost-max) $msg "fullscreen disable; floating enable; resize set 90 ppt 90 ppt; move position center" ;;
-    min)    $msg "move window to scratchpad" ;;
-    close)  $msg kill ;;
-    next-mon) $msg "move container to output right" ;;
-    prev-mon) $msg "move container to output left" ;;
-    undo)   $msg "floating disable" ;;
-    tile)
-      # Best-effort: equal-split tiling on the focused container tree
-      $msg "fullscreen disable; floating disable" >/dev/null
-      $msg "layout splitv" >/dev/null 2>&1 || true
-      $msg "focus parent; layout splith" >/dev/null 2>&1 || true
+    min)   sway_cmd "move window to scratchpad"; return ;;
+    close) sway_cmd kill; return ;;
+    next-mon) sway_move_mon +1; return ;;
+    prev-mon) sway_move_mon -1; return ;;
+    undo)
+      if [[ -f "$UNDO_DIR/last-layout-sway.txt" ]]; then
+        while read -r id x y w h floating; do
+          [[ -z "${id:-}" ]] && continue
+          if [[ "$floating" == "1" ]]; then
+            sway_place "$id" "$x" "$y" "$w" "$h" || true
+          else
+            sway_cmd "[con_id=${id}] floating disable" || true
+          fi
+        done <"$UNDO_DIR/last-layout-sway.txt"
+        rm -f "$UNDO_DIR/last-layout-sway.txt"
+      else
+        sway_cmd "floating disable"
+      fi
+      return
       ;;
-    *) echo "unknown: $action" >&2; exit 2 ;;
+    tile)
+      save_sway_layout
+      sway_tile
+      return
+      ;;
   esac
+  read -r id x y w h floating < <(sway_focused) || {
+    echo "hyperforge-snap: no focused window" >&2
+    exit 1
+  }
+  cx=$((x + w / 2)); cy=$((y + h / 2))
+  row="$(sway_outputs | mon_row_at "$cx" "$cy")" || {
+    echo "hyperforge-snap: focused window is not on a known output" >&2
+    exit 1
+  }
+  read -r _ ox oy ow oh <<<"$row"
+  geom="$(compute_geom "$ox" "$oy" "$ow" "$oh" "$action")" || {
+    echo "unknown: $action" >&2
+    exit 2
+  }
+  save_sway_layout
+  # shellcheck disable=SC2086
+  sway_place "$id" $geom
 }
 
 # ── X11 ───────────────────────────────────────────────────────────────
+# Per-monitor geometry from xrandr (falls back to the whole X screen).
+# Undo restores the rects captured before the snap. Next/prev keeps the
+# relative snap via map_rect_between.
+x11_monitors() {
+  local parsed=""
+  if have xrandr; then
+    parsed="$(xrandr --listmonitors 2>/dev/null | parse_x11_monitors || true)"
+  fi
+  if [[ -n "$parsed" ]]; then
+    printf '%s\n' "$parsed"
+    return 0
+  fi
+  if have xdpyinfo; then
+    local sw sh
+    read -r sw sh < <(xdpyinfo | awk '/dimensions/{print $2}' | tr 'x' ' ')
+    printf 'screen 0 0 %s %s\n' "${sw:-0}" "${sh:-0}"
+  fi
+}
+
+x11_active() {
+  local id x y w h
+  eval "$(xdotool getactivewindow getwindowgeometry --shell)"
+  id="${WINDOW:-}"
+  x="${X:-0}"; y="${Y:-0}"; w="${WIDTH:-1}"; h="${HEIGHT:-1}"
+  printf '%s %s %s %s %s\n' "$id" "$x" "$y" "$w" "$h"
+}
+
+x11_place() {
+  local id="$1" x="$2" y="$3" w="$4" h="$5"
+  wmctrl -ir "$id" -b remove,maximized_vert,maximized_horz
+  wmctrl -ir "$id" -e "0,${x},${y},${w},${h}"
+}
+
+save_x11_layout() {
+  mkdir -p "$UNDO_DIR"
+  wmctrl -lG | awk '{print $1, $3, $4, $5, $6}' >"$UNDO_DIR/last-layout-x11.txt" || true
+}
+
+x11_move_mon() {
+  local delta="$1"
+  local id x y w h cx cy
+  local -a rows=() names=()
+  local cur_row dest ox oy ow oh dx dy dw dh placed name
+  read -r id x y w h < <(x11_active)
+  [[ -n "$id" ]] || return 1
+  cx=$((x + w / 2)); cy=$((y + h / 2))
+  mapfile -t rows < <(x11_monitors | sort -k2,2n -k3,3n)
+  if (( ${#rows[@]} < 2 )); then
+    echo "hyperforge-snap: only one monitor" >&2
+    return 1
+  fi
+  cur_row="$(printf '%s\n' "${rows[@]}" | mon_row_at "$cx" "$cy")" || cur_row="${rows[0]}"
+  for name in "${rows[@]}"; do
+    names+=("${name%% *}")
+  done
+  dest="$(cycle_mon_name "$delta" "${cur_row%% *}" "${names[@]}")"
+  read -r _ ox oy ow oh <<<"$cur_row"
+  read -r _ dx dy dw dh <<<"$(printf '%s\n' "${rows[@]}" | awk -v n="$dest" '$1 == n { print; exit }')"
+  placed="$(map_rect_between "$ox" "$oy" "$ow" "$oh" "$dx" "$dy" "$dw" "$dh" "$x" "$y" "$w" "$h")"
+  # shellcheck disable=SC2086
+  x11_place "$id" $placed
+}
+
+x11_tile() {
+  local id x y w h cx cy row ox oy ow oh
+  local -a ids=()
+  local line desk lx ly lw lh plan nx ny nw nh i=0
+  read -r id x y w h < <(x11_active)
+  cx=$((x + w / 2)); cy=$((y + h / 2))
+  row="$(x11_monitors | mon_row_at "$cx" "$cy")" || return 1
+  read -r _ ox oy ow oh <<<"$row"
+  while read -r id desk lx ly lw lh _; do
+    [[ -n "${id:-}" ]] || continue
+    if (( lx + lw / 2 >= ox && lx + lw / 2 < ox + ow && ly + lh / 2 >= oy && ly + lh / 2 < oy + oh )); then
+      ids+=("$id")
+    fi
+  done < <(wmctrl -lG)
+  if (( ${#ids[@]} < 1 )); then
+    echo "hyperforge-snap: nothing to tile" >&2
+    return 1
+  fi
+  plan="$(layout_split "$ow" "$oh" tile "$(( ${#ids[@]} - 1 ))" 0 0)"
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    read -r nx ny nw nh <<<"$line"
+    x11_place "${ids[$i]}" "$((nx + ox))" "$((ny + oy))" "$nw" "$nh"
+    i=$((i + 1))
+  done <<<"$plan"
+}
+
 snap_x11() {
   if ! have wmctrl || ! have xdotool; then
     echo "hyperforge-snap: need wmctrl + xdotool on X11" >&2
     exit 1
   fi
-  local win sw sh geom nx ny nw nh
-  win="$(xdotool getactivewindow)"
-  read -r sw sh < <(xdpyinfo | awk '/dimensions/{print $2}' | tr 'x' ' ')
+  local id x y w h geom cx cy row ox oy ow oh
   case "$action" in
-    max)    wmctrl -ir "$win" -b add,maximized_vert,maximized_horz; return ;;
-    min) xdotool windowminimize "$win"; return ;;
-    close) wmctrl -ic "$win"; return ;;
-    next-mon) wmctrl -ir "$win" -b remove,maximized_vert,maximized_horz; return ;;
-    prev-mon) wmctrl -ir "$win" -b remove,maximized_vert,maximized_horz; return ;;
-    undo) wmctrl -ir "$win" -b remove,maximized_vert,maximized_horz; return ;;
-    tile)
-      # Simple equal grid of visible windows on root geometry
-      mapfile -t wins < <(wmctrl -l | awk '{print $1}')
-      local n=${#wins[@]}
-      if [[ "$n" -lt 1 ]]; then return 1; fi
-      local cols rows cellw cellh i=0
-      cols=$(awk -v n="$n" 'BEGIN{print int(sqrt(n)+0.999)}')
-      rows=$(( (n + cols - 1) / cols ))
-      cellw=$((sw / cols)); cellh=$((sh / rows))
-      for w in "${wins[@]}"; do
-        local col=$((i % cols)) row=$((i / cols))
-        wmctrl -ir "$w" -b remove,maximized_vert,maximized_horz
-        wmctrl -ir "$w" -e "0,$((col * cellw)),$((row * cellh)),$cellw,$cellh"
-        i=$((i + 1))
-      done
+    min)   xdotool windowminimize "$(xdotool getactivewindow)"; return ;;
+    close) wmctrl -ic "$(xdotool getactivewindow)"; return ;;
+    next-mon) x11_move_mon +1; return ;;
+    prev-mon) x11_move_mon -1; return ;;
+    undo)
+      if [[ -f "$UNDO_DIR/last-layout-x11.txt" ]]; then
+        while read -r id x y w h; do
+          [[ -z "${id:-}" ]] && continue
+          x11_place "$id" "$x" "$y" "$w" "$h" || true
+        done <"$UNDO_DIR/last-layout-x11.txt"
+        rm -f "$UNDO_DIR/last-layout-x11.txt"
+      fi
       return
       ;;
-    *)
-      geom="$(compute_geom 0 0 "$sw" "$sh" "$action")" || {
-        echo "unknown: $action" >&2
-        exit 2
-      }
-      read -r nx ny nw nh <<<"$geom"
+    tile)
+      save_x11_layout
+      x11_tile
+      return
       ;;
   esac
-  wmctrl -ir "$win" -b remove,maximized_vert,maximized_horz
-  wmctrl -ir "$win" -e "0,$nx,$ny,$nw,$nh"
+  read -r id x y w h < <(x11_active)
+  [[ -n "$id" ]] || { echo "hyperforge-snap: no focused window" >&2; exit 1; }
+  cx=$((x + w / 2)); cy=$((y + h / 2))
+  row="$(x11_monitors | mon_row_at "$cx" "$cy")" || {
+    echo "hyperforge-snap: focused window is not on a known monitor" >&2
+    exit 1
+  }
+  read -r _ ox oy ow oh <<<"$row"
+  geom="$(compute_geom "$ox" "$oy" "$ow" "$oh" "$action")" || {
+    echo "unknown: $action" >&2
+    exit 2
+  }
+  save_x11_layout
+  # shellcheck disable=SC2086
+  x11_place "$id" $geom
 }
 
 # ── Dispatch ──────────────────────────────────────────────────────────
+if [[ "$action" == "watch" ]]; then
+  hypr_watch
+  exit
+fi
+if [[ "$action" == "--on-close" ]]; then
+  hypr_on_close
+  exit
+fi
+if [[ "$action" == "--on-open" ]]; then
+  hypr_on_open "${2:-}"
+  exit
+fi
+
 if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] && have hyprctl; then
   snap_hypr
 elif [[ -n "${SWAYSOCK:-}" ]] && have swaymsg; then

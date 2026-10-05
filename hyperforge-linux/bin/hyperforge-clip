@@ -18,6 +18,7 @@ STORE="$DATA_DIR/clipboard-history.dat"
 MAX_ITEMS=20
 
 have() { command -v "$1" >/dev/null 2>&1; }
+MENU="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)/hyperforge-menu"
 
 notify() {
   if have notify-send; then notify-send -a HyperForge -t 1500 "HyperForge" "$1" 2>/dev/null || true
@@ -184,21 +185,17 @@ pick_entry() {
     return 1
   fi
 
-  local idx=-1 chosen i
-  wait_mods_up
-  if have omarchy-menu-select; then
-    chosen="$(printf '%s\n' "${labels[@]}" | omarchy-menu-select "Clipboard")" || return 1
-    for i in "${!labels[@]}"; do [[ "${labels[$i]}" == "$chosen" ]] && idx="$i" && break; done
-  elif have rofi; then
-    chosen="$(printf '%s\n' "${labels[@]}" | rofi -dmenu -p "Clipboard" -format i)" || return 1
-    idx="$chosen"
-  elif have wofi; then
-    chosen="$(printf '%s\n' "${labels[@]}" | wofi --dmenu -p "Clipboard")" || return 1
-    for i in "${!labels[@]}"; do [[ "${labels[$i]}" == "$chosen" ]] && idx="$i" && break; done
-  else
-    notify "No overlay picker (omarchy-menu-select / rofi / wofi)"
+  local idx=-1 chosen i rc
+  set +e
+  chosen="$(printf '%s\n' "${labels[@]}" | "$MENU" "Clipboard")"
+  rc=$?
+  set -e
+  if (( rc == 3 )); then
+    notify "No overlay picker (omarchy-menu-select / rofi / wofi / fuzzel)"
     return 1
   fi
+  (( rc == 0 )) || return 1
+  for i in "${!labels[@]}"; do [[ "${labels[$i]}" == "$chosen" ]] && idx="$i" && break; done
   [[ "$idx" -ge 0 ]] || return 1
   printf '%s' "${texts[$idx]}"
 }

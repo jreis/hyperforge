@@ -81,6 +81,42 @@ count_layer_tokens() {
   ' "$file"
 }
 
+# Same tokenization as count_layer_tokens, one token per line.
+layer_tokens() {
+  local file="$1" header="$2"
+  awk -v header="$header" '
+    BEGIN { started = 0 }
+    {
+      line = $0
+      sub(/[ \t]*;;.*/, "", line)
+    }
+    !started {
+      if (index(line, header) == 1) {
+        started = 1
+        line = substr(line, length(header) + 1)
+        gsub(/[()]/, " ", line)
+        gsub(/^[ \t]+|[ \t]+$/, "", line)
+        if (line != "") {
+          n = split(line, a, /[ \t]+/)
+          for (i = 1; i <= n; i++) print a[i]
+        }
+      }
+      next
+    }
+    /^[ \t]*$/ { next }
+    /^\(/ { exit }
+    /^\)/ { exit }
+    {
+      gsub(/[()]/, " ", line)
+      gsub(/^[ \t]+|[ \t]+$/, "", line)
+      if (line != "") {
+        n = split(line, a, /[ \t]+/)
+        for (i = 1; i <= n; i++) print a[i]
+      }
+    }
+  ' "$file"
+}
+
 action_ids() {
   awk '
     /^  [A-Za-z0-9_|-]+)([ \t]|$)/ {
@@ -144,7 +180,7 @@ echo
 echo "Scripts parse"
 for f in hyperforge-action hyperforge-snap hyperforge-snippet hyperforge-clip \
          hyperforge-doctor hyperforge-smoke hyperforge-paste hyperforge-bar \
-         hyperforge-config; do
+         hyperforge-config hyperforge-nav hyperforge-menu; do
   check "bash -n bin/$f" bash -n "$HERE/$f"
 done
 check "python3 -m py_compile bin/hyperforge-pin" python3 -m py_compile "$HERE/hyperforge-pin"
@@ -261,6 +297,75 @@ rc=0
 split 1920 1080 not-a-snap 1 >/dev/null 2>&1 || rc=$?
 check "unknown split action exits 2" test "$rc" -eq 2
 
+check_eq "unoccupied left half" "$( "$SNAP" --print-unoccupied 1920 1080 0 0 960 1080 )" "960 0 960 1080"
+check_eq "unoccupied right half" "$( "$SNAP" --print-unoccupied 1920 1080 960 0 960 1080 )" "0 0 960 1080"
+check_eq "unoccupied gap between thirds" \
+  "$( "$SNAP" --print-unoccupied 1920 1080 0 0 640 1080 1280 0 640 1080 )" "640 0 640 1080"
+unocc_full="$("$SNAP" --print-unoccupied 1920 1080 0 0 1920 1080)"
+check "unoccupied full is empty" test -z "$unocc_full"
+unocc_pair="$("$SNAP" --print-unoccupied 1920 1080 0 0 960 1080 960 0 960 1080)"
+check "unoccupied pair of halves is empty" test -z "$unocc_pair"
+check_eq "cover half is 0" "$( "$SNAP" --print-cover 1920 1080 960 0 960 1080 )" "0"
+check_eq "cover full is 1" "$( "$SNAP" --print-cover 1920 1080 0 0 1920 1080 )" "1"
+check_eq "addr adds 0x" "$("$SNAP" --print-addr 5613abc)" "0x5613abc"
+check_eq "addr keeps 0x" "$("$SNAP" --print-addr 0x5613abc)" "0x5613abc"
+check_eq "infer left half" "$("$SNAP" --print-infer 1920 1080 0 0 960 1080)" "left"
+check_eq "infer right half" "$("$SNAP" --print-infer 1920 1080 960 0 960 1080)" "right"
+check_eq "infer inner left" "$("$SNAP" --print-infer 2540 1394 2 2 1266 1390)" "left"
+split_pair="$("$SNAP" --print-split 2540 1394 left 1 5 2)"
+check_eq "split pair equal sizes" \
+  "$(awk 'NR==1{print $3,$4}' <<<"$split_pair")" \
+  "$(awk 'NR==2{print $3,$4}' <<<"$split_pair")"
+
+check_eq "close one half tiles" \
+  "$("$SNAP" --print-reflow-close 1920 1080 0 0 0 0 960 1080)" "tile"
+close_full="$("$SNAP" --print-reflow-close 1920 1080 0 0 0 0 1920 1080)"
+check "close of a full window does nothing" test -z "$close_full"
+close_halves="$("$SNAP" --print-reflow-close 1920 1080 0 0 0 0 960 1080 960 0 960 1080)"
+check "close of two halves does nothing" test -z "$close_halves"
+check_eq "close of two thirds fills the center" \
+  "$("$SNAP" --print-reflow-close 1920 1080 0 0 0 0 640 1080 1280 0 640 1080)" \
+  $'0 0 0 960 1080\n1 960 0 960 1080'
+check_eq "close of a stacked pair fills top and bottom" \
+  "$("$SNAP" --print-reflow-close 1920 1080 0 0 0 0 1920 400 0 700 1920 380)" \
+  $'0 0 0 1920 540\n1 0 540 1920 540'
+check_eq "open beside one left half" \
+  "$("$SNAP" --print-reflow-open 1920 1080 0 0 0 0 960 1080)" \
+  $'0 0 0 960 1080\n1 960 0 960 1080'
+check_eq "open when two halves already cover grids all three" \
+  "$("$SNAP" --print-reflow-open 1920 1080 0 0 0 0 960 1080 960 0 960 1080)" \
+  $'0 0 0 960 540\n1 960 0 960 540\n2 0 540 960 540'
+check_eq "open into a real hole does not move the snaps" \
+  "$("$SNAP" --print-reflow-open 1920 1080 0 0 0 0 960 1080 960 540 960 540)" \
+  "2 960 0 960 540"
+check_eq "map left half onto the next monitor" \
+  "$("$SNAP" --print-map-rect 0 0 1920 1080 1920 0 1920 1080 0 0 960 1080)" \
+  "1920 0 960 1080"
+check_eq "cycle monitor forward" \
+  "$("$SNAP" --print-cycle-mon +1 DP-1 DP-1 HDMI-1)" "HDMI-1"
+check_eq "cycle monitor backward" \
+  "$("$SNAP" --print-cycle-mon -1 DP-1 DP-1 HDMI-1)" "HDMI-1"
+x11mons="$(printf '%s\n' \
+  'Monitors: 2' \
+  ' 0: +*eDP-1 1920/344x1080/193+0+0  eDP-1' \
+  ' 1: +HDMI-1 1920/509x1080/286+1920+0  HDMI-1' \
+  | "$SNAP" --print-x11-monitors)"
+check_eq "xrandr monitors" "$x11mons" $'eDP-1 0 0 1920 1080\nHDMI-1 1920 0 1920 1080'
+sway_leaves="$("$SNAP" --print-sway-leaves <<'JSON'
+{"type":"root","nodes":[{"type":"output","name":"DP-1","nodes":[
+  {"type":"workspace","nodes":[
+    {"type":"con","id":10,"pid":1,"focused":true,"floating":"user_off","rect":{"x":0,"y":0,"width":100,"height":100},"nodes":[]},
+    {"type":"con","id":11,"pid":2,"focused":false,"floating":"user_on","rect":{"x":50,"y":10,"width":20,"height":20},"nodes":[]}
+  ]},
+  {"type":"workspace","nodes":[
+    {"type":"con","id":99,"pid":9,"focused":false,"floating":"user_off","rect":{"x":0,"y":0,"width":5,"height":5},"nodes":[]}
+  ]}
+]}]}
+JSON
+)"
+check_eq "sway leaves stay on the focused workspace" "$sway_leaves" \
+  $'10 0 0 100 100 0\n11 50 10 20 20 1'
+
 # ── Snippets (print/expand only — never wtype) ────────────────────────
 echo
 echo "Snippets"
@@ -317,7 +422,28 @@ check "compile emits repress-shift @@" grep -q '(S-2 S-2)' <<<"$compiled"
 check "compile emits ,sig sequence" grep -q '(, s i g)' <<<"$compiled"
 compile_skips_date_format() { grep -q date_format <<<"$compiled" && return 1; return 0; }
 check "compile does not emit date_format" compile_skips_date_format
-check "compile uses --type" grep -q -- '--type "@@"' <<<"$compiled"
+# Static text is a kanata macro. Shelling out waited for Shift to lift (@@ is
+# typed with Shift held) and then started wtype. {{tokens}} still use --type.
+email_macro='(macro (unshift y) 5 (unshift o) 5 (unshift u) 5 S-Digit2 5 (unshift e) 5 (unshift x) 5 (unshift a) 5 (unshift m) 5 (unshift p) 5 (unshift l) 5 (unshift e) 5 (unshift .) 5 (unshift c) 5 (unshift o) 5 (unshift m))'
+check "@@ compiles to an in-kanata macro" grep -Fq "$email_macro" <<<"$compiled"
+compile_at_does_not_shell() { ! grep -Fq -- '--type "@@"' <<<"$compiled"; }
+check "@@ does not shell out" compile_at_does_not_shell
+sig_macro='(macro S-t 5 (unshift h) 5 (unshift a) 5 (unshift n) 5 (unshift k) 5 (unshift s) 5 (unshift ,) 5 (unshift ret) 5 S-y 5 (unshift o) 5 (unshift u) 5 (unshift r) 5 (unshift spc) 5 S-n 5 (unshift a) 5 (unshift m) 5 (unshift e))'
+check ",sig newline is ret inside a macro" grep -Fq "$sig_macro" <<<"$compiled"
+check "token trigger still shells out" grep -Fq -- '--type ",date"' <<<"$compiled"
+check "clipboard trigger still shells out" grep -Fq -- '--type ",v"' <<<"$compiled"
+
+# Digits must be DigitN (a bare 2 in a macro is a delay). Unmappable text
+# falls back to --type so it still expands, just not in-process.
+PUN_HOME="$TMP/pun"
+mkdir -p "$PUN_HOME/hyperforge-linux"
+printf '%s\n' '@@=a2@b' ',q=a"b' ',bad=hi 😀' ',d={{date}}' \
+  >"$PUN_HOME/hyperforge-linux/snippets.conf"
+pun="$(XDG_CONFIG_HOME="$PUN_HOME" "$SNIP" --compile-kanata -)"
+check "digit in expansion is DigitN" grep -Fq '(unshift a) 5 (unshift Digit2) 5 S-Digit2 5 (unshift b)' <<<"$pun"
+check "quote in expansion is S-'" grep -Fq "(unshift a) 5 S-' 5 (unshift b)" <<<"$pun"
+check "unmappable expansion shells out" grep -Fq -- '--type ",bad"' <<<"$pun"
+check "token expansion shells out beside macros" grep -Fq -- '--type ",d"' <<<"$pun"
 
 # --seed adds missing macOS triggers without clobbering existing keys.
 SEED_HOME="$TMP/seed"
@@ -472,6 +598,16 @@ if [[ -n "$KANATA_BIN" ]]; then
     "$KANATA_BIN" --check -c "$TMP/hyperforge-with-snips.kbd" 2>&1 | tail -20 | sed 's/^/      /'
     failed=$((failed + 1))
   fi
+  # DigitN / quote / unshift macros, not only the example email.
+  printf '%s\n' "$pun" >"$TMP/hyperforge-snippets.kbd"
+  if "$KANATA_BIN" --check -c "$TMP/hyperforge-with-snips.kbd" >/dev/null 2>&1; then
+    echo "  ✓ kanata --check with digit and quote macros"
+    passed=$((passed + 1))
+  else
+    echo "  ✗ kanata --check with digit and quote macros"
+    "$KANATA_BIN" --check -c "$TMP/hyperforge-with-snips.kbd" 2>&1 | tail -20 | sed 's/^/      /'
+    failed=$((failed + 1))
+  fi
 else
   skip "kanata not in PATH (skip --check)"
 fi
@@ -503,6 +639,82 @@ kbd_set="$(kbd_bound_action_ids | tr '\n' ' ')"
 keyd_set="$(keyd_action_ids | tr '\n' ' ')"
 check_eq "kanata layers and keyd bind the same action ids" "$keyd_set" "$kbd_set"
 
+nav_pairs="$(paste <(layer_tokens "$KBD" '(defsrc') <(layer_tokens "$KBD" '(deflayer nav'))"
+nav_at() { awk -v k="$1" '$1 == k { print $2; exit }' <<<"$nav_pairs"; }
+check_eq "nav Space+5 is home" "$(nav_at 5)" "home"
+check_eq "nav Space+6 is end" "$(nav_at 6)" "end"
+check_eq "nav Space+0 is passed through" "$(nav_at 0)" "_"
+check_eq "nav Space+4 is passed through" "$(nav_at 4)" "_"
+check_eq "nav Space+H is left" "$(nav_at h)" "left"
+check_eq "nav Space+J is down" "$(nav_at j)" "down"
+check_eq "nav Space+K is up" "$(nav_at k)" "up"
+check_eq "nav Space+L is right" "$(nav_at l)" "right"
+check_eq "nav Return is return" "$(nav_at ret)" "ret"
+check_eq "nav Space+Q is escape" "$(nav_at q)" "esc"
+check_eq "nav Space+M is passed through" "$(nav_at m)" "_"
+check "kanata copy uses hyperforge-nav" grep -q 'hyperforge-nav copy' "$KBD"
+check "keyd copy uses hyperforge-nav" grep -q 'hyperforge-nav copy' "$KEYD"
+check "keyd 5 is home" grep -q '^5 = home$' "$KEYD"
+check "keyd 6 is end" grep -q '^6 = end$' "$KEYD"
+check "keyd enter is enter" grep -q '^enter = enter$' "$KEYD"
+keyd_m_is_not_enter() { ! grep -q '^m = enter$' "$KEYD"; }
+check "keyd does not bind Space+M as Return" keyd_m_is_not_enter
+readme_edges_match_layer() { ! grep -q 'Space + 0 / 4' "$ROOT/README.md" && grep -q 'Space + 5 / 6' "$ROOT/README.md"; }
+check "readme line edges match the nav layer" readme_edges_match_layer
+doctor_bar_is_real() { ! grep -q 'Ollama command bar' "$HERE/hyperforge-doctor"; }
+check "doctor does not describe the command bar as missing" doctor_bar_is_real
+
+# ── Space chords, picker, app slots ───────────────────────────────────
+echo
+echo "Space chords and pickers"
+NAV="$HERE/hyperforge-nav"
+MENU="$HERE/hyperforge-menu"
+check_eq "gui copy" "$("$NAV" --print-keys Firefox copy)" "ctrl+c"
+check_eq "terminal copy" "$("$NAV" --print-keys com.mitchellh.ghostty copy)" "ctrl+shift+c"
+check_eq "gui undo" "$("$NAV" --print-keys Firefox undo)" "ctrl+z"
+check_eq "terminal undo" "$("$NAV" --print-keys Alacritty undo)" "ctrl+/"
+check_eq "terminal save is not ctrl+s" "$("$NAV" --print-keys kitty save)" "ctrl+shift+s"
+check_eq "gui save" "$("$NAV" --print-keys zed save)" "ctrl+s"
+check_eq "terminal kill-line" "$("$NAV" --print-keys foot kill-eol)" "ctrl+k"
+check_eq "gui kill-line" "$("$NAV" --print-keys Code kill-eol)" "shift+end backspace"
+check_eq "terminal word back" "$("$NAV" --print-keys ghostty word-back)" "alt+b"
+check_eq "gui word back" "$("$NAV" --print-keys firefox word-back)" "ctrl+left"
+check_eq "empty class pastes with ctrl+v" "$("$NAV" --print-keys '' paste)" "ctrl+v"
+rc=0
+"$NAV" --print-keys Firefox not-a-nav >/dev/null 2>&1 || rc=$?
+check "unknown nav action exits 2" test "$rc" -eq 2
+
+PICK="$TMP/pick-first"
+printf '%s\n' '#!/bin/sh' 'head -1' >"$PICK"
+chmod +x "$PICK"
+check_eq "menu returns the chosen line" \
+  "$(printf 'alpha\nbeta\n' | HF_MENU_NO_WAIT=1 HF_MENU_CMD="$PICK" "$MENU" Prompt)" \
+  "alpha"
+rc=0
+MINPATH="$TMP/minpath"
+mkdir -p "$MINPATH"
+ln -sfn /usr/bin/bash "$MINPATH/bash"
+printf 'alpha\n' | HF_MENU_NO_WAIT=1 PATH="$MINPATH" "$MENU" Prompt >/dev/null 2>&1 || rc=$?
+check "menu with no picker exits 3" test "$rc" -eq 3
+
+BAR_ROOT="$TMP/barroot"
+mkdir -p "$BAR_ROOT/bin"
+printf '%s\n' '#!/bin/sh' 'printf "%s\n" "$*"' >"$BAR_ROOT/bin/hyperforge-action"
+chmod +x "$BAR_ROOT/bin/hyperforge-action"
+check_eq "command bar launches the chosen action" \
+  "$(HF_MENU_NO_WAIT=1 HF_MENU_CMD="$PICK" HYPERFORGE_LINUX_ROOT="$BAR_ROOT" "$HERE/hyperforge-bar" command-bar)" \
+  "win-left"
+check_eq "bar resolves a label" "$("$HERE/hyperforge-bar" --resolve 'Snap left')" "win-left"
+
+APP_HOME="$TMP/appscfg"
+APP_BIN="$TMP/appbin"
+mkdir -p "$APP_HOME/hyperforge-linux" "$APP_BIN"
+printf '%s\n' '#!/bin/sh' 'printf "launched\n"' >"$APP_BIN/hf-term"
+chmod +x "$APP_BIN/hf-term"
+printf 'term=%s\n' "$APP_BIN/hf-term" >"$APP_HOME/hyperforge-linux/apps.conf"
+check_eq "apps.conf term slot" \
+  "$(XDG_CONFIG_HOME="$APP_HOME" "$ACTION" term)" "launched"
+
 # ── systemd units ─────────────────────────────────────────────────────
 echo
 echo "systemd units"
@@ -510,6 +722,8 @@ check "kanata unit points at hyperforge.kbd" \
   grep -q 'hyperforge.kbd' "$ROOT/systemd/hyperforge-kanata.service"
 check "clipboard unit runs hyperforge-clip watch" \
   grep -q 'hyperforge-clip watch' "$ROOT/systemd/hyperforge-clipboard.service"
+check "snap unit runs hyperforge-snap watch" \
+  grep -q 'hyperforge-snap watch' "$ROOT/systemd/hyperforge-snap.service"
 check "snippets path unit watches snippets.conf" \
   grep -q 'snippets.conf' "$ROOT/systemd/hyperforge-snippets.path"
 check "snippets oneshot runs --sync" \

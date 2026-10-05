@@ -5,6 +5,7 @@
 set -euo pipefail
 
 have() { command -v "$1" >/dev/null 2>&1; }
+MENU="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)/hyperforge-menu"
 
 clip_get() {
   if have wl-paste; then wl-paste 2>/dev/null || true
@@ -83,13 +84,16 @@ case "${1:-}" in
   --list) list_ids ;;
   apply) apply "${2:?id}" ;;
   --pick)
-    if have omarchy-menu-select; then
-      chosen="$(list_ids | awk -F'\t' '{print $2}' | omarchy-menu-select "Paste transform")" || exit 0
-      id="$(list_ids | awk -F'\t' -v c="$chosen" '$2==c{print $1; exit}')"
-    else
-      echo "need omarchy-menu-select (or run: $0 apply <id>)" >&2
+    set +e
+    chosen="$(list_ids | awk -F'\t' '{print $2}' | "$MENU" "Paste transform")"
+    rc=$?
+    set -e
+    if (( rc == 3 )); then
+      echo "need omarchy-menu-select, rofi, wofi, or fuzzel (or run: $0 apply <id>)" >&2
       exit 1
     fi
+    (( rc == 0 )) || exit 0
+    id="$(list_ids | awk -F'\t' -v c="$chosen" '$2==c {print $1; exit}')"
     [[ -n "${id:-}" ]] && apply "$id"
     ;;
   *) echo "unknown: $1" >&2; exit 2 ;;

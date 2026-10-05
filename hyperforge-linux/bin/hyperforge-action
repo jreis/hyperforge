@@ -42,6 +42,32 @@ clip_set() {
   fi
 }
 
+# apps.conf overrides the built-in search list. A missing command falls through.
+try_slot() {
+  local key="$1" conf="${XDG_CONFIG_HOME:-$HOME/.config}/hyperforge-linux/apps.conf"
+  local line val cmd
+  local -a argv=()
+  [[ -f "$conf" ]] || return 1
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+    if [[ "$line" =~ ^[[:space:]]*${key}=(.*)$ ]]; then
+      val="${BASH_REMATCH[1]}"
+      val="${val#"${val%%[![:space:]]*}"}"
+      val="${val%"${val##*[![:space:]]}"}"
+      [[ -n "$val" ]] || return 1
+      read -r -a argv <<<"$val"
+      cmd="${argv[0]}"
+      if have "$cmd" || [[ -x "$cmd" ]]; then
+        exec "${argv[@]}"
+      fi
+      notify "$key: $cmd from apps.conf was not found"
+      return 1
+    fi
+  done <"$conf"
+  return 1
+}
+
 id="${1:-}"
 case "$id" in
   ""|-h|--help)
@@ -133,6 +159,7 @@ case "$id" in
     ;;
 
   term)
+    try_slot term || true
     if have ghostty; then exec ghostty
     elif have kitty; then exec kitty
     elif have alacritty; then exec alacritty
@@ -143,6 +170,7 @@ case "$id" in
     fi
     ;;
   browser)
+    try_slot browser || true
     if have firefox; then exec firefox
     elif have google-chrome; then exec google-chrome
     elif have chromium; then exec chromium
@@ -152,6 +180,7 @@ case "$id" in
     fi
     ;;
   editor)
+    try_slot editor || true
     if have zed; then exec zed
     elif have code; then exec code
     elif have nvim; then exec x-terminal-emulator -e nvim 2>/dev/null || exec nvim
@@ -159,6 +188,7 @@ case "$id" in
     fi
     ;;
   files)
+    try_slot files || true
     if have nautilus; then exec nautilus
     elif have dolphin; then exec dolphin
     elif have thunar; then exec thunar

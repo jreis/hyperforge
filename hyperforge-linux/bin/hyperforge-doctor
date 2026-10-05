@@ -131,6 +131,8 @@ echo "HyperForge files"
 [[ -x "$ROOT/bin/hyperforge-pin" ]] && pass "hyperforge-pin" || soft "hyperforge-pin missing — run install.sh"
 [[ -x "$ROOT/bin/hyperforge-paste" ]] && pass "hyperforge-paste" || soft "hyperforge-paste missing — run install.sh"
 [[ -x "$ROOT/bin/hyperforge-bar" ]] && pass "hyperforge-bar" || soft "hyperforge-bar missing — run install.sh"
+[[ -x "$ROOT/bin/hyperforge-nav" ]] && pass "hyperforge-nav" || soft "hyperforge-nav missing — run install.sh"
+[[ -x "$ROOT/bin/hyperforge-menu" ]] && pass "hyperforge-menu" || soft "hyperforge-menu missing — run install.sh"
 have grim && have slurp && pass "grim + slurp (region pin)" \
   || soft "grim + slurp needed for Hyper+N region pin"
 python3 -c 'import gi; gi.require_version("Gtk","4.0"); from gi.repository import Gtk' >/dev/null 2>&1 \
@@ -172,13 +174,21 @@ else
   soft "hyperforge-snippets.path not enabled — systemctl --user enable --now hyperforge-snippets.path"
 fi
 if have omarchy-menu-select; then
-  pass "omarchy-menu-select (snippet/clipboard picker)"
+  pass "omarchy-menu-select (command bar, paste, snippets, clipboard)"
 elif have rofi; then
-  pass "rofi (snippet/clipboard picker)"
+  pass "rofi (command bar, paste, snippets, clipboard)"
 elif have wofi; then
-  pass "wofi (snippet/clipboard picker)"
+  pass "wofi (command bar, paste, snippets, clipboard)"
+elif have fuzzel; then
+  pass "fuzzel (command bar, paste, snippets, clipboard)"
 else
-  soft "install rofi/wofi, or use Omarchy (omarchy-menu-select) for Hyper+, / Hyper+P"
+  soft "install rofi, wofi, or fuzzel — or use Omarchy — for Hyper+' / Hyper+V / Hyper+, / Hyper+P"
+fi
+APPS_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hyperforge-linux/apps.conf"
+if [[ -f "$APPS_CONF" ]]; then
+  pass "apps.conf (term / browser / editor / files slots)"
+else
+  soft "no apps.conf — Hyper+T/1/2/F use the built-in search list"
 fi
 
 echo
@@ -197,14 +207,25 @@ else
 fi
 
 echo
+echo "Window snap reflow (Hyprland)"
+if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+  if systemctl --user is-active --quiet hyperforge-snap.service 2>/dev/null; then
+    pass "hyperforge-snap.service running"
+  else
+    soft "hyperforge-snap.service not running — systemctl --user enable --now hyperforge-snap.service"
+  fi
+fi
+
+echo
 echo "Optional helpers"
 have notify-send && pass "notify-send" || soft "notify-send (desktop toasts)"
 have wtype && pass "wtype (type into focused apps on Wayland)" || soft "wtype or ydotool for typing into focused apps"
 have wl-copy && pass "wl-copy" || soft "wl-clipboard for Wayland copy"
 
 echo
-echo "macOS-only (no Linux equivalent shipped here): Ollama command bar,"
-echo "Shortcuts integration, AX recipe recording, profiles/auto-triggers."
+echo "Command bar (Hyper+') runs this kit's actions. It does not call Ollama."
+echo "macOS-only (no Linux equivalent shipped here): Shortcuts integration,"
+echo "AX recipe recording, profiles/auto-triggers."
 
 echo
 echo "Summary: $ok ok · $warn warnings · $fail failures"
