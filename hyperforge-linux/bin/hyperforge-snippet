@@ -315,13 +315,14 @@ def macro_term(ch):
     @@ matches while Shift is still down. Right Shift is still down when the
     sequence action starts (kanata only auto-releases Left Shift), so a plain
     `j` would come out as `J`. (unshift j) types j either way. Shifted glyphs
-    use an S- chord, which presses Shift itself, so @ still works after Shift
-    has already been released. Bare 0-9 inside a macro are delays — DigitN.
+    are RS- chords. S- presses left shift, and with right shift still held
+    Hyprland latches that onto the next key (jmreis@Gmail.com). RS- does not,
+    held left shift or not. Bare 0-9 inside a macro are delays — DigitN.
     """
     if ch in PLAIN:
         return "(unshift " + digitify(PLAIN[ch]) + ")"
     if ch in SHIFT:
-        return "S-" + digitify(SHIFT[ch])
+        return "RS-" + digitify(SHIFT[ch])
     return None
 
 
@@ -337,7 +338,7 @@ def macro_action(exp):
         if term is None:
             return None
         parts.append(term)
-    # 5ms between items. Without it, the S- chord for @ is released before
+    # 5ms between items. Without it, the RS- chord for @ is released before
     # the key lands and the next (unshift) overlaps it, so @@ becomes "yo2u".
     # Kanata's macro docs require this gap around unmod/unshift.
     return "(macro " + " 5 ".join(parts) + ")"

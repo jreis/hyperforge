@@ -424,11 +424,11 @@ compile_skips_date_format() { grep -q date_format <<<"$compiled" && return 1; re
 check "compile does not emit date_format" compile_skips_date_format
 # Static text is a kanata macro. Shelling out waited for Shift to lift (@@ is
 # typed with Shift held) and then started wtype. {{tokens}} still use --type.
-email_macro='(macro (unshift y) 5 (unshift o) 5 (unshift u) 5 S-Digit2 5 (unshift e) 5 (unshift x) 5 (unshift a) 5 (unshift m) 5 (unshift p) 5 (unshift l) 5 (unshift e) 5 (unshift .) 5 (unshift c) 5 (unshift o) 5 (unshift m))'
+email_macro='(macro (unshift y) 5 (unshift o) 5 (unshift u) 5 RS-Digit2 5 (unshift e) 5 (unshift x) 5 (unshift a) 5 (unshift m) 5 (unshift p) 5 (unshift l) 5 (unshift e) 5 (unshift .) 5 (unshift c) 5 (unshift o) 5 (unshift m))'
 check "@@ compiles to an in-kanata macro" grep -Fq "$email_macro" <<<"$compiled"
 compile_at_does_not_shell() { ! grep -Fq -- '--type "@@"' <<<"$compiled"; }
 check "@@ does not shell out" compile_at_does_not_shell
-sig_macro='(macro S-t 5 (unshift h) 5 (unshift a) 5 (unshift n) 5 (unshift k) 5 (unshift s) 5 (unshift ,) 5 (unshift ret) 5 S-y 5 (unshift o) 5 (unshift u) 5 (unshift r) 5 (unshift spc) 5 S-n 5 (unshift a) 5 (unshift m) 5 (unshift e))'
+sig_macro='(macro RS-t 5 (unshift h) 5 (unshift a) 5 (unshift n) 5 (unshift k) 5 (unshift s) 5 (unshift ,) 5 (unshift ret) 5 RS-y 5 (unshift o) 5 (unshift u) 5 (unshift r) 5 (unshift spc) 5 RS-n 5 (unshift a) 5 (unshift m) 5 (unshift e))'
 check ",sig newline is ret inside a macro" grep -Fq "$sig_macro" <<<"$compiled"
 check "token trigger still shells out" grep -Fq -- '--type ",date"' <<<"$compiled"
 check "clipboard trigger still shells out" grep -Fq -- '--type ",v"' <<<"$compiled"
@@ -440,8 +440,8 @@ mkdir -p "$PUN_HOME/hyperforge-linux"
 printf '%s\n' '@@=a2@b' ',q=a"b' ',bad=hi 😀' ',d={{date}}' \
   >"$PUN_HOME/hyperforge-linux/snippets.conf"
 pun="$(XDG_CONFIG_HOME="$PUN_HOME" "$SNIP" --compile-kanata -)"
-check "digit in expansion is DigitN" grep -Fq '(unshift a) 5 (unshift Digit2) 5 S-Digit2 5 (unshift b)' <<<"$pun"
-check "quote in expansion is S-'" grep -Fq "(unshift a) 5 S-' 5 (unshift b)" <<<"$pun"
+check "digit in expansion is DigitN" grep -Fq '(unshift a) 5 (unshift Digit2) 5 RS-Digit2 5 (unshift b)' <<<"$pun"
+check "quote in expansion is RS-'" grep -Fq "(unshift a) 5 RS-' 5 (unshift b)" <<<"$pun"
 check "unmappable expansion shells out" grep -Fq -- '--type ",bad"' <<<"$pun"
 check "token expansion shells out beside macros" grep -Fq -- '--type ",d"' <<<"$pun"
 
