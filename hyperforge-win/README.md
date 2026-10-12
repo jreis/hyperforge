@@ -119,6 +119,7 @@ support the same `{{token}}` set as macOS HyperForge:
 | `{{hostname}}` | This machine's name |
 | `{{uuid}}` | A fresh random UUID |
 | `{{lan-ip}}` | First non-loopback IPv4 address |
+| `{{env:NAME}}` | That variable from this process (`[A-Za-z_][A-Za-z0-9_]*`). An unset or illegal name is left as written. |
 
 `\n` / `\t` still expand to a real newline/tab for multi-line snippets.
 
@@ -160,7 +161,7 @@ The script exits 0 and prints `ok`. It covers snap-border math, undo order, clip
 |--|-------|---------|
 | Hyper | F18 / 4-mod + Karabiner, tap = Escape | Caps → `#^!+`, tap = Escape |
 | Window pad | Arrows · numpad · thirds/2-thirds/almost-max · 6 tile · Z undo | **Same chords**, 2/3 + almost-max on I/O/U (no Shift disambiguation) |
-| Snippets | `{{date/clipboard/hostname/uuid/lan-ip}}` hotstrings | **Same tokens**, AHK `:*:` hotstrings |
+| Snippets | `{{date/clipboard/hostname/uuid/lan-ip/env}}` hotstrings | **Same tokens**, AHK `:*:` hotstrings |
 | Clipboard history | Hyper+V panel, persisted/pinned/searchable | Hyper+P Gui panel, persisted/pinned/searchable |
 | Space layer | Built-in (TouchCursor-style) | **TouchCursor** (external) |
 | Profiles / auto-triggers | Wi‑Fi / app / time, per-app overrides | Not ported — use `[mute]` for a coarse per-process on/off instead |

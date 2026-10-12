@@ -405,6 +405,20 @@ check_eq "expand hostname" \
   "$("$SNIP" --expand '{{hostname}}')" "$(hostname)"
 check_eq "expand literal newlines" \
   "$("$SNIP" --expand 'a\nb')" "$(printf 'a\nb')"
+check_eq "expand env" \
+  "$(HF_SMOKE_ENV=ok "$SNIP" --expand '{{env:HF_SMOKE_ENV}}')" "ok"
+check_eq "missing env stays" \
+  "$("$SNIP" --expand '{{env:HF_NO_SUCH_ENV_ZZ}}')" '{{env:HF_NO_SUCH_ENV_ZZ}}'
+check_eq "illegal env name stays" \
+  "$("$SNIP" --expand '{{env:NOT-A}}')" '{{env:NOT-A}}'
+check_eq "env dot form is not a token" \
+  "$(HF_SMOKE_ENV=ok "$SNIP" --expand '{{env.HF_SMOKE_ENV}}')" '{{env.HF_SMOKE_ENV}}'
+check_eq "empty env expands empty" \
+  "$(HF_SMOKE_ENV= "$SNIP" --expand 'a{{env:HF_SMOKE_ENV}}b')" "ab"
+check_eq "env value is not reparsed" \
+  "$(HF_SMOKE_ENV='{{env:HOME}}' "$SNIP" --expand 'x{{env:HF_SMOKE_ENV}}y')" 'x{{env:HOME}}y'
+check_eq "env value keeps an interior newline" \
+  "$(HF_SMOKE_ENV="$(printf 'a\nb')" "$SNIP" --expand 'x{{env:HF_SMOKE_ENV}}y')" "$(printf 'xa\nby')"
 
 check_eq "keys @@" "$(snip --keys '@@')" "(S-(Digit2 Digit2)) (S-2 S-2)"
 check_eq "keys ,sig" "$(snip --keys ',sig')" "(, s i g)"
@@ -437,13 +451,14 @@ check "clipboard trigger still shells out" grep -Fq -- '--type ",v"' <<<"$compil
 # falls back to --type so it still expands, just not in-process.
 PUN_HOME="$TMP/pun"
 mkdir -p "$PUN_HOME/hyperforge-linux"
-printf '%s\n' '@@=a2@b' ',q=a"b' ',bad=hi 😀' ',d={{date}}' \
+printf '%s\n' '@@=a2@b' ',q=a"b' ',bad=hi 😀' ',d={{date}}' ',e={{env:HOME}}' \
   >"$PUN_HOME/hyperforge-linux/snippets.conf"
 pun="$(XDG_CONFIG_HOME="$PUN_HOME" "$SNIP" --compile-kanata -)"
 check "digit in expansion is DigitN" grep -Fq '(unshift a) 5 (unshift Digit2) 5 RS-Digit2 5 (unshift b)' <<<"$pun"
 check "quote in expansion is RS-'" grep -Fq "(unshift a) 5 RS-' 5 (unshift b)" <<<"$pun"
 check "unmappable expansion shells out" grep -Fq -- '--type ",bad"' <<<"$pun"
 check "token expansion shells out beside macros" grep -Fq -- '--type ",d"' <<<"$pun"
+check "env expansion shells out" grep -Fq -- '--type ",e"' <<<"$pun"
 
 # --seed adds missing macOS triggers without clobbering existing keys.
 SEED_HOME="$TMP/seed"

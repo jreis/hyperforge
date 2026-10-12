@@ -6,6 +6,7 @@ import AppKit
 import Combine
 import CoreGraphics
 import Foundation
+import HyperForgeKit
 
 struct TextSnippet: Identifiable, Codable, Equatable, Sendable {
     var id: UUID = UUID()
@@ -199,10 +200,11 @@ final class SnippetEngine: @unchecked Sendable {
         HyperLog.event("Snippet expanded \(trigger)")
     }
 
-    // Token set is intentionally closed and enumerable (date/clipboard/hostname/uuid/lan-ip).
+    // Token set is intentionally closed and enumerable
+    // (date/clipboard/hostname/uuid/lan-ip/env).
     // Never add a `{{shell:...}}` or `{{applescript:...}}` token here — this engine fires on
     // typed text, so an arbitrary-exec token would let any typed or pasted-in trigger string
-    // run code on expansion.
+    // run code on expansion. `{{env:NAME}}` only reads one identifier from this process.
     private static func resolve(_ template: String) -> String {
         // Support both real newlines (from the editor) and typed "\n" / "\t" escapes.
         var out = template
@@ -226,7 +228,7 @@ final class SnippetEngine: @unchecked Sendable {
         if out.contains("{{lan-ip}}") {
             out = out.replacingOccurrences(of: "{{lan-ip}}", with: lanIPAddress() ?? "")
         }
-        return out
+        return SnippetTokens.resolveEnv(out, environment: ProcessInfo.processInfo.environment)
     }
 
     /// First non-loopback IPv4 address via `getifaddrs` — sync syscall, no process spawn,

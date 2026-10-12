@@ -146,6 +146,15 @@ Assert(!InStr(expanded, "{{date"), "date tokens consumed")
 Assert(!InStr(expanded, "{{hostname}}"), "hostname token consumed")
 Assert(InStr(expanded, A_ComputerName), "hostname value")
 Assert(RegExMatch(ResolveSnippetTokens("{{uuid}}"), "^[0-9A-F]{8}-"), "uuid token")
+EnvSet("HF_SMOKE_ENV", "ok")
+AssertEq(ResolveSnippetTokens("{{env:HF_SMOKE_ENV}}"), "ok", "env token")
+EnvSet("HF_SMOKE_ENV", "")
+AssertEq(ResolveSnippetTokens("a{{env:HF_SMOKE_ENV}}b"), "ab", "empty env token")
+EnvSet("HF_SMOKE_ENV", "{{env:PATH}}")
+AssertEq(ResolveSnippetTokens("{{env:HF_SMOKE_ENV}}"), "{{env:PATH}}", "env value is literal")
+AssertEq(ResolveSnippetTokens("{{env:HF_NO_SUCH_ENV_ZZ}}"), "{{env:HF_NO_SUCH_ENV_ZZ}}", "missing env stays")
+AssertEq(ResolveSnippetTokens("{{env:NOT-A}}"), "{{env:NOT-A}}", "illegal env name stays")
+Assert(ResolveSnippetTokens("{{env:PATH}}") != "{{env:PATH}}", "env PATH expands")
 
 ; ── backup json ─────────────────────────────────────────────────────────
 cfg := "vscode=C:\Program Files\Code.exe`r`n,sig=Thanks,\nYour Name`nquote=`"hi`""

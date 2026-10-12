@@ -1,7 +1,7 @@
 ; Snippets.ahk — hotstrings from config [snippets]
 ; Token syntax matches macOS HyperForge's SnippetStore: {{date}}, {{date:FORMAT}},
-; {{clipboard}}, {{hostname}}, {{uuid}}, {{lan-ip}}. `\n` / `\t` still expand to
-; newline/tab for multi-line snippets (e.g. tj = sign-off).
+; {{clipboard}}, {{hostname}}, {{uuid}}, {{lan-ip}}, {{env:NAME}}. `\n` / `\t`
+; still expand to newline/tab for multi-line snippets (e.g. tj = sign-off).
 
 RegisterSnippets() {
     ; Built-in useful defaults (override via config.ini [snippets])
@@ -39,9 +39,10 @@ _snippetHandler(expansion, *) {
     SendText ResolveSnippetTokens(expansion)
 }
 
-; Token set intentionally mirrors macOS: date / clipboard / hostname / uuid / lan-ip.
+; Token set intentionally mirrors macOS: date / clipboard / hostname / uuid / lan-ip / env.
 ; Never add a shell/run token here — this fires on typed text, so an arbitrary-exec
 ; token would let any typed or pasted-in trigger string run code on expansion.
+; {{env:NAME}} only reads one [A-Za-z_][A-Za-z0-9_]* name from this process.
 ResolveSnippetTokens(template) {
     out := StrReplace(template, "\n", "`n")
     out := StrReplace(out, "\t", "`t")
@@ -54,7 +55,39 @@ ResolveSnippetTokens(template) {
         out := StrReplace(out, "{{uuid}}", GenerateUUID())
     if InStr(out, "{{lan-ip}}")
         out := StrReplace(out, "{{lan-ip}}", LanIPAddress())
+    return _resolveEnvTokens(out)
+}
+
+; Unset or illegal names stay in the text. Values are inserted literally.
+_resolveEnvTokens(template) {
+    if !InStr(template, "{{env:")
+        return template
+    out := template
+    pos := 1
+    loop {
+        start := RegExMatch(out, "\{\{env:([A-Za-z_][A-Za-z0-9_]*)\}\}", &m, pos)
+        if !start
+            break
+        val := ""
+        if _readEnv(m[1], &val) {
+            out := SubStr(out, 1, start - 1) val SubStr(out, start + m.Len[0])
+            pos := start + StrLen(val)
+        } else {
+            pos := start + m.Len[0]
+        }
+    }
     return out
+}
+
+; True when the variable exists, including when its value is empty.
+_readEnv(name, &value) {
+    need := DllCall("GetEnvironmentVariableW", "WStr", name, "Ptr", 0, "UInt", 0, "UInt")
+    if (need = 0)
+        return false
+    buf := Buffer(need * 2, 0)
+    got := DllCall("GetEnvironmentVariableW", "WStr", name, "Ptr", buf, "UInt", need, "UInt")
+    value := got = 0 ? "" : StrGet(buf, "UTF-16")
+    return true
 }
 
 ; `{{date}}` uses config.ini [snippets] date_format (default yyyy-MM-dd);

@@ -13,10 +13,12 @@
 # Static expansions are kanata macros (typed in-process). Expansions that contain
 # {{tokens}} still shell out to --type, because the text is not known at sync time.
 # Tokens (same set as macOS SnippetStore): {{date}}, {{date:yyyy-MM-dd}} (per-token
-# format override), {{clipboard}}, {{hostname}}, {{uuid}}, {{lan-ip}}. `\n` expands
-# to a real newline for multi-line snippets. Never add a shell/exec token here —
-# this types whatever a config line says, so an exec token would let a hijacked
-# config (or a copy-pasted "snippet") run arbitrary commands on expansion.
+# format override), {{clipboard}}, {{hostname}}, {{uuid}}, {{lan-ip}},
+# {{env:NAME}}. `\n` expands to a real newline for multi-line snippets. Never add
+# a shell/exec token here — this types whatever a config line says, so an exec
+# token would let a hijacked config (or a copy-pasted "snippet") run arbitrary
+# commands on expansion. {{env:NAME}} only reads one [A-Za-z_][A-Za-z0-9_]* name
+# from this process.
 set -euo pipefail
 
 CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hyperforge-linux"
@@ -167,6 +169,33 @@ lan_ip() {
   printf '%s' "$ip"
 }
 
+# {{env:NAME}} reads this process, not a shell. NAME is [A-Za-z_][A-Za-z0-9_]*.
+# Unset or illegal names stay in the text. Values are inserted literally.
+# printenv (not ${!name}) so a local in this script cannot shadow the variable.
+resolve_env_tokens() {
+  local rest="$1" out="" name raw value nl_one
+  nl_one="$(printf '\nx')"; nl_one="${nl_one%x}"
+  while [[ "$rest" == *"{{env:"* ]]; do
+    out+="${rest%%\{\{env:*}"
+    rest="${rest#*\{\{env:}"
+    if [[ "$rest" != *"}}"* ]]; then
+      out+="{{env:${rest}"
+      rest=""
+      break
+    fi
+    name="${rest%%\}\}*}"
+    rest="${rest#*\}\}}"
+    if [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && raw="$(printenv "$name" && printf x)"; then
+      raw="${raw%x}"
+      value="${raw%"$nl_one"}"
+      out+="$value"
+    else
+      out+="{{env:${name}}}"
+    fi
+  done
+  printf '%s' "${out}${rest}"
+}
+
 resolve_tokens() {
   local out="$1" nl tab
   nl="$(printf '\nx')"; nl="${nl%x}"
@@ -196,7 +225,11 @@ resolve_tokens() {
   [[ "$out" == *"{{hostname}}"* ]] && out="${out//\{\{hostname\}\}/$(hostname)}"
   [[ "$out" == *"{{uuid}}"* ]] && out="${out//\{\{uuid\}\}/$(gen_uuid)}"
   [[ "$out" == *"{{lan-ip}}"* ]] && out="${out//\{\{lan-ip\}\}/$(lan_ip)}"
-  printf '%s' "$out"
+  # Preserve a trailing newline that command substitution would otherwise eat.
+  local expanded
+  expanded="$(resolve_env_tokens "$out"; printf x)"
+  expanded="${expanded%x}"
+  printf '%s' "$expanded"
 }
 
 list_names() {
@@ -301,7 +334,7 @@ def sequences_for(trigger):
 def static_text(exp):
     """Expansion with \\n and \\t applied, or None when a runtime token remains.
 
-    {{date}}, {{clipboard}}, {{uuid}}, and the rest are filled in by --type.
+    {{date}}, {{clipboard}}, {{uuid}}, {{env:NAME}}, and the rest are filled in by --type.
     A macro would bake in whatever they were at sync time.
     """
     if "{{" in exp:

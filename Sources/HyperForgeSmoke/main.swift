@@ -495,6 +495,15 @@ struct HyperForgeSmoke {
         }())
         check("empty input produces no steps", RecordingCoalescer.toSteps(clicks: [], keys: []) == [])
 
+        print("\nSnippet tokens")
+        let env = ["HOME": "/tmp/home", "EMPTY": "", "NEST": "{{env:HOME}}"]
+        check("env token reads the name", SnippetTokens.resolveEnv("{{env:HOME}}", environment: env) == "/tmp/home")
+        check("env token leaves an unset name", SnippetTokens.resolveEnv("{{env:NOPE}}", environment: env) == "{{env:NOPE}}")
+        check("env token leaves an illegal name", SnippetTokens.resolveEnv("{{env:NOT-A}}", environment: env) == "{{env:NOT-A}}")
+        check("empty env value expands empty", SnippetTokens.resolveEnv("a{{env:EMPTY}}b", environment: env) == "ab")
+        check("env value is not reparsed", SnippetTokens.resolveEnv("{{env:NEST}}", environment: env) == "{{env:HOME}}")
+        check("two env tokens", SnippetTokens.resolveEnv("{{env:HOME}}-{{env:EMPTY}}", environment: env) == "/tmp/home-")
+
         print("\nAX click wait policy")
         check("2s / 0.5s is 5 tries", AXClickWaitPolicy.attemptCount(timeout: 2.0, interval: 0.5) == 5)
         check("zero interval is one try", AXClickWaitPolicy.attemptCount(timeout: 2.0, interval: 0) == 1)

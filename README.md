@@ -82,7 +82,7 @@ swift run   # launch the app from the build product
 - **Per-app Space block list** — e.g. keep Terminal normal; allow Ghostty (editable in Settings)  
 - **Profiles & auto-triggers** — Coding / Browsing / Music / Minimal; Wi‑Fi, app, or time  
 - **Per-app Hyper overrides** — disable or remap chords per bundle ID  
-- **Snippets** — local hotstrings; `{{date}}` with custom formats; clipboard / hostname / uuid / lan-ip tokens  
+- **Snippets** — local hotstrings; `{{date}}` with custom formats; clipboard / hostname / uuid / lan-ip / env tokens  
 - **Shortcuts** — Hyper + `'` or ⇧S → run installed macOS Shortcuts  
 - **Scripts** — Hyper + ⇧Y → run saved JavaScript automations (`HF.snap`, `HF.notify`, `HF.clipboardGet/Set`, …); also in Command Bar / Quick Menu  
 - **Workspaces** — Hyper + ⇧L → picker for saved window layouts (Settings → Workspaces to capture/name); also in Command Bar / Quick Menu  
@@ -289,7 +289,7 @@ A full CGEvent-tap engine fits **direct download / open source** better than the
 
 ## Windows (AutoHotkey)
 
-A companion **AHK v2** toolkit lives in [`hyperforge-win/`](hyperforge-win/): Caps → Hyper, **macOS-aligned window pad** (arrows, numpad spatial pad, thirds/two-thirds/almost-max, Hyper+6 tile-all, Z undo), `{{token}}` **snippets** (date/clipboard/hostname/uuid/lan-ip), a persisted/pinned/searchable **clipboard history** (Hyper+P), paste-transform menu, Explorer helpers. **Space-layer nav stays with TouchCursor** on Windows. App letter chords stay Windows-native.
+A companion **AHK v2** toolkit lives in [`hyperforge-win/`](hyperforge-win/): Caps → Hyper, **macOS-aligned window pad** (arrows, numpad spatial pad, thirds/two-thirds/almost-max, Hyper+6 tile-all, Z undo), `{{token}}` **snippets** (date/clipboard/hostname/uuid/lan-ip/env), a persisted/pinned/searchable **clipboard history** (Hyper+P), paste-transform menu, Explorer helpers. **Space-layer nav stays with TouchCursor** on Windows. App letter chords stay Windows-native.
 
 ```text
 hyperforge-win/HyperForge.ahk   # run with AutoHotkey v2

@@ -162,6 +162,7 @@ trigger like `@@` or `,sig` replaces itself (kanata `sequence-always-on` +
 | `{{hostname}}` | This machine's name |
 | `{{uuid}}` | A fresh random UUID |
 | `{{lan-ip}}` | First non-loopback IPv4 address |
+| `{{env:NAME}}` | That variable from this process (`[A-Za-z_][A-Za-z0-9_]*`). An unset or illegal name is left as written. |
 
 `\n` expands to a real newline. Triggers that contain punctuation (`@@`, `,sig`,
 `,date`) expand as you type; all-letter names stay picker-only so typing the
