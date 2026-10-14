@@ -1,10 +1,15 @@
 ; Pure-logic checks for HyperForge on Windows. No hotkeys, no windows moved.
-;   AutoHotkey64.exe tests\smoke.ahk
-; Exits 0 on success.
+;   AutoHotkey64.exe /ErrorStdOut tests\smoke.ahk
+; Prints "ok <n>" and exits 0 on success. Exit 1 = assertion failures,
+; exit 2 = unexpected runtime error. Warnings print to stdout, not a dialog.
+; Includes resolve from A_ScriptDir, i.e. tests\, so ..\lib is the repo's lib\.
 
 #Requires AutoHotkey v2.0+
 #NoTrayIcon
 #SingleInstance Off
+#Warn All, StdOut
+; Lib locals often share a name with a test global (dir, m, cfg…); that's harmless noise.
+#Warn LocalSameAsGlobal, Off
 
 #Include "%A_ScriptDir%\..\lib\Config.ahk"
 #Include "%A_ScriptDir%\..\lib\Utils.ahk"
@@ -23,7 +28,27 @@
 #Include "%A_ScriptDir%\..\lib\Doctor.ahk"
 #Include "%A_ScriptDir%\..\lib\Catalog.ahk"
 #Include "%A_ScriptDir%\..\lib\Backup.ahk"
+#Include "%A_ScriptDir%\..\lib\Scripts.ahk"
+#Include "%A_ScriptDir%\..\lib\Workspaces.ahk"
+#Include "%A_ScriptDir%\..\lib\SystemControls.ahk"
 #Include "%A_ScriptDir%\..\lib\Tray.ahk"
+
+; Scripts seeds example .ahk files here; removed on every exit (ok, FAIL or ERROR),
+; since OnExit runs for ExitApp(0), ExitApp(1) and the ExitApp(2) in SmokeOnError.
+SmokeScriptsDir := A_Temp "\hf-smoke-scripts"
+OnExit(SmokeCleanup)
+SmokeCleanup(reason, code) {
+    try DirDelete(SmokeScriptsDir, true)
+    return 0  ; 0 = let the exit continue
+}
+
+; Any uncaught error: print it and exit 2 instead of showing a dialog.
+OnError(SmokeOnError)
+SmokeOnError(e, mode) {
+    FileAppend("ERROR " e.Message " (" e.What " line " e.Line ")`n", "*")
+    ExitApp(2)
+    return 1
+}
 
 fails := 0
 checks := 0
@@ -170,8 +195,55 @@ AssertEq(decoded.config, cfg, "v1 config")
 AssertEq(decoded.clipboard, clipText, "v1 clipboard")
 Assert(!IsObject(DecodeHyperForgeBackup("not json")), "reject junk")
 
+; ── outbound guards (Hyper+W / Hyper+G) ────────────────────────────────
+Assert(LooksLikeWhoisQuery("8.8.8.8"), "ipv4")
+Assert(LooksLikeWhoisQuery(" 10.0.0.0/8 "), "ipv4 cidr trimmed")
+Assert(LooksLikeWhoisQuery("0.0.0.0/0"), "ipv4 /0")
+Assert(!LooksLikeWhoisQuery("10.0.0.0/33"), "ipv4 cidr range")
+Assert(!LooksLikeWhoisQuery("999.1.1.1"), "ipv4 octet range")
+Assert(!LooksLikeWhoisQuery("1.2.3"), "ipv4 too short")
+Assert(LooksLikeWhoisQuery("2001:db8::1"), "ipv6")
+Assert(LooksLikeWhoisQuery("2001:db8::/32"), "ipv6 cidr")
+Assert(LooksLikeWhoisQuery("2001:0db8:0000:0000:0000:0000:0000:0001"), "ipv6 full")
+Assert(LooksLikeWhoisQuery("::1"), "ipv6 loopback")
+Assert(!LooksLikeWhoisQuery("::::"), "ipv6 bad colons")
+Assert(!LooksLikeWhoisQuery("dead:beef"), "ipv6 too few groups")
+Assert(!LooksLikeWhoisQuery("1::2::3"), "ipv6 two ::")
+Assert(!LooksLikeWhoisQuery("2001:db8::12345"), "ipv6 group too long")
+Assert(!LooksLikeWhoisQuery("2001:db8::/129"), "ipv6 cidr range")
+Assert(LooksLikeWhoisQuery("AS12345"), "asn")
+Assert(LooksLikeWhoisQuery("as15169"), "asn lowercase")
+Assert(!LooksLikeWhoisQuery("AS"), "asn no digits")
+Assert(!LooksLikeWhoisQuery("example.com"), "no domains")
+Assert(!LooksLikeWhoisQuery("srv01.corp.local"), "no internal hostnames")
+Assert(!LooksLikeWhoisQuery("P4ssw0rd.Summer"), "no dotted secrets")
+Assert(!LooksLikeWhoisQuery("hunter2"), "plain word")
+Assert(!LooksLikeWhoisQuery("10.0.0.1`nsecret"), "multi-line")
+Assert(LooksLikeSearchQuery("ahk v2 map"), "search ok")
+Assert(!LooksLikeSearchQuery("line1`r`nline2"), "search multi-line")
+Assert(!LooksLikeSearchQuery(StrRepeatSmoke("x", 201)), "search too long")
+Assert(!LooksLikeSearchQuery("   "), "search blank")
+AssertEq(UrlEncode("a b/c?x=1&y"), "a%20b%2Fc%3Fx%3D1%26y", "urlencode ascii")
+AssertEq(UrlEncode("é-_."), "%C3%A9-_.", "urlencode utf-8 + excepts")
+; Confirm-prompt preview (the MsgBox itself isn't exercised here).
+AssertEq(SendPreview("short query"), "short query", "preview short")
+AssertEq(SendPreview("a`tb  c"), "a b c", "preview collapses whitespace")
+AssertEq(StrLen(SendPreview(StrRepeatSmoke("x", 200))), 80, "preview capped at 80")
+AssertEq(SubStr(SendPreview(StrRepeatSmoke("x", 200)), -1), "…", "preview ellipsis")
+AssertEq(StrLen(SendPreview(StrRepeatSmoke("y", 80))), 80, "preview exact 80 untouched")
+
+StrRepeatSmoke(s, n) {
+    out := ""
+    Loop n
+        out .= s
+    return out
+}
+
 ; ── clipboard history ───────────────────────────────────────────────────
 HF_ClipFile := A_Temp "\hf-smoke-clip-" A_TickCount ".dat"
+; History is opt-in and memory-only by default; turn both on for the round trip.
+HFConfig.data["clipboard.enabled"] := "1"
+HFConfig.data["clipboard.persist"] := "1"
 HF_ClipHistory := []
 HFConfig.data["clipboard.max_items"] := "2"
 ClipHistory_Record("a")
@@ -225,6 +297,10 @@ AssertEq(heldB.Call(), "two", "closure keeps second value")
 HFConfig.data["general.caps_to_hyper"] := "0"
 HFConfig.data["general.wheel_accel"] := "0"
 HFConfig.data["general.xbutton1_minimize"] := "0"
+; Opt-in features: enable them so their hotkey names get checked too.
+HFConfig.data["general.keepalive_enabled"] := "1"
+; Scripts seeds example files into scripts_dir; keep that in temp, not tests\scripts.
+HFConfig.data["paths.scripts_dir"] := SmokeScriptsDir
 try Hotkey("^+Space", (*) => ToggleAlwaysOnTop())
 catch as e
     Assert(false, "space hotkey " e.Message)
@@ -242,7 +318,10 @@ for step in [
     ["quick", RegisterQuickMenu],
     ["keepalive", RegisterKeepAlive],
     ["pin", RegisterPinHotkeys],
-    ["catalog", RegisterCatalogHotkeys]
+    ["catalog", RegisterCatalogHotkeys],
+    ["scripts", RegisterScriptsHotkeys],
+    ["workspaces", RegisterWorkspacesHotkeys],
+    ["backup", RegisterBackupHotkeys]
 ] {
     try step[2].Call()
     catch as e
@@ -251,7 +330,7 @@ for step in [
 
 if fails {
     FileAppend(fails " failed of " checks "`n", "*")
-    ExitApp 1
+    ExitApp(1)
 }
 FileAppend("ok " checks "`n", "*")
-ExitApp 0
+ExitApp(0)

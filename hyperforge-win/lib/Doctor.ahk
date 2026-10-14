@@ -22,7 +22,7 @@ ShowDoctor(*) {
 
     global HF_HyperPaused, HF_MuteProcesses, HF_KeepAliveOn
     lines.Push("Hyper paused: " (HF_HyperPaused ? "yes" : "no"))
-    lines.Push("Keep-alive: " (IsSet(HF_KeepAliveOn) && HF_KeepAliveOn ? "on" : "off"))
+    lines.Push("Keep-alive: " (!KeepAliveEnabled() ? "disabled (general.keepalive_enabled=0)" : (IsSet(HF_KeepAliveOn) && HF_KeepAliveOn ? "on" : "off")))
     muteCount := IsSet(HF_MuteProcesses) ? HF_MuteProcesses.Length : 0
     lines.Push("Muted processes: " muteCount)
     if muteCount {
@@ -46,13 +46,19 @@ ShowDoctor(*) {
 
     global HF_ClipHistory
     clipCount := IsSet(HF_ClipHistory) ? HF_ClipHistory.Length : 0
-    lines.Push("Clipboard history: " clipCount " item(s) — Hyper+P")
-    lines.Push("History file: " A_AppData "\HyperForge\clipboard-history.dat")
+    if !ClipHistory_Enabled()
+        lines.Push("Clipboard history: off ([clipboard] enabled=0)")
+    else {
+        lines.Push("Clipboard history: " clipCount " item(s) — Hyper+P")
+        lines.Push("History storage: " (ClipHistory_Persist() ? ClipHistoryFile() : "memory only"))
+    }
+    if FileExist(A_AppData "\HyperForge\clipboard-history.dat")
+        lines.Push("WARNING: old history file in Roaming — delete " A_AppData "\HyperForge\clipboard-history.dat")
     lines.Push("Snippet date format: " HFConfig.Get("snippets.date_format", "yyyy-MM-dd"))
 
     lines.Push("")
     lines.Push("Window pad snaps to the visible frame (invisible borders included).")
-    lines.Push("Hyper+Z undoes the last snap or tile. Hyper+L copies the LAN address.")
+    lines.Push("Hyper+Z undoes the last snap or tile. Hyper+L is Workspaces; copy the LAN address from the command bar.")
     lines.Push("Win+I (Settings) and Win+W (Widgets) are not used.")
     lines.Push("macOS-only: Shortcuts, AX recipes, Ollama command bar.")
 

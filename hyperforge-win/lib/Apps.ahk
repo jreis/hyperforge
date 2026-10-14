@@ -52,7 +52,7 @@ _defaultPath(name) {
         case "notepad":
             return "notepad.exe"
         case "vscode":
-            return "C:\Program Files\Microsoft VS Code\Code.exe"
+            return DefaultVSCodePath()
         case "chrome":
             return "C:\Program Files\Google\Chrome\Application\chrome.exe"
         case "outlook":
@@ -62,6 +62,18 @@ _defaultPath(name) {
         default:
             return ""
     }
+}
+
+; System-wide install first, then the per-user build (the usual one on corporate
+; machines, no admin needed). Falls back to the system path so errors name it.
+DefaultVSCodePath() {
+    system := "C:\Program Files\Microsoft VS Code\Code.exe"
+    if FileExist(system)
+        return system
+    perUser := EnvGet("LOCALAPPDATA") "\Programs\Microsoft VS Code\Code.exe"
+    if FileExist(perUser)
+        return perUser
+    return system
 }
 
 ; Classic Teams if it is still installed; otherwise the Windows 11 execution alias.
@@ -101,6 +113,41 @@ ChromeLaunch(url := "") {
     try Run cmd
     catch
         ShowMsg("Could not start Chrome")
+}
+
+; Hyper+G guard: one line, not huge. Keeps pasted documents, logs and multi-line
+; secrets out of a Google search URL.
+LooksLikeSearchQuery(s, maxLen := 200) {
+    s := Trim(s)
+    return (s != "" && StrLen(s) <= maxLen && !RegExMatch(s, "[\r\n]"))
+}
+
+; One-line preview for confirm prompts: whitespace runs collapsed, cut at maxLen
+; characters with an ellipsis. Pure, so the smoke test can check it.
+SendPreview(s, maxLen := 80) {
+    one := Trim(RegExReplace(s, "\s+", " "))
+    if (StrLen(one) > maxLen)
+        return SubStr(one, 1, maxLen - 1) "…"
+    return one
+}
+
+; Ask before clipboard text leaves the machine. True only on an explicit Yes;
+; No is the default button so a stray Enter sends nothing.
+ConfirmSend(dest, text) {
+    ReleaseHyperModifiers()
+    answer := MsgBox("Send this clipboard text to " dest "?`n`n" SendPreview(text), "HyperForge — confirm send", "YesNo Icon? Default2")
+    return (answer = "Yes")
+}
+
+GoogleClipboard(*) {
+    q := Trim(A_Clipboard)
+    if !LooksLikeSearchQuery(q) {
+        ShowMsg("Google: clipboard is empty, multi-line or too long — nothing sent")
+        return
+    }
+    if !ConfirmSend("Google search", q)
+        return
+    ChromeLaunch("https://www.google.com/search?q=" UrlEncode(q))
 }
 
 LaunchTeams() {
@@ -145,7 +192,7 @@ RegisterAppHotkeys() {
     BindHyper("t", (*) => LaunchTeams(), "send")
     BindHyper("e", (*) => Run("explorer.exe"), "send")
     BindHyper("4", (*) => RunOrActivateOrMinimizeProgram(AppPath("outlook") || _defaultPath("outlook")), "send")
-    BindHyper("g", (*) => ChromeLaunch("https://www.google.com/search?q=" UrlEncode(A_Clipboard)), "send")
+    BindHyper("g", (*) => GoogleClipboard(), "send")
     BindHyper("d", (*) => CloseActive())
     BindHyper("x", (*) => LaunchTerminalHere(), "send")
     BindHyper("r", (*) => LaunchSearchHere(), "send")

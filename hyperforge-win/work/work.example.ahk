@@ -4,12 +4,14 @@
 ; Example: override Hyper+S to open an internal dashboard
 ; Hotkey "#^!+s", (*) => Run(ChromeCmd() " https://example.internal/")
 
-; Example: credential paste (name must exist in Windows Credential Manager).
+; Example: type a password from Windows Credential Manager (the entry must exist).
+; Typed with SendText, never put on the clipboard, so it can't land in clipboard
+; history, cloud clipboard or another app's clipboard monitor.
+; Put the Credential Manager target name in place of the placeholder below.
 ; AHK v2.0 fat arrows can only be expressions, so use a named function for blocks.
-; PasteWorkPassword(*) {
-;     account := Trim(A_Clipboard)
-;     cred := CredRead(account)
+; TypeWorkPassword(*) {
+;     cred := CredRead("YOUR-CREDENTIAL-TARGET")   ; placeholder — not a secret
 ;     if cred
-;         A_Clipboard := cred.password
+;         SendText cred.password
 ; }
-; Hotkey "+F6", PasteWorkPassword
+; Hotkey "+F6", TypeWorkPassword

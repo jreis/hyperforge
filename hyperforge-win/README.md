@@ -18,11 +18,22 @@ Evolved from a long-running personal AutoHotkey toolkit; core is open and config
 
 ## Quick start
 
-1. Install AutoHotkey v2.  
-2. Copy `config.example.ini` → `config.ini` and set your app paths.  
-3. Run `HyperForge.ahk` (double-click or “Open with AutoHotkey”).  
-4. Add to Startup if you want it always on:  
-   shell:startup → shortcut to `HyperForge.ahk`.
+> **Work laptop? Ask IT first.** Many endpoint-security tools (Defender for Endpoint, CrowdStrike, SentinelOne) and AppLocker/WDAC policies flag or block AutoHotkey. HyperForge also installs a global keyboard hook, sends synthetic input, and runs hidden PowerShell for Pin/OCR (see [PowerShell use](#powershell-use)). Get AutoHotkey approved or allow-listed before you run it, rather than finding out from a security alert. Don't compile it to an `.exe` and don't run it as administrator.
+
+1. **Get AutoHotkey v2 without admin rights.** Use either:
+   - the official installer from [autohotkey.com](https://www.autohotkey.com/), choosing the **current user** install option (no UAC prompt), or
+   - the **portable zip** from the same download page, extracted to e.g. `%USERPROFILE%\Tools\AutoHotkey\`. Use `AutoHotkey64.exe` from there.
+2. **Put HyperForge under your profile**, e.g. `%USERPROFILE%\hyperforge-win\`. Not under Program Files (HyperForge writes `config.ini` and `scripts\` next to itself, and those writes fail there) and not in a OneDrive-synced Documents folder.
+3. **If either came from a downloaded zip, unblock it before extracting**, or Windows marks every file (Mark-of-the-Web) and SmartScreen prompts. Right-click the zip → Properties → **Unblock**, or in PowerShell:
+   ```powershell
+   Unblock-File -Path "$env:USERPROFILE\Downloads\hyperforge-win.zip"
+   # already extracted? unblock the folder's files instead:
+   Get-ChildItem "$env:USERPROFILE\hyperforge-win" -Recurse | Unblock-File
+   ```
+4. **Run `HyperForge.ahk`** (double-click, or drag it onto `AutoHotkey64.exe` for the portable build). On first run it copies `config.example.ini` to `config.ini`.
+5. **Edit `config.ini`** for your machine (app paths are optional; blanks use defaults), then tray → **Reload HyperForge**. Clipboard history and keep-alive are off until you turn them on there.
+6. **Add it to Startup:** tray → **Install Startup shortcut**. That writes `HyperForge.lnk` into your Startup folder (`shell:startup`), pointing at the AutoHotkey you ran it with. No admin prompt. To undo, delete that `.lnk`.
+7. **Run Doctor:** tray → **Doctor — health check**. It shows whether Caps→Hyper is on, the Startup shortcut, the Chrome debug port, clipboard-history and keep-alive state, and warnings such as an old Roaming clipboard-history file.
 
 ## Hyper (Caps Lock)
 
@@ -80,7 +91,7 @@ almost-max get their own keys (I / O / U) instead.
 | Hyper + M | Copy hostname |
 | Hyper + W | ARIN whois on clipboard |
 | Command bar | Copy LAN IPv4 address |
-| Hyper + K | Keep-alive toggle (also Win + J) |
+| Hyper + K | Keep-alive toggle (also Win + J) — **off unless `general.keepalive_enabled=1`** |
 | Win + Esc | Pause / resume Hyper (default 30s) |
 | Ctrl+Alt+Shift+V | Paste transform menu |
 | XButton2 | Quick menu (windows + favorites) |
@@ -89,19 +100,52 @@ Snaps land on the **visible** window frame. Windows draws an invisible resize bo
 
 **Left alone on purpose:** Win+I (Settings) and Win+W (Widgets). Hyper+L is Workspaces; copy the LAN address from the command bar. Clipboard → temp file in the editor is Ctrl+Alt+Shift+W. Mouse Back does not minimize unless `general.xbutton1_minimize=1` (Hyper+B always does). Chrome is not started with a remote-debugging port unless `paths.chrome_debug_port` is set.
 
+**Keep-alive (off by default):** Hyper+K / Win+J nudge the mouse 1px when you've been idle, which keeps the screen from locking and Teams from going Away. That circumvents screen-lock and presence controls, which most corporate acceptable-use and security policies forbid, and EDR/UEBA tools look for the pattern. The chords aren't registered at all unless you set `[general] keepalive_enabled=1`. Don't turn it on on a work machine without written OK from IT.
+
 **Per-app mute:** Hyper is off in RDP and processes listed under `[mute]` in `config.ini` (game-friendly). Caps→Hyper is muted there too when `mute.caps_too=1`.
 
 **Doctor:** tray → **Doctor — health check** (admin rights, Caps tap, Startup shortcut, Chrome debug port, TouchCursor, mute list, clipboard history). Tray → **Install Startup shortcut** adds a Startup link without an admin prompt. Hyper chords do not reach elevated windows unless HyperForge itself is running elevated; Doctor says so when it isn't.
 
+### Hotkeys that send data off this machine
+
+These send text you've copied to a third party. Don't use them on internal hostnames, ticket text or anything confidential:
+
+| Chord / entry | Sends | To |
+|---|---|---|
+| Hyper + W, command bar "ARIN whois" | The clipboard text (HTTP POST), **only** if it's a single IPv4 or IPv6 address (optionally CIDR, e.g. `10.0.0.0/8`) or an AS number (e.g. `AS12345`); domains and hostnames are refused | `whois.arin.net` (or `network.arin_whois`) |
+| Hyper + G, command bar "Google clipboard", Ctrl+Alt+Shift+V → "Google clipboard" | The clipboard text as a search URL opened in Chrome, **only** if it's one line of at most 200 characters **and** you click Yes in a confirm prompt that previews the first 80 characters | `google.com` |
+| Hyper + S | Nothing from the clipboard; opens `apps.hyper_s_url` in Chrome | wherever that URL points |
+
+Nothing else makes network calls. Reverse DNS (Win+Ctrl+I) uses your normal DNS resolver. If `paths.chrome_debug_port` is set, Chrome opens a local debugging port that any local process can use; leave it blank on work machines.
+
+### PowerShell use
+
+Some features shell out to `powershell.exe -NoProfile -ExecutionPolicy Bypass -File …`. Security tools often flag that pattern, and it fails where PowerShell is in Constrained Language Mode or blocked by AppLocker:
+
+- **Hyper + Y (pin region) and Hyper + Q (OCR)** write short helper `.ps1` files to `%TEMP%` and run them hidden, to save the snipped image and to run Windows' built-in OCR (`lib/Pin.ahk`).
+- **Scripts `HF_RunShortcut(name)`** runs `shortcuts\<name>.ps1` (`lib/HFBridge.ahk`).
+- **Quick menu → Toggle Focus** runs `shortcuts\Toggle Focus.ps1` if you created it (`lib/SystemControls.ahk`).
+
+Nothing else uses PowerShell. If your IT blocks it, those features fail and the rest of HyperForge still works.
+
 ### Clipboard history (Hyper + P)
 
-Persisted, pinned-first, searchable — mirrors macOS's Hyper+V panel. Every text
-copy is recorded (`OnClipboardChange`) to `%APPDATA%\HyperForge\clipboard-history.dat`;
-unpinned entries are capped at `[clipboard] max_items` (default 20), pinned entries
+**Off by default.** Turn it on with `[clipboard] enabled=1` in `config.ini`. When on,
+it is pinned-first and searchable, mirroring macOS's Hyper+V panel. Text copies are
+recorded (`OnClipboardChange`) **except** copies the source app marks as private: if
+`ExcludeClipboardContentFromMonitorProcessing` or `Clipboard Viewer Ignore` is present,
+or `CanIncludeInClipboardHistory` / `CanUploadToCloudClipboard` is `0`, the copy is
+skipped. KeePass is documented to set these when it copies a password; other password managers may or may not, so check yours before relying on it.
+
+History lives **in memory only** unless `[clipboard] persist=1`, which saves it to
+`%LOCALAPPDATA%\HyperForge\clipboard-history.dat` (local, not Roaming; base64, which is
+*not* encryption). It is never included in Tray → Export. Older builds wrote to
+`%APPDATA%\HyperForge\clipboard-history.dat`; Doctor flags that file. Delete it.
+
+Unpinned entries are capped at `[clipboard] max_items` (default 20), pinned entries
 never evict. Hyper+P opens a window over the full history: type to filter, ↑↓ move
 the selection while the filter keeps focus, **Enter** pastes, double-click pastes a
 row, **Pin / unpin** toggles pin, **Delete** or Ctrl+Del removes the row, Esc closes.
-History is stored as one base64 line per entry (no mid-line wrapping).
 
 The older Ctrl+Alt+Shift+V **paste transform menu** (linefeeds↔commas, base64,
 URL encode, …) is unchanged and separate from history.
@@ -144,10 +188,10 @@ hyperforge-win/
 With AutoHotkey v2 installed:
 
 ```bat
-AutoHotkey64.exe tests\smoke.ahk
+AutoHotkey64.exe /ErrorStdOut tests\smoke.ahk
 ```
 
-The script exits 0 and prints `ok`. It covers snap-border math, undo order, clipboard history round-trip, backup JSON (including Windows paths), UUID layout, command ranking, the cheat sheet, and registration of every chord. It does not press keys or move windows. Checked with AutoHotkey 2.0.28.
+On success it prints `ok <number of checks>` and exits 0; assertion failures print `FAIL …` lines and exit 1, and an unexpected runtime error prints `ERROR …` and exits 2. `#Warn` output goes to stdout too, and `/ErrorStdOut` sends load-time errors (syntax, a missing `#Include`) to stdout instead of a dialog. To see the exit code from `cmd`, run it with `start /wait` and then `echo %ERRORLEVEL%` (in PowerShell: `Start-Process -Wait -PassThru` and read `.ExitCode`), because AutoHotkey is a GUI-subsystem program and the console doesn't wait for it. To capture the output, pipe it: `AutoHotkey64.exe /ErrorStdOut tests\smoke.ahk | more`. It covers snap-border math, undo order, clipboard history round-trip, backup JSON (including Windows paths), UUID layout, command ranking, the cheat sheet, and registration of every chord (including the opt-in keep-alive, Scripts, Workspaces and Backup). It registers real hotkeys briefly, so close a running HyperForge first. It does not press keys or move windows.
 
 ## Privacy
 
@@ -162,7 +206,7 @@ The script exits 0 and prints `ok`. It covers snap-border math, undo order, clip
 | Hyper | F18 / 4-mod + Karabiner, tap = Escape | Caps → `#^!+`, tap = Escape |
 | Window pad | Arrows · numpad · thirds/2-thirds/almost-max · 6 tile · Z undo | **Same chords**, 2/3 + almost-max on I/O/U (no Shift disambiguation) |
 | Snippets | `{{date/clipboard/hostname/uuid/lan-ip/env}}` hotstrings | **Same tokens**, AHK `:*:` hotstrings |
-| Clipboard history | Hyper+V panel, persisted/pinned/searchable | Hyper+P Gui panel, persisted/pinned/searchable |
+| Clipboard history | Hyper+V panel, persisted/pinned/searchable | Hyper+P Gui panel, opt-in, memory-only by default, pinned/searchable |
 | Space layer | Built-in (TouchCursor-style) | **TouchCursor** (external) |
 | Profiles / auto-triggers | Wi‑Fi / app / time, per-app overrides | Not ported — use `[mute]` for a coarse per-process on/off instead |
 | Region pin / OCR | Hyper+P / Hyper+O | Hyper+Y / Hyper+Q (Win+Shift+S + WinRT OCR) |

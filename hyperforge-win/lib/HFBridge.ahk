@@ -1,4 +1,4 @@
-; HFBridge.ahk — `HF_*` verbs for user Scripts (Hyper + Y), mirrors macOS HyperForge's
+; HFBridge.ahk — `HF_*` verbs for user Scripts (Hyper + J), mirrors macOS HyperForge's
 ; `HF.*` JavaScript bridge (ScriptStore.swift) one-for-one where a Windows equivalent
 ; exists. Each Scripts\*.ahk file runs as its own AutoHotkey process (see Scripts.ahk),
 ; so this is a plain #Include, not a shared-state API — every call re-resolves the

@@ -8,9 +8,70 @@ global HF_ClipFilter := ""
 
 RegisterClipboardHotkeys() {
     Hotkey "^+!v", ShowPasteMenu
-    ClipHistory_Load()
-    OnClipboardChange(ClipHistory_OnChange)
+    ; History is opt-in: [clipboard] enabled=1. Off by default (work machines).
+    if ClipHistory_Enabled() {
+        ClipHistory_Load()
+        OnClipboardChange(ClipHistory_OnChange)
+    }
     BindHyper("p", (*) => ShowClipboardHistory(), "ui")
+}
+
+ClipHistory_Enabled() {
+    return HFConfig.GetBool("clipboard.enabled", false)
+}
+
+; persist=1 writes history to %LOCALAPPDATA%\HyperForge (never Roaming).
+; persist=0 (default) keeps it in memory only; it is gone when HyperForge exits.
+ClipHistory_Persist() {
+    return HFConfig.GetBool("clipboard.persist", false)
+}
+
+; True when the current clipboard owner asked not to be recorded (password managers,
+; Windows "sensitive" copies). Formats documented by Microsoft for clipboard history /
+; cloud clipboard and by clipboard-monitor conventions. If a format is present but its
+; value can't be read, err on the side of excluding.
+ClipHistory_IsExcluded() {
+    for name in ["ExcludeClipboardContentFromMonitorProcessing", "Clipboard Viewer Ignore"] {
+        fmt := DllCall("user32\RegisterClipboardFormatW", "Str", name, "UInt")
+        if (fmt && DllCall("user32\IsClipboardFormatAvailable", "UInt", fmt, "Int"))
+            return true
+    }
+    ; These two carry a DWORD; 0 means "don't keep / don't sync this copy".
+    for name in ["CanIncludeInClipboardHistory", "CanUploadToCloudClipboard"] {
+        fmt := DllCall("user32\RegisterClipboardFormatW", "Str", name, "UInt")
+        if !(fmt && DllCall("user32\IsClipboardFormatAvailable", "UInt", fmt, "Int"))
+            continue
+        val := _clipFormatDword(fmt)
+        if (val = "" || val = 0)
+            return true
+    }
+    return false
+}
+
+; Reads a DWORD clipboard format. Returns "" if the clipboard can't be opened/read.
+_clipFormatDword(fmt) {
+    opened := false
+    Loop 5 {
+        if DllCall("user32\OpenClipboard", "Ptr", A_ScriptHwnd, "Int") {
+            opened := true
+            break
+        }
+        Sleep 20
+    }
+    if !opened
+        return ""
+    val := ""
+    h := DllCall("user32\GetClipboardData", "UInt", fmt, "Ptr")
+    if h {
+        p := DllCall("kernel32\GlobalLock", "Ptr", h, "Ptr")
+        if p {
+            if (DllCall("kernel32\GlobalSize", "Ptr", h, "UPtr") >= 4)
+                val := NumGet(p, 0, "UInt")
+            DllCall("kernel32\GlobalUnlock", "Ptr", h)
+        }
+    }
+    DllCall("user32\CloseClipboard")
+    return val
 }
 
 ShowPasteMenu(*) {
@@ -87,7 +148,7 @@ PasteUrlDecode(*) {
     _pasteTransformed(UrlDecode(A_Clipboard))
 }
 PasteGoogle(*) {
-    ChromeLaunch("https://www.google.com/search?q=" UrlEncode(A_Clipboard))
+    GoogleClipboard()
 }
 PasteReplaceChars(*) {
     ib := InputBox("Replace char / string (find)", "Paste replace", , ",")
@@ -143,7 +204,9 @@ Join(arr, sep) {
 }
 
 ; ── Clipboard history (Hyper+P) ──────────────────────────────────────────
-; Persisted, pinned-first, searchable. Unpinned entries cap at clipboard.max_items.
+; Opt-in ([clipboard] enabled=1), pinned-first, searchable. Memory-only unless
+; [clipboard] persist=1, which writes to %LOCALAPPDATA%\HyperForge (not Roaming).
+; Unpinned entries cap at clipboard.max_items.
 ; The on-disk line is "pin<TAB>base64". Older builds wrapped base64 every 64
 ; characters; the parser joins those continuation lines.
 
@@ -151,7 +214,7 @@ ClipHistoryFile() {
     global HF_ClipFile
     if (HF_ClipFile != "")
         return HF_ClipFile
-    dir := A_AppData "\HyperForge"
+    dir := EnvGet("LOCALAPPDATA") "\HyperForge"
     if !DirExist(dir)
         DirCreate(dir)
     return dir "\clipboard-history.dat"
@@ -160,6 +223,8 @@ ClipHistoryFile() {
 ClipHistory_Load() {
     global HF_ClipHistory
     HF_ClipHistory := []
+    if !ClipHistory_Persist()
+        return
     file := ClipHistoryFile()
     if !FileExist(file)
         return
@@ -203,6 +268,8 @@ ClipHistory_ParseLine(line) {
 
 ClipHistory_Save() {
     global HF_ClipHistory
+    if !ClipHistory_Persist()
+        return
     out := ""
     for entry in HF_ClipHistory
         out .= (entry.pinned ? "1" : "0") "`t" Base64Encode(entry.text) "`n"
@@ -220,7 +287,9 @@ ClipHistory_Save() {
 }
 
 ClipHistory_OnChange(dataType) {
-    if (dataType != 1)
+    if (dataType != 1 || !ClipHistory_Enabled())
+        return
+    if ClipHistory_IsExcluded()
         return
     ClipHistory_Record(A_Clipboard)
 }
@@ -282,7 +351,11 @@ ClipHistory_Preview(text, maxLen := 80) {
 
 ShowClipboardHistory(*) {
     global HF_ClipGui, HF_ClipFilter
-    if (A_Clipboard != "")
+    if !ClipHistory_Enabled() {
+        ShowMsg("Clipboard history is off — set [clipboard] enabled=1 in config.ini")
+        return
+    }
+    if (A_Clipboard != "" && !ClipHistory_IsExcluded())
         ClipHistory_Record(A_Clipboard)
 
     if IsObject(HF_ClipGui) {

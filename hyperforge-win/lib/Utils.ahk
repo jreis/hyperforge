@@ -50,7 +50,6 @@ DismissToast(expected, *) {
 }
 
 UrlEncode(str, sExcepts := "-_.", enc := "UTF-8") {
-    hex := "00", func := "msvcrt\swprintf"
     buff := Buffer(StrPut(str, enc)), StrPut(str, buff, enc)
     encoded := ""
     Loop {
@@ -61,10 +60,8 @@ UrlEncode(str, sExcepts := "-_.", enc := "UTF-8") {
             || b >= 0x30 && b <= 0x39
             || InStr(sExcepts, Chr(b), true))
             encoded .= Chr(b)
-        else {
-            DllCall(func, "Str", hex, "Str", "%%%02X", "UChar", b, "Cdecl")
-            encoded .= hex
-        }
+        else
+            encoded .= Format("%{:02X}", b)
     }
     return encoded
 }

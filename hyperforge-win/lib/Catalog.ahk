@@ -52,7 +52,7 @@ HF_Catalog() {
         ["Copy hostname", "computer name", (*) => CopyHostname()],
         ["Copy LAN IP", "address", (*) => CopyLanIP()],
         ["ARIN whois", "clipboard ip", (*) => ArinWhois()],
-        ["Google clipboard", "search", (*) => ChromeLaunch("https://www.google.com/search?q=" UrlEncode(A_Clipboard))],
+        ["Google clipboard", "search", (*) => GoogleClipboard()],
         ["Notepad", "app", (*) => RunOrActivateOrMinimizeProgram(AppPath("notepad") || "notepad.exe")],
         ["VS Code", "app editor", (*) => RunOrActivateOrMinimizeProgram(AppPath("vscode") || _defaultPath("vscode"))],
         ["Chrome", "app browser", (*) => RunOrActivateOrMinimizeProgram(ChromeCommand())],
@@ -129,13 +129,13 @@ CheatSheetText() {
     s .= "Tools`n"
     s .= "  P  clipboard history    Y  pin region     Q  OCR`n"
     s .= "  / cheat sheet    | command bar    | warp mouse`n"
-    s .= "  K  keep-alive           G  Google clipboard`n"
+    s .= "  K  keep-alive (opt-in)  G  Google clipboard`n"
     s .= "  J  scripts              L  workspaces`n"
     s .= "  M  hostname             W  ARIN whois      LAN IP is in the command bar`n`n"
     s .= "Apps`n"
     s .= "  N notepad  V VS Code  C Chrome  T Teams  E Explorer  4 Outlook`n"
     s .= "  X terminal in folder    D close window    H edit script`n`n"
-    s .= "Ctrl+Alt+Shift+V paste transforms    Win+Esc pause    Win+J keep-alive`n"
+    s .= "Ctrl+Alt+Shift+V paste transforms    Win+Esc pause    Win+J keep-alive (opt-in)`n"
     s .= "Win+Ctrl+I reverse DNS               XButton2 quick menu"
     return s
 }

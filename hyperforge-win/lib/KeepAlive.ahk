@@ -3,7 +3,15 @@
 
 global HF_KeepAliveOn := false
 
+; Off by default: moving the mouse to defeat idle lock / presence breaks most
+; corporate acceptable-use policies. Opt in with [general] keepalive_enabled=1.
+KeepAliveEnabled() {
+    return HFConfig.GetBool("general.keepalive_enabled", false)
+}
+
 RegisterKeepAlive() {
+    if !KeepAliveEnabled()
+        return
     ; Win+J — not full Hyper (avoids fighting game binds); still listed in README
     Hotkey "#j", ToggleKeepAlive
     ; Hyper+K — macOS muscle memory (muted in games via HyperAllowed)
@@ -12,6 +20,10 @@ RegisterKeepAlive() {
 
 ToggleKeepAlive(*) {
     global HF_KeepAliveOn
+    if !KeepAliveEnabled() {
+        ShowMsg("Keep-alive is off — set [general] keepalive_enabled=1 (check policy first)")
+        return
+    }
     mins := HFConfig.GetInt("general.keepalive_minutes", 5)
     period := mins * 60 * 1000
     if !HF_KeepAliveOn {

@@ -1,4 +1,6 @@
-; Backup.ahk — export / import config + clipboard history.
+; Backup.ahk — export / import config.ini. Clipboard history is never exported
+; (it can hold secrets and Documents is often OneDrive-synced). The format still
+; carries an optional clipboard field so older backups import.
 ; Version 2 stores both payloads as base64 so Windows paths survive the round trip.
 ; Version 1 (escaped JSON strings) still imports.
 
@@ -6,7 +8,7 @@ RegisterBackupHotkeys() {
     ; No default Hyper chord — command bar and the tray menu call these.
 }
 
-EncodeHyperForgeBackup(cfg, clip) {
+EncodeHyperForgeBackup(cfg, clip := "") {
     return '{"version":2,"exported":"' FormatTime(, "yyyy-MM-dd HH:mm:ss") '","configIniB64":'
         . _jsonStr(Base64Encode(cfg))
         . ',"clipboardHistoryB64":'
@@ -37,10 +39,8 @@ ExportHyperForgeConfig(*) {
     dest := FileSelect("S16", A_MyDocuments "\hyperforge-backup-" FormatTime(, "yyyy-MM-dd") ".json", "Export HyperForge", "JSON (*.json)")
     if (dest = "")
         return
-    clipPath := EnvGet("APPDATA") "\HyperForge\clipboard-history.dat"
-    clip := FileExist(clipPath) ? FileRead(clipPath, "UTF-8") : ""
     cfg := FileExist(A_ScriptDir "\config.ini") ? FileRead(A_ScriptDir "\config.ini", "UTF-8") : ""
-    blob := EncodeHyperForgeBackup(cfg, clip)
+    blob := EncodeHyperForgeBackup(cfg, "")
     f := FileOpen(dest, "w", "UTF-8-RAW")
     if !f {
         ShowMsg("Export failed")
@@ -70,10 +70,10 @@ ImportHyperForgeConfig(*) {
         f.Write(decoded.config)
         f.Close()
     }
-    if (decoded.clipboard != "") {
-        dir := EnvGet("APPDATA") "\HyperForge"
-        DirCreate(dir)
-        f := FileOpen(dir "\clipboard-history.dat", "w", "UTF-8-RAW")
+    ; Old backups may carry clipboard history. Restore it only when history is on and
+    ; persisted, and only to the local (non-roaming) file.
+    if (decoded.clipboard != "" && ClipHistory_Enabled() && ClipHistory_Persist()) {
+        f := FileOpen(ClipHistoryFile(), "w", "UTF-8-RAW")
         if f {
             f.Write(decoded.clipboard)
             f.Close()
