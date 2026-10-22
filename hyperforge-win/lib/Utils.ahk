@@ -20,21 +20,26 @@ ShowMsg(text) {
     g.SetFont("s11 cEEEEEE", "Segoe UI")
     g.AddText("w340 Center Background1c1c1c", text)
     g.Show("AutoSize Hide")
-    tw := 360, th := 48
+    tw := 360
+    th := 48
     try WinGetPos(, , &tw, &th, "ahk_id " g.Hwnd)
     mx := 0, my := 0
     try MouseGetPos(&mx, &my)
     mon := MonitorGetPrimary()
     Loop MonitorGetCount() {
-        MonitorGet(A_Index, &l, &t, &r, &b)
-        if (mx >= l && mx < r && my >= t && my < b) {
+        MonitorGet(A_Index, &ml, &mt, &mr, &mb)
+        if (mx >= ml && mx < mr && my >= mt && my < mb) {
             mon := A_Index
             break
         }
     }
-    MonitorGetWorkArea(mon, &L, &T, &R, &B)
-    x := L + (R - L - tw) // 2
-    y := B - th - 28
+    MonitorGetWorkArea(mon, &wl, &wt, &wr, &wb)
+    if !IsSet(tw)
+        tw := 360
+    if !IsSet(th)
+        th := 48
+    x := wl + (wr - wl - tw) // 2
+    y := wb - th - 28
     g.Show("x" x " y" y " NoActivate")
     SetTimer(DismissToast.Bind(mine), -1400)
 }

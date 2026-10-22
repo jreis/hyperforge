@@ -145,6 +145,19 @@ AssertEq(QuoteCmd('wt -d "C:\work"'), 'wt -d "C:\work"', "wt args stay unquoted"
 AssertEq(QuoteCmd('"C:\Program Files\chrome.exe"'), '"C:\Program Files\chrome.exe"', "already quoted")
 AssertEq(ExeNameFromCommand('C:\Program Files\Google\Chrome\Application\chrome.exe --flag'), "chrome.exe", "exe name from path")
 Assert(InStr(ExeNameFromCommand('"C:\Program Files\Google\Chrome\Application\chrome.exe"'), "chrome.exe"), "exe name from quoted path")
+HFConfig.data["apps.editor_env_bootstrap"] := ""
+nvimCmd := EditorLaunchCommand("nvim.exe")
+Assert(InStr(nvimCmd, 'wt powershell.exe -NoLogo -NoExit -File "' A_Temp '\hf-nvim-launch.ps1"') = 1, "nvim launch via powershell file")
+psLauncherPath := A_Temp "\\hf-nvim-launch.ps1"
+psLauncherText := FileRead(psLauncherPath)
+Assert(!InStr(psLauncherText, "$hfBootstrap ="), "nvim launcher has no bootstrap when unset")
+HFConfig.data["apps.editor_env_bootstrap"] := 'call "%USERPROFILE%\dev\env.cmd"'
+nvimCmd2 := EditorLaunchCommand("nvim.exe")
+Assert(InStr(nvimCmd2, 'wt cmd.exe /d /k "' A_Temp '\hf-nvim-launch.cmd"') = 1, "nvim launch via cmd script with bootstrap set")
+cmdLauncherPath := A_Temp "\\hf-nvim-launch.cmd"
+cmdLauncherText := FileRead(cmdLauncherPath)
+Assert(InStr(cmdLauncherText, 'call "%USERPROFILE%\dev\env.cmd"'), "nvim cmd launcher embeds bootstrap")
+AssertEq(EditorLaunchCommand("notepad.exe"), "notepad.exe", "gui editor launch direct")
 
 ; ── encoding, uuid, snippets, newlines ──────────────────────────────────
 sample := "héllo 日本語 " 

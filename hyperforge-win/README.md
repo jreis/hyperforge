@@ -82,7 +82,7 @@ almost-max get their own keys (I / O / U) instead.
 
 | Chord | Action |
 |-------|--------|
-| Hyper + N / V / C / T / E / 4 | Notepad / VS Code / Chrome / Teams / Explorer / Outlook |
+| Hyper + N / V / C / T / E / 4 / 5 | Editor (LazyVim/Neovim if installed, else Notepad) / VS Code / Chrome / Teams / Explorer / Outlook / localhost URL menu |
 | Hyper + G | Google clipboard text |
 | Hyper + D | Close window |
 | Hyper + X | Windows Terminal in Explorer folder |
@@ -96,9 +96,17 @@ almost-max get their own keys (I / O / U) instead.
 | Ctrl+Alt+Shift+V | Paste transform menu |
 | XButton2 | Quick menu (windows + favorites) |
 
+`Hyper + 5` reads `[apps] local_urls` in `config.ini` (comma-separated, scheme optional) and shows a quick launcher menu for common local dev endpoints.
+
+If `Hyper + N` opens Neovim but compilers/toolchains are missing, set `[apps] editor_env_bootstrap` in `config.ini` to a command that prepares your shell environment before launch (for example `call "%USERPROFILE%\dev\env.cmd"`). HyperForge runs that bootstrap in `cmd.exe` and then starts your preferred editor.
+
+When the preferred editor is Neovim/LazyVim, HyperForge launches it through your configured terminal (`paths.terminal`, default `wt`) and shell (`paths.terminal_shell`, default `powershell.exe`) so it inherits shell/profile environment closer to manual terminal launches.
+
+If `apps.editor_env_bootstrap` is set, HyperForge launches Neovim via a generated `cmd` script (`<bootstrap>` then `nvim`) inside Windows Terminal, so compiler/toolchain environment from the bootstrap command is applied in the same session.
+
 Snaps land on the **visible** window frame. Windows draws an invisible resize border around most windows; HyperForge measures it and compensates, so a half-snap sits flush with the work area. Hyper+Z undoes the last snap, or the whole tile if that was the last layout change. A window that was maximized is maximized again on undo.
 
-**Left alone on purpose:** Win+I (Settings) and Win+W (Widgets). Hyper+L is Workspaces; copy the LAN address from the command bar. Clipboard → temp file in the editor is Ctrl+Alt+Shift+W. Mouse Back does not minimize unless `general.xbutton1_minimize=1` (Hyper+B always does). Chrome is not started with a remote-debugging port unless `paths.chrome_debug_port` is set.
+**Left alone on purpose:** Win+I (Settings) and Win+W (Widgets). Hyper+L is Workspaces; copy the LAN address from the command bar. Clipboard → temp file is Ctrl+Alt+Shift+W (opens LazyVim/Neovim if available). Mouse Back does not minimize unless `general.xbutton1_minimize=1` (Hyper+B always does). Chrome is not started with a remote-debugging port unless `paths.chrome_debug_port` is set.
 
 **Keep-alive (off by default):** Hyper+K / Win+J nudge the mouse 1px when you've been idle, which keeps the screen from locking and Teams from going Away. That circumvents screen-lock and presence controls, which most corporate acceptable-use and security policies forbid, and EDR/UEBA tools look for the pattern. The chords aren't registered at all unless you set `[general] keepalive_enabled=1`. Don't turn it on on a work machine without written OK from IT.
 

@@ -34,7 +34,7 @@ ShowQuickMenu(*) {
                 fm.Add(parts[1], RunFavorite.Bind(parts[2]))
             }
         }
-        fm.Add("Edit favorites…", (*) => Run('notepad.exe "' fav '"'))
+        fm.Add("Edit favorites…", (*) => OpenInTextEditor(fav))
         m.Add("Favorites", fm)
         m.Add()
     }

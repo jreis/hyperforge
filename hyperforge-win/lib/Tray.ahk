@@ -33,7 +33,7 @@ EditConfigIni(*) {
     cfg := A_ScriptDir "\config.ini"
     if !FileExist(cfg)
         cfg := A_ScriptDir "\config.example.ini"
-    Run 'notepad.exe "' cfg '"'
+    OpenInTextEditor(cfg)
 }
 
 ReloadIfEditingThisScript(*) {

@@ -69,7 +69,7 @@ RegisterExplorerHotkeys() {
     Hotkey "MButton", ExplorerOpenInEditor
     HotIfWinActive
 
-    ; Ctrl+Alt+Shift+W → clipboard to a temp file in the editor.
+    ; Ctrl+Alt+Shift+W → clipboard to a temp file in LazyVim (if available).
     ; Win+W is left for Windows Widgets.
     Hotkey "^!+w", ClipboardToEditor
 }
@@ -102,6 +102,10 @@ ClipboardToEditor(*) {
     FileEncoding "UTF-8"
     file := A_Temp "\" GenerateFileName() ".txt"
     FileAppend A_Clipboard, file
-    code := AppPath("vscode") || _defaultPath("vscode")
-    Run '"' code '" "' file '"'
+    editor := AppPath("lazyvim") || PreferredTextEditor()
+    try {
+        Run QuoteCmd(editor) ' "' file '"'
+    } catch {
+        Run 'notepad.exe "' file '"'
+    }
 }

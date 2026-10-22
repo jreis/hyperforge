@@ -4,8 +4,11 @@
 
 global HF_UndoStack := []
 global HF_UndoMax := 8
+global HF_MoveDiagEnabled := false
 
 RegisterWindowHotkeys() {
+    global HF_MoveDiagEnabled
+    HF_MoveDiagEnabled := HFConfig.GetBool("general.move_diag", false)
     Hotkey "^+Space", (*) => ToggleAlwaysOnTop()
     ; Off by default: XButton1 is the mouse Back button. Hyper+B still minimizes.
     if HFConfig.GetBool("general.xbutton1_minimize", false)
@@ -51,6 +54,16 @@ RegisterWindowHotkeys() {
     BindHyper("z", (*) => UndoSnap())
     BindHyper("]", (*) => MoveActiveToMonitor(1))
     BindHyper("[", (*) => MoveActiveToMonitor(-1))
+}
+
+MoveDiagLog(line) {
+    global HF_MoveDiagEnabled
+    if !HF_MoveDiagEnabled
+        return
+    try {
+        file := A_Temp "\hyperforge-move-diag.log"
+        FileAppend(FormatTime(, "yyyy-MM-dd HH:mm:ss") " " line "`n", file, "UTF-8")
+    }
 }
 
 MinimizeActive(*) {
@@ -302,6 +315,19 @@ MoveWindowVisible(hwnd, x, y, w, h) {
         ShowMsg("Can't move this window")
 }
 
+MoveWindowStable(hwnd, x, y, w, h, attempts := 3) {
+    loop attempts {
+        try WinRestore("ahk_id " hwnd)
+        Sleep 15
+        try WinMove x, y, w, h, "ahk_id " hwnd
+        Sleep 20
+        try WinGetPos(&ax, &ay, &aw, &ah, "ahk_id " hwnd)
+        if (Abs(ax - x) <= 3 && Abs(ay - y) <= 3 && Abs(aw - w) <= 3 && Abs(ah - h) <= 3)
+            return true
+    }
+    return false
+}
+
 GetWindowWorkArea(hwnd, &L, &T, &R, &B) {
     primary := MonitorGetPrimary()
     MonitorGetWorkArea(primary, &L, &T, &R, &B)
@@ -323,6 +349,12 @@ MoveActiveToMonitor(delta) {
     hwnd := WinExist("A")
     if !hwnd
         return
+    title := ""
+    exe := ""
+    class := ""
+    try title := WinGetTitle("ahk_id " hwnd)
+    try exe := WinGetProcessName("ahk_id " hwnd)
+    try class := WinGetClass("ahk_id " hwnd)
     count := MonitorGetCount()
     if (count < 2) {
         ShowMsg("One monitor only")
@@ -338,27 +370,41 @@ MoveActiveToMonitor(delta) {
     if (next < 1)
         next := count
     MonitorGetWorkArea(next, &nl, &nt, &nr, &nb)
+    MoveDiagLog("begin hwnd=" hwnd " exe=" exe " class=" class " title=" title)
+    MoveDiagLog("mon cur=" cur " next=" next " src=" L "," T "," R "," B " dst=" nl "," nt "," nr "," nb)
     if wasMax {
         try WinRestore("ahk_id " hwnd)
         WinMove nl + 20, nt + 20, Max(200, (nr - nl) // 2), Max(150, (nb - nt) // 2), "ahk_id " hwnd
         try WinMaximize("ahk_id " hwnd)
+        WinGetPos(&ax, &ay, &aw, &ah, "ahk_id " hwnd)
+        MoveDiagLog("max end x=" ax " y=" ay " w=" aw " h=" ah)
         ShowMsg("Monitor " next "/" count)
         return
     }
     WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " hwnd)
-    m := WindowFrameMargins(hwnd)
-    visW := Max(40, ww - m.l - m.r)
-    visH := Max(40, wh - m.t - m.b)
-    visX := wx + m.l
-    visY := wy + m.t
-    relX := (visX - L) / Max(R - L, 1)
-    relY := (visY - T) / Max(B - T, 1)
-    visW := Min(visW, nr - nl)
-    visH := Min(visH, nb - nt)
-    nx := nl + Round(relX * Max(nr - nl - visW, 0))
-    ny := nt + Round(relY * Max(nb - nt - visH, 0))
-    nx := Max(nl, Min(nx, nr - visW))
-    ny := Max(nt, Min(ny, nb - visH))
-    MoveWindowVisible(hwnd, nx, ny, visW, visH)
+    srcW := Max(R - L, 1)
+    srcH := Max(B - T, 1)
+    dstW := Max(nr - nl, 1)
+    dstH := Max(nb - nt, 1)
+
+    newW := Max(80, Min(ww, dstW))
+    newH := Max(60, Min(wh, dstH))
+
+    relX := (wx - L) / Max(srcW - ww, 1)
+    relY := (wy - T) / Max(srcH - wh, 1)
+    nx := nl + Round(relX * Max(dstW - newW, 0))
+    ny := nt + Round(relY * Max(dstH - newH, 0))
+    nx := Max(nl, Min(nx, nr - newW))
+    ny := Max(nt, Min(ny, nb - newH))
+
+    MoveDiagLog("calc wx=" wx " wy=" wy " ww=" ww " wh=" wh " -> nx=" nx " ny=" ny " nw=" newW " nh=" newH " relX=" relX " relY=" relY)
+
+    if !MoveWindowStable(hwnd, nx, ny, newW, newH) {
+        try WinMove nx, ny, newW, newH, "ahk_id " hwnd
+        catch
+            ShowMsg("Can't move this window")
+    }
+    WinGetPos(&ax, &ay, &aw, &ah, "ahk_id " hwnd)
+    MoveDiagLog("end x=" ax " y=" ay " w=" aw " h=" ah)
     ShowMsg("Monitor " next "/" count)
 }

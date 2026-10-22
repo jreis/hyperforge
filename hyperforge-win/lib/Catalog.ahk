@@ -53,12 +53,13 @@ HF_Catalog() {
         ["Copy LAN IP", "address", (*) => CopyLanIP()],
         ["ARIN whois", "clipboard ip", (*) => ArinWhois()],
         ["Google clipboard", "search", (*) => GoogleClipboard()],
-        ["Notepad", "app", (*) => RunOrActivateOrMinimizeProgram(AppPath("notepad") || "notepad.exe")],
+        ["Editor", "lazyvim notepad", (*) => RunOrActivateOrMinimizeProgram(PreferredTextEditor())],
         ["VS Code", "app editor", (*) => RunOrActivateOrMinimizeProgram(AppPath("vscode") || _defaultPath("vscode"))],
         ["Chrome", "app browser", (*) => RunOrActivateOrMinimizeProgram(ChromeCommand())],
         ["Teams", "app", (*) => LaunchTeams()],
         ["Explorer", "app files", (*) => Run("explorer.exe")],
         ["Outlook", "app mail", (*) => RunOrActivateOrMinimizeProgram(AppPath("outlook") || _defaultPath("outlook"))],
+        ["Localhost menu", "dev urls", (*) => OpenDevLocalhostMenu()],
         ["Terminal in folder", "wt shell", (*) => LaunchTerminalHere()],
         ["Edit HyperForge script", "config code", (*) => EditHyperForge()],
         ["Export config", "backup json", (*) => ExportHyperForgeConfig()],
@@ -133,7 +134,7 @@ CheatSheetText() {
     s .= "  J  scripts              L  workspaces`n"
     s .= "  M  hostname             W  ARIN whois      LAN IP is in the command bar`n`n"
     s .= "Apps`n"
-    s .= "  N notepad  V VS Code  C Chrome  T Teams  E Explorer  4 Outlook`n"
+    s .= "  N editor   V VS Code  C Chrome  T Teams  E Explorer  4 Outlook  5 localhost`n"
     s .= "  X terminal in folder    D close window    H edit script`n`n"
     s .= "Ctrl+Alt+Shift+V paste transforms    Win+Esc pause    Win+J keep-alive (opt-in)`n"
     s .= "Win+Ctrl+I reverse DNS               XButton2 quick menu"
@@ -151,8 +152,10 @@ ShowCheatSheet(*) {
     g.SetFont("s10", "Consolas")
     g.AddEdit("ReadOnly w640 r26", CheatSheetText())
     g.OnEvent("Escape", (*) => EndHyperUi(g))
-    g.AddButton("Default w80", "Close").OnEvent("Click", (*) => EndHyperUi(g))
+    btnClose := g.AddButton("Default w80", "Close")
+    btnClose.OnEvent("Click", (*) => EndHyperUi(g))
     g.Show()
+    btnClose.Focus()
 }
 
 ShowCommandBar(*) {

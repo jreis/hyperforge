@@ -23,8 +23,8 @@ QuoteCmd(Program) {
     return Program
 }
 
-RunOrActivateOrMinimizeProgram(Program) {
-    exeOnly := ExeNameFromCommand(Program)
+RunOrActivateOrMinimizeProgram(Program, processHint := "") {
+    exeOnly := ExeNameFromCommand(processHint != "" ? processHint : Program)
     SplitPath exeOnly, &ExeFile
     if (ExeFile = "") {
         try Run QuoteCmd(Program)
@@ -41,14 +41,182 @@ RunOrActivateOrMinimizeProgram(Program) {
     }
     SetTitleMatchMode 2
     DetectHiddenWindows false
-    if WinActive("ahk_pid " PID)
-        WinMinimize "ahk_pid " PID
-    else if WinExist("ahk_pid " PID)
-        WinActivate "ahk_pid " PID
+    if WinActive("ahk_exe " ExeFile)
+        WinMinimize "A"
+    else if hwnd := WinExist("ahk_exe " ExeFile)
+        WinActivate "ahk_id " hwnd
+    else {
+        try Run QuoteCmd(Program)
+        catch
+            ShowMsg("Could not start " ExeFile)
+    }
+}
+
+EnsureEditorBootstrapEnv() {
+    static loadedFor := ""
+    bootstrap := Trim(HFConfig.Get("apps.editor_env_bootstrap", ""))
+    if (bootstrap = "" || loadedFor = bootstrap)
+        return true
+
+    tmpName := "hf-editor-env-" A_TickCount ".txt"
+    tmp := A_Temp "\\" tmpName
+    escapedBootstrap := StrReplace(bootstrap, '"', '""')
+    cmd := A_ComSpec ' /d /s /c "' escapedBootstrap ' & set > ' tmpName '"'
+    ok := false
+    try {
+        RunWait(cmd, A_Temp, "Hide")
+        if FileExist(tmp) {
+            Loop Read tmp {
+                line := A_LoopReadLine
+                p := InStr(line, "=")
+                if (p <= 1)
+                    continue
+                key := SubStr(line, 1, p - 1)
+                val := SubStr(line, p + 1)
+                EnvSet(key, val)
+            }
+            ok := true
+        }
+    }
+    try FileDelete(tmp)
+    if ok
+        loadedFor := bootstrap
+    return ok
+}
+
+IsNvimEditor(editor) {
+    exe := StrLower(ExeNameFromCommand(editor))
+    return (exe = "nvim.exe" || exe = "nvim")
+}
+
+TerminalProcessHint(term) {
+    exe := StrLower(ExeNameFromCommand(term))
+    if (exe = "wt" || exe = "wt.exe" || exe = "windowsterminal.exe")
+        return "WindowsTerminal.exe"
+    return exe
+}
+
+_PowerShellEscapeForDoubleQuotes(s) {
+    return StrReplace(s, Chr(34), '`"')
+}
+
+_PowerShellSingleQuoted(s) {
+    return "'" StrReplace(s, "'", "''") "'"
+}
+
+WriteNvimPowerShellLauncher(editor, args := "", includeBootstrapImport := true) {
+    path := A_Temp "\\hf-nvim-launch.ps1"
+    body := "if (Test-Path $PROFILE) { . $PROFILE }`r`n"
+    bootstrap := Trim(HFConfig.Get("apps.editor_env_bootstrap", ""))
+    if (includeBootstrapImport && bootstrap != "") {
+        body .= "$hfBootstrap = " _PowerShellSingleQuoted(bootstrap) "`r`n"
+        body .= "$hfEnv = & cmd.exe /d /s /c " Chr(34) "$hfBootstrap & set" Chr(34) "`r`n"
+        body .= "foreach ($hfLine in $hfEnv) {`r`n"
+        body .= "  if ($hfLine -match '^[^=]+=') {`r`n"
+        body .= "    $hfName, $hfValue = $hfLine -split '=', 2`r`n"
+        body .= "    Set-Item -Path ('Env:' + $hfName) -Value $hfValue`r`n"
+        body .= "  }`r`n"
+        body .= "}`r`n"
+    }
+    body .= "& " _PowerShellSingleQuoted(editor)
+    if (args != "")
+        body .= " " args
+    body .= "`r`n"
+    try FileDelete(path)
+    FileAppend(body, path)
+    return path
+}
+
+LaunchNvimInTerminal(editor, args := "") {
+    term := HFConfig.Path("terminal", "wt")
+    processHint := TerminalProcessHint(term)
+    try Run QuoteCmd(term)
+    catch
+        return false
+
+    if !WinWaitActive("ahk_exe " processHint, , 2)
+        return false
+
+    cmd := "nvim"
+    if (args != "")
+        cmd .= " " args
+    SendText(cmd)
+    Send "{Enter}"
+    return true
+}
+
+WriteNvimCmdLauncher(bootstrap, editor, args := "", shell := "") {
+    path := A_Temp "\\hf-nvim-launch.cmd"
+    body := "@echo off`r`n"
+    body .= bootstrap "`r`n"
+    shellExe := StrLower(ExeNameFromCommand(shell))
+    if (shell != "" && (InStr(shellExe, "pwsh") || InStr(shellExe, "powershell"))) {
+        psLauncher := WriteNvimPowerShellLauncher(editor, args, false)
+        body .= QuoteCmd(shell) ' -NoLogo -NoExit -File "' psLauncher '"'
+    } else {
+        body .= QuoteCmd(editor)
+        if (args != "")
+            body .= " " args
+    }
+    body .= "`r`n"
+    try FileDelete(path)
+    FileAppend(body, path)
+    return path
+}
+
+EditorProgramForLaunch(editor, args := "", &processHint := "") {
+    cmd := QuoteCmd(editor)
+    if (args != "")
+        cmd .= " " args
+
+    if IsNvimEditor(editor) {
+        term := HFConfig.Path("terminal", "wt")
+        shell := HFConfig.Path("terminal_shell", "powershell.exe")
+        bootstrap := Trim(HFConfig.Get("apps.editor_env_bootstrap", ""))
+        processHint := TerminalProcessHint(term)
+        if (bootstrap != "") {
+            cmdLauncher := WriteNvimCmdLauncher(bootstrap, editor, args, shell)
+            return QuoteCmd(term) ' cmd.exe /d /k "' cmdLauncher '"'
+        }
+        shellExe := StrLower(ExeNameFromCommand(shell))
+        if (InStr(shellExe, "pwsh") || InStr(shellExe, "powershell")) {
+            psLauncher := WriteNvimPowerShellLauncher(editor, args)
+            return QuoteCmd(term) " " QuoteCmd(shell) ' -NoLogo -NoExit -File "' psLauncher '"'
+        }
+        return QuoteCmd(term) " " QuoteCmd(shell) " " cmd
+    }
+
+    processHint := editor
+    return cmd
+}
+
+EditorLaunchCommand(editor, args := "") {
+    local processHint := ""
+    return EditorProgramForLaunch(editor, args, &processHint)
+}
+
+LaunchPreferredTextEditor() {
+    editor := PreferredTextEditor()
+    if IsNvimEditor(editor) {
+        if LaunchNvimInTerminal(editor)
+            return
+    }
+    if !IsNvimEditor(editor) {
+        if !EnsureEditorBootstrapEnv()
+            ShowMsg("Editor env bootstrap failed; using current environment")
+    }
+    processHint := ""
+    program := EditorProgramForLaunch(editor, "", &processHint)
+    if IsNvimEditor(editor)
+        Run program
+    else
+        RunOrActivateOrMinimizeProgram(program, processHint)
 }
 
 _defaultPath(name) {
     switch name {
+        case "lazyvim":
+            return DefaultLazyVimPath()
         case "notepad":
             return "notepad.exe"
         case "vscode":
@@ -64,6 +232,20 @@ _defaultPath(name) {
     }
 }
 
+DefaultLazyVimPath() {
+    nvim := "C:\Program Files\Neovim\bin\nvim.exe"
+    if FileExist(nvim)
+        return nvim
+    localPath := EnvGet("LOCALAPPDATA") "\nvim\bin\nvim.exe"
+    if FileExist(localPath)
+        return localPath
+    try {
+        if (RunWait(A_ComSpec ' /c where nvim >nul 2>nul', , "Hide") = 0)
+            return "nvim.exe"
+    }
+    return ""
+}
+
 ; System-wide install first, then the per-user build (the usual one on corporate
 ; machines, no admin needed). Falls back to the system path so errors name it.
 DefaultVSCodePath() {
@@ -74,6 +256,28 @@ DefaultVSCodePath() {
     if FileExist(perUser)
         return perUser
     return system
+}
+
+PreferredTextEditor() {
+    return AppPath("lazyvim") || AppPath("notepad") || "notepad.exe"
+}
+
+OpenInTextEditor(path) {
+    editor := PreferredTextEditor()
+    try {
+        if IsNvimEditor(editor) {
+            if LaunchNvimInTerminal(editor, '"' path '"')
+                return
+        }
+        if !IsNvimEditor(editor) {
+            if !EnsureEditorBootstrapEnv()
+                ShowMsg("Editor env bootstrap failed; using current environment")
+        }
+        processHint := ""
+        Run EditorProgramForLaunch(editor, '"' path '"', &processHint)
+    } catch {
+        Run 'notepad.exe "' path '"'
+    }
 }
 
 ; Classic Teams if it is still installed; otherwise the Windows 11 execution alias.
@@ -179,19 +383,52 @@ EditHyperForge() {
         if FileExist(code)
             Run '"' code '" "' target '"'
         else
-            Run 'notepad.exe "' target '"'
+            OpenInTextEditor(target)
     } catch {
-        Run 'notepad.exe "' target '"'
+        OpenInTextEditor(target)
     }
 }
 
+DevUrlsFromConfig() {
+    raw := HFConfig.Get("apps.local_urls", "http://localhost:3000, http://localhost:5173, http://localhost:8080")
+    urls := []
+    Loop Parse, raw, "," {
+        u := Trim(A_LoopField)
+        if (u = "")
+            continue
+        if !RegExMatch(u, "i)^https?://")
+            u := "http://" u
+        urls.Push(u)
+    }
+    return urls
+}
+
+OpenDevUrl(url, *) {
+    try Run url
+    catch
+        ShowMsg("Could not open " url)
+}
+
+OpenDevLocalhostMenu(*) {
+    urls := DevUrlsFromConfig()
+    if !urls.Length {
+        ShowMsg("Set apps.local_urls in config.ini")
+        return
+    }
+    m := Menu()
+    for url in urls
+        m.Add(url, OpenDevUrl.Bind(url))
+    m.Show()
+}
+
 RegisterAppHotkeys() {
-    BindHyper("n", (*) => RunOrActivateOrMinimizeProgram(AppPath("notepad") || "notepad.exe"), "send")
+    BindHyper("n", (*) => LaunchPreferredTextEditor(), "send")
     BindHyper("v", (*) => RunOrActivateOrMinimizeProgram(AppPath("vscode") || _defaultPath("vscode")), "send")
     BindHyper("c", (*) => RunOrActivateOrMinimizeProgram(ChromeCommand()), "send")
     BindHyper("t", (*) => LaunchTeams(), "send")
     BindHyper("e", (*) => Run("explorer.exe"), "send")
     BindHyper("4", (*) => RunOrActivateOrMinimizeProgram(AppPath("outlook") || _defaultPath("outlook")), "send")
+    BindHyper("5", (*) => OpenDevLocalhostMenu(), "send")
     BindHyper("g", (*) => GoogleClipboard(), "send")
     BindHyper("d", (*) => CloseActive())
     BindHyper("x", (*) => LaunchTerminalHere(), "send")
