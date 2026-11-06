@@ -5,7 +5,10 @@ global HF_MuteProcesses := []
 global HF_PauseDeadline := 0
 
 InitHyperMute() {
-    global HF_MuteProcesses
+    global HF_HyperPaused, HF_PauseDeadline, HF_MuteProcesses
+    HF_HyperPaused := false
+    HF_PauseDeadline := 0
+    SetTimer(CheckHyperPause, 0)
     HF_MuteProcesses := []
     ; config: mute.processes=game.exe,fceux.exe,vmware.exe
     raw := HFConfig.Get("mute.processes", "")
@@ -31,6 +34,25 @@ InitHyperMute() {
                 HF_MuteProcesses.Push(p)
         }
     }
+}
+
+HyperBlockReason() {
+    global HF_HyperPaused, HF_PauseDeadline
+    if HF_HyperPaused {
+        if (HF_PauseDeadline && A_TickCount > HF_PauseDeadline)
+            return "pause expired"
+        return "paused"
+    }
+    try {
+        proc := StrLower(WinGetProcessName("A"))
+        if HasMute(proc)
+            return "muted app: " proc
+        if (proc = "mstsc.exe" || proc = "msrdc.exe")
+            return "remote desktop: " proc
+    } catch {
+        return "unknown"
+    }
+    return "allowed"
 }
 
 HasMute(proc) {

@@ -10,36 +10,38 @@ InitCapsHyper() {
     if !HFConfig.GetBool("general.caps_to_hyper", true)
         return
     SetCapsLockState "AlwaysOff"
-
-    if HFConfig.GetBool("mute.caps_too", true)
-        HotIf HyperAllowed
-    Hotkey "*CapsLock", CapsHyperDown
-    Hotkey "*CapsLock up", CapsHyperUp
-    if HFConfig.GetBool("mute.caps_too", true)
-        HotIf
 }
 
 CapsHyperDown(*) {
     global HF_CapsHyperDown
+    if (HF_CapsHyperDown != false)
+        return
+    if !HFConfig.GetBool("general.caps_to_hyper", true) {
+        HF_CapsHyperDown := -1
+        Send "{CapsLock}"
+        return
+    }
     if !HyperAllowed() {
         ; caps_too=0 while paused or muted: Caps Lock still toggles, once per hold.
-        HF_CapsHyperDown := false
+        HF_CapsHyperDown := -1
         Send "{CapsLock}"
-        KeyWait "CapsLock"
         return
     }
     HF_CapsHyperDown := true
     SetKeyDelay -1
     Send "{Blind}{Ctrl Down}{Alt Down}{Shift Down}{LWin Down}"
-    KeyWait "CapsLock"
 }
 
 CapsHyperUp(*) {
     global HF_CapsHyperDown
     if !HF_CapsHyperDown
         return
+    if (HF_CapsHyperDown = -1) {
+        HF_CapsHyperDown := false
+        return
+    }
     HF_CapsHyperDown := false
-    alone := (A_PriorKey = "CapsLock")
+    alone := (A_PriorKey = "CapsLock" || A_PriorKey = "SC03A")
     SetKeyDelay -1
     ; vkE8 before LWin up marks the press as a chord, so Start stays closed.
     Send "{Blind}{vkE8}{Ctrl Up}{Alt Up}{Shift Up}{LWin Up}"
@@ -121,3 +123,8 @@ EndHyperUi(g, *) {
     RestoreHyperModifiers()
     busy.Delete(id)
 }
+
+$*CapsLock::CapsHyperDown()
+$*CapsLock up::CapsHyperUp()
+$*SC03A::CapsHyperDown()
+$*SC03A up::CapsHyperUp()

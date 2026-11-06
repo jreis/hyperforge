@@ -4,6 +4,13 @@
 ; Example: override Hyper+S to open an internal dashboard
 ; Hotkey "#^!+s", (*) => Run(ChromeCmd() " https://example.internal/")
 
+; Example: optional Hyper+S override hook used by lib\Apps.ahk.
+; If this function exists in work.ahk, it runs before public config-based behavior.
+; Keep hostnames/selectors private in work.ahk, and put shared defaults in config.ini.
+; WorkHyperSAction() {
+;     Run(ChromeCmd() " https://example.internal/")
+; }
+
 ; Example: type a password from Windows Credential Manager (the entry must exist).
 ; Typed with SendText, never put on the clipboard, so it can't land in clipboard
 ; history, cloud clipboard or another app's clipboard monitor.

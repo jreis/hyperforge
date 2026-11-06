@@ -196,6 +196,17 @@ EditorLaunchCommand(editor, args := "") {
 }
 
 LaunchPreferredTextEditor() {
+    if WinActive("ahk_class CabinetWClass") {
+        filePath := explorerDesktopGetSel()
+        if (filePath != "" && filePath != "ERROR" && !InStr(filePath, "`n")) {
+            attrs := FileExist(filePath)
+            if (attrs != "" && !InStr(attrs, "D")) {
+                OpenInTextEditor(filePath)
+                return
+            }
+        }
+    }
+
     editor := PreferredTextEditor()
     if IsNvimEditor(editor) {
         if LaunchNvimInTerminal(editor)
@@ -455,10 +466,23 @@ LaunchSearchHere() {
 }
 
 LaunchHyperS() {
+    if TryWorkHyperSAction()
+        return
+    if RunConfiguredWebClipboardUiAction()
+        return
+
     url := HFConfig.Get("apps.hyper_s_url", "")
     if (url = "") {
         ShowMsg("Set apps.hyper_s_url or use work module")
         return
     }
     ChromeLaunch(url)
+}
+
+TryWorkHyperSAction() {
+    try fn := Func("WorkHyperSAction")
+    catch
+        return false
+    fn.Call()
+    return true
 }

@@ -31,14 +31,18 @@
 #Include "%A_ScriptDir%\..\lib\Scripts.ahk"
 #Include "%A_ScriptDir%\..\lib\Workspaces.ahk"
 #Include "%A_ScriptDir%\..\lib\SystemControls.ahk"
+#Include "%A_ScriptDir%\..\lib\UIAutomation.ahk"
 #Include "%A_ScriptDir%\..\lib\Tray.ahk"
 
 ; Scripts seeds example .ahk files here; removed on every exit (ok, FAIL or ERROR),
 ; since OnExit runs for ExitApp(0), ExitApp(1) and the ExitApp(2) in SmokeOnError.
 SmokeScriptsDir := A_Temp "\hf-smoke-scripts"
+SmokePluginsDir := A_Temp "\hf-smoke-plugins"
 OnExit(SmokeCleanup)
 SmokeCleanup(reason, code) {
+    global SmokePluginsDir
     try DirDelete(SmokeScriptsDir, true)
+    try DirDelete(SmokePluginsDir, true)
     return 0  ; 0 = let the exit continue
 }
 
@@ -334,6 +338,7 @@ for step in [
     ["catalog", RegisterCatalogHotkeys],
     ["scripts", RegisterScriptsHotkeys],
     ["workspaces", RegisterWorkspacesHotkeys],
+    ["uia", RegisterUIAutomationHotkeys],
     ["backup", RegisterBackupHotkeys]
 ] {
     try step[2].Call()

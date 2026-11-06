@@ -15,7 +15,7 @@ HF_Catalog() {
         ["Snap right", "half window", (*) => SnapActive(0.5, 0, 0.5, 1)],
         ["Snap top", "half window", (*) => SnapActive(0, 0, 1, 0.5)],
         ["Snap bottom", "half window", (*) => SnapActive(0, 0.5, 1, 0.5)],
-        ["Maximize", "full", (*) => SnapActive(0, 0, 1, 1)],
+        ["Maximize", "full", (*) => MaximizeActive()],
         ["Quarter top-left", "corner tl", (*) => SnapActive(0, 0, 0.5, 0.5)],
         ["Quarter top-right", "corner tr", (*) => SnapActive(0.5, 0, 0.5, 0.5)],
         ["Quarter bottom-left", "corner bl", (*) => SnapActive(0, 0.5, 0.5, 0.5)],

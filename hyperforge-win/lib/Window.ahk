@@ -18,7 +18,7 @@ RegisterWindowHotkeys() {
     BindHyper("Right", (*) => SnapActive(0.5, 0, 0.5, 1))
     BindHyper("Up", (*) => SnapActive(0, 0, 1, 0.5))
     BindHyper("Down", (*) => SnapActive(0, 0.5, 1, 0.5))
-    BindHyper("Enter", (*) => SnapActive(0, 0, 1, 1))
+    BindHyper("Enter", (*) => MaximizeActive())
     ; Top-row quarters (macOS main keyboard 7/8/9/0): TL TR BL BR
     BindHyper("7", (*) => SnapActive(0, 0, 0.5, 0.5))
     BindHyper("8", (*) => SnapActive(0.5, 0, 0.5, 0.5))
@@ -34,7 +34,7 @@ RegisterWindowHotkeys() {
     BindHyper("Numpad8", (*) => SnapActive(0, 0, 1, 0.5))
     BindHyper("Numpad9", (*) => SnapActive(0.5, 0, 0.5, 0.5))
     BindHyper("Numpad4", (*) => SnapActive(0, 0, 0.5, 1))
-    BindHyper("Numpad5", (*) => SnapActive(0, 0, 1, 1))
+    BindHyper("Numpad5", (*) => MaximizeActive())
     BindHyper("Numpad6", (*) => SnapActive(0.5, 0, 0.5, 1))
     BindHyper("Numpad1", (*) => SnapActive(0, 0.5, 0.5, 0.5))
     BindHyper("Numpad2", (*) => SnapActive(0, 0.5, 1, 0.5))
@@ -154,7 +154,7 @@ TileAllVisible(*) {
         ShowMsg("No window")
         return
     }
-    GetWindowWorkArea(active, &L, &T, &R, &B)
+    mon := GetWindowWorkArea(active, &L, &T, &R, &B)
     aw := R - L, ah := B - T
     if (aw < 50 || ah < 50)
         return
@@ -176,8 +176,8 @@ TileAllVisible(*) {
             style := WinGetStyle("ahk_id " hwnd)
             if !(style & 0xC00000)  ; WS_CAPTION
                 continue
-            GetWindowWorkArea(hwnd, &wl, &wt, &wr, &wb)
-            if (wl != L || wt != T)
+            hwndMon := GetWindowWorkArea(hwnd, &wl, &wt, &wr, &wb)
+            if (hwndMon != mon)
                 continue
             wins.Push(hwnd)
         }
@@ -207,6 +207,14 @@ TileAllVisible(*) {
         MoveWindowVisible(hwnd, nx, ny, cellW, cellH)
     }
     ShowMsg("Tiled " n " windows")
+}
+
+MaximizeActive(*) {
+    hwnd := WinExist("A")
+    if !hwnd
+        return
+    RememberWindow(hwnd)
+    try WinMaximize("ahk_id " hwnd)
 }
 
 SnapActive(rx, ry, rw, rh) {
@@ -345,6 +353,36 @@ GetWindowWorkArea(hwnd, &L, &T, &R, &B) {
     return primary
 }
 
+GetWindowDpi(hwnd) {
+    try {
+        dpi := DllCall("user32\GetDpiForWindow", "ptr", hwnd, "uint")
+        if (dpi >= 96)
+            return dpi
+    }
+    return 96
+}
+
+GetDpiForPoint(x, y, fallback := 96) {
+    try {
+        pt := Buffer(8, 0)
+        NumPut("int", x, pt, 0)
+        NumPut("int", y, pt, 4)
+        hmon := DllCall("user32\MonitorFromPoint", "int64", NumGet(pt, 0, "int64"), "uint", 2, "ptr")
+        if hmon {
+            dpiX := 0, dpiY := 0
+            hr := DllCall("shcore\GetDpiForMonitor", "ptr", hmon, "int", 0, "uint*", dpiX, "uint*", dpiY, "int")
+            if (hr = 0 && dpiX >= 96)
+                return dpiX
+        }
+    }
+    try {
+        dpi := DllCall("user32\GetDpiForSystem", "uint")
+        if (dpi >= 96)
+            return dpi
+    }
+    return fallback
+}
+
 MoveActiveToMonitor(delta) {
     hwnd := WinExist("A")
     if !hwnd
@@ -382,28 +420,33 @@ MoveActiveToMonitor(delta) {
         return
     }
     WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " hwnd)
+    m := WindowFrameMargins(hwnd)
+    visX := wx + m.l
+    visY := wy + m.t
+    visW := Max(40, ww - m.l - m.r)
+    visH := Max(40, wh - m.t - m.b)
     srcW := Max(R - L, 1)
     srcH := Max(B - T, 1)
     dstW := Max(nr - nl, 1)
     dstH := Max(nb - nt, 1)
 
-    newW := Max(80, Min(ww, dstW))
-    newH := Max(60, Min(wh, dstH))
+    srcDpi := GetWindowDpi(hwnd)
+    dstDpi := GetDpiForPoint(nl + dstW // 2, nt + dstH // 2, srcDpi)
+    scale := dstDpi / Max(srcDpi, 1)
 
-    relX := (wx - L) / Max(srcW - ww, 1)
-    relY := (wy - T) / Max(srcH - wh, 1)
+    newW := Max(80, Min(Round(visW * scale), dstW))
+    newH := Max(60, Min(Round(visH * scale), dstH))
+
+    relX := (visX - L) / Max(srcW - visW, 1)
+    relY := (visY - T) / Max(srcH - visH, 1)
     nx := nl + Round(relX * Max(dstW - newW, 0))
     ny := nt + Round(relY * Max(dstH - newH, 0))
     nx := Max(nl, Min(nx, nr - newW))
     ny := Max(nt, Min(ny, nb - newH))
 
-    MoveDiagLog("calc wx=" wx " wy=" wy " ww=" ww " wh=" wh " -> nx=" nx " ny=" ny " nw=" newW " nh=" newH " relX=" relX " relY=" relY)
+    MoveDiagLog("calc wx=" wx " wy=" wy " ww=" ww " wh=" wh " visW=" visW " visH=" visH " srcDpi=" srcDpi " dstDpi=" dstDpi " scale=" scale " -> nx=" nx " ny=" ny " nw=" newW " nh=" newH " relX=" relX " relY=" relY)
 
-    if !MoveWindowStable(hwnd, nx, ny, newW, newH) {
-        try WinMove nx, ny, newW, newH, "ahk_id " hwnd
-        catch
-            ShowMsg("Can't move this window")
-    }
+    MoveWindowVisible(hwnd, nx, ny, newW, newH)
     WinGetPos(&ax, &ay, &aw, &ah, "ahk_id " hwnd)
     MoveDiagLog("end x=" ax " y=" ay " w=" aw " h=" ah)
     ShowMsg("Monitor " next "/" count)

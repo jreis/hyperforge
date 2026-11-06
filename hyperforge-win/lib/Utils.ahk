@@ -2,7 +2,7 @@
 
 ; One toast, bottom-center of the monitor under the pointer. A new toast
 ; replaces the previous one so rapid snaps don't stack windows in the corner.
-ShowMsg(text) {
+ShowMsg(text, targetMonitor := 0) {
     global HF_Toast, HF_ToastGen
     if !HFConfig.GetBool("general.toasts", true)
         return
@@ -25,12 +25,15 @@ ShowMsg(text) {
     try WinGetPos(, , &tw, &th, "ahk_id " g.Hwnd)
     mx := 0, my := 0
     try MouseGetPos(&mx, &my)
-    mon := MonitorGetPrimary()
-    Loop MonitorGetCount() {
-        MonitorGet(A_Index, &ml, &mt, &mr, &mb)
-        if (mx >= ml && mx < mr && my >= mt && my < mb) {
-            mon := A_Index
-            break
+    mon := targetMonitor
+    if (mon < 1 || mon > MonitorGetCount()) {
+        mon := MonitorGetPrimary()
+        Loop MonitorGetCount() {
+            MonitorGet(A_Index, &ml, &mt, &mr, &mb)
+            if (mx >= ml && mx < mr && my >= mt && my < mb) {
+                mon := A_Index
+                break
+            }
         }
     }
     MonitorGetWorkArea(mon, &wl, &wt, &wr, &wb)

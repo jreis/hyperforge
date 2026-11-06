@@ -57,8 +57,23 @@ class HFConfig {
         return default
     }
 
+    static Set(key, value, persist := false) {
+        HFConfig.data[key] := String(value)
+        if persist
+            HFConfig._writeIniValue(key, value)
+    }
+
     static Path(name, fallback := "") {
         p := HFConfig.Get("paths." name, "")
         return (p != "") ? p : fallback
+    }
+
+    static _writeIniValue(fullKey, value) {
+        dot := InStr(fullKey, ".")
+        if (dot <= 1 || dot >= StrLen(fullKey))
+            return
+        section := SubStr(fullKey, 1, dot - 1)
+        key := SubStr(fullKey, dot + 1)
+        try IniWrite(String(value), HFConfig.file, section, key)
     }
 }

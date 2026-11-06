@@ -25,6 +25,13 @@ BridgeIncludeLine() {
     return '#Include "' A_ScriptDir '\lib\HFBridge.ahk"`n`n'
 }
 
+PluginsDir() {
+    dir := HFConfig.Path("plugins_dir", A_ScriptDir "\plugins")
+    if !DirExist(dir)
+        DirCreate(dir)
+    return dir
+}
+
 SeedBuiltInScripts() {
     dir := ScriptsDir()
     count := 0
