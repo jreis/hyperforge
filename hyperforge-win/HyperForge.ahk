@@ -35,6 +35,7 @@ SetTitleMatchMode 2
 #Include "%A_ScriptDir%\lib\Scripts.ahk"
 #Include "%A_ScriptDir%\lib\Workspaces.ahk"
 #Include "%A_ScriptDir%\lib\SystemControls.ahk"
+#Include "%A_ScriptDir%\lib\UIAutomation.ahk"
 #Include "%A_ScriptDir%\lib\Tray.ahk"
 
 HFConfig.Init(A_ScriptDir)
@@ -55,6 +56,7 @@ RegisterPinHotkeys()
 RegisterCatalogHotkeys()
 RegisterScriptsHotkeys()
 RegisterWorkspacesHotkeys()
+RegisterUIAutomationHotkeys()
 
 ; Optional private work module (gitignored) — Splunk/AD/etc. (*i = ignore if missing)
 #Include "*i %A_ScriptDir%\work\work.ahk"
